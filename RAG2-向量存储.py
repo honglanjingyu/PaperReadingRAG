@@ -12,6 +12,8 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from dotenv import load_dotenv
+from elasticsearch import Elasticsearch
+import xxhash
 
 # 加载 .env 文件
 load_dotenv()
@@ -36,6 +38,12 @@ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "256"))  # 分块大小（token数）
 FROM_PAGE = int(os.getenv("FROM_PAGE", "0"))  # 起始页
 TO_PAGE = int(os.getenv("TO_PAGE", "10")) if os.getenv("TO_PAGE") else None  # 结束页
 ENABLE_VECTORIZATION = os.getenv("ENABLE_VECTORIZATION", "true").lower() == "true"
+
+# ES配置
+ES_HOST = os.getenv("ES_HOST", "http://localhost:9200")
+ES_USER = os.getenv("ES_USER", "elastic")
+ES_PASSWORD = os.getenv("ES_PASSWORD", "infini_rag_flow")
+ES_INDEX_NAME = os.getenv("ES_INDEX_NAME", "rag_documents")
 
 
 # ==================== 数据结构 ====================
@@ -307,6 +315,37 @@ class PDFParser:
         return "\n\n".join(all_text)
 
 
+# ==================== 向量存储 ====================
+def store_to_vector_db(chunks: List[VectorChunk], index_name: str, file_name: str) -> int:
+    """
+    将分块存储到向量数据库（使用 vector_storage_service）
+    """
+    import sys
+    import os
+
+    # 添加项目根目录到路径
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+
+    from app.service.core.vector_store.vector_storage_service import get_vector_storage_service
+
+    # 从环境变量读取 ES 配置
+    es_host = os.getenv("ES_HOST", "http://localhost:9200")
+    es_user = os.getenv("ES_USER", "elastic")
+    es_password = os.getenv("ES_PASSWORD", "infini_rag_flow")
+
+    storage_service = get_vector_storage_service(es_host)
+    # 注意：get_vector_storage_service 不接受参数，需要修改
+    # 临时方案：直接创建实例
+    from app.service.core.vector_store.vector_storage_service import VectorStorageService
+    storage_service = VectorStorageService(es_host, es_user, es_password)
+
+    inserted = storage_service.store_vector_chunks(chunks, index_name, file_name)
+
+    print(f"存储完成: {inserted}/{len(chunks)} 条")
+    return inserted
+
 # ==================== 主处理流程 ====================
 
 def process_pdf(
@@ -377,8 +416,7 @@ def process_pdf(
     print(f"生成 {len(chunks)} 个文本块")
     if chunks:
         token_counts = [c.token_count for c in chunks]
-        print(
-            f"Token统计: 最小={min(token_counts)}, 最大={max(token_counts)}, 平均={sum(token_counts) / len(token_counts):.1f}")
+        print(f"Token统计: 最小={min(token_counts)}, 最大={max(token_counts)}, 平均={sum(token_counts) / len(token_counts):.1f}")
 
     # 4. 向量化
     if enable_vectorization and chunks:
@@ -498,6 +536,10 @@ def print_config():
     print(f"  TO_PAGE: {TO_PAGE if TO_PAGE else '全部'}")
     print(f"  ENABLE_VECTORIZATION: {ENABLE_VECTORIZATION}")
 
+    print(f"\nES配置:")
+    print(f"  ES_HOST: {ES_HOST}")
+    print(f"  ES_INDEX_NAME: {ES_INDEX_NAME}")
+
 
 # ==================== 主函数 ====================
 
@@ -538,6 +580,17 @@ def main():
     # 保存结果
     if chunks:
         save_results(chunks)
+
+    # 存储到向量数据库
+    print("\n" + "=" * 60)
+    print("存储到向量数据库")
+    print("=" * 60)
+    inserted = store_to_vector_db(chunks, ES_INDEX_NAME, os.path.basename(pdf_file))
+
+    if inserted > 0:
+        print(f"\n✅ 成功！已存储 {inserted} 条文档到 {ES_INDEX_NAME}")
+    else:
+        print(f"\n❌ 存储失败，请检查ES连接和配置")
 
     print("\n" + "=" * 60)
     print("处理完成！")

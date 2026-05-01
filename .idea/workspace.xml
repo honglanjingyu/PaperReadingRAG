@@ -1,19 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="文档加载,数据清洗">
-      <change afterPath="$PROJECT_DIR$/.env" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/RAG1.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/base_embedding.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/embedding_manager.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/embedding_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/local_embedding.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/remote_embedding.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/vector_processor.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/vector_retriever.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/rag/nlp/model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/RAG2-分块.py" beforeDir="false" afterPath="$PROJECT_DIR$/RAG2-向量化.py" afterDir="false" />
+    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="向量化">
+      <change afterPath="$PROJECT_DIR$/app/service/core/vector_store/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/vector_store/base_vector_store.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/vector_store/es_vector_store.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/vector_store/vector_storage_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/elasticsearch_close.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/elasticsearch_test.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/RAG2-向量化.py" beforeDir="false" afterPath="$PROJECT_DIR$/RAG2-向量存储.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/__init__.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -60,6 +58,9 @@
     "Python.RAG1-数据清洗.executor": "Run",
     "Python.RAG2-分块.executor": "Run",
     "Python.RAG2-向量化.executor": "Run",
+    "Python.RAG2-向量存储.executor": "Run",
+    "Python.elasticsearch_test.executor": "Run",
+    "Python.vector_storage_service.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
@@ -87,6 +88,7 @@
       <updated>1777606315102</updated>
       <workItem from="1777606316265" duration="3064000" />
       <workItem from="1777612453624" duration="1954000" />
+      <workItem from="1777632220208" duration="1841000" />
     </task>
     <task id="LOCAL-00001" summary="First Commit">
       <option name="closed" value="true" />
@@ -120,7 +122,15 @@
       <option name="project" value="LOCAL" />
       <updated>1777606939845</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="向量化">
+      <option name="closed" value="true" />
+      <created>1777622090515</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1777622090515</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -140,10 +150,13 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="First Commit" />
     <MESSAGE value="文档加载,数据清洗" />
-    <option name="LAST_COMMIT_MESSAGE" value="文档加载,数据清洗" />
+    <MESSAGE value="向量化" />
+    <option name="LAST_COMMIT_MESSAGE" value="向量化" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG2_.coverage" NAME="RAG2-分块 覆盖结果" MODIFIED="1777612738636" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$vector_storage_service.coverage" NAME="vector_storage_service 覆盖结果" MODIFIED="1777633493351" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/service/core/vector_store" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG2_.coverage" NAME="RAG2-向量存储 覆盖结果" MODIFIED="1777633514968" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$elasticsearch_test.coverage" NAME="elasticsearch_test 覆盖结果" MODIFIED="1777630382564" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG1_.coverage" NAME="RAG1-数据清洗 覆盖结果" MODIFIED="1777606611791" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

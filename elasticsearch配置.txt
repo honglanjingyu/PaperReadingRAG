@@ -1,0 +1,21 @@
+config/elasticsearch.yml
+cluster.name: my-rag-cluster
+node.name: node-1
+network.host: 0.0.0.0
+http.port: 9200
+
+# 关键：单节点模式（自动处理副本问题）
+discovery.type: single-node
+
+# 完全禁用安全功能
+xpack.security.enabled: false
+xpack.security.enrollment.enabled: false
+xpack.security.transport.ssl.enabled: false
+xpack.security.http.ssl.enabled: false
+
+# 自定义路径
+path.data: /home/elasticsearch/elasticsearch-8.4.1/data
+path.logs: /home/elasticsearch/elasticsearch-8.4.1/logs
+
+插件安装
+bin/elasticsearch-plugin install https://get.infini.cloud/elasticsearch/analysis-ik/8.4.1
