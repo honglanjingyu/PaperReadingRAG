@@ -1,3 +1,4 @@
+# app/service/core/chunking/chunk_manager.py
 """
 分块管理器 - 统一分块接口
 整合项目原有的 naive_merge 分块逻辑
@@ -18,8 +19,15 @@ from .chunk_strategies import (
     RecursiveChunker, SentenceChunker, ParagraphChunker
 )
 
-from service.core.rag.nlp import rag_tokenizer
-from service.core.rag.utils import num_tokens_from_string
+
+def num_tokens_from_string(text: str) -> int:
+    """估算 token 数量（简化版）"""
+    if not text:
+        return 0
+    # 中文约 1.5 字符/token，英文约 4 字符/token
+    chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+    other_chars = len(text) - chinese_chars
+    return int(chinese_chars / 1.5 + other_chars / 4)
 
 
 class ChunkManager:

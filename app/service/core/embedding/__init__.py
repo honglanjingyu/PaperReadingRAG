@@ -8,6 +8,8 @@ from .base_embedding import BaseEmbeddingModel
 from .remote_embedding import RemoteEmbeddingModel
 from .local_embedding import LocalEmbeddingModel
 from .embedding_manager import EmbeddingManager, EmbeddingType, get_embedding_manager
+from .vector_types import VectorChunk
+from .vectorization_service import VectorizationService, vectorize_chunks, vectorize_text
 
 # 创建向后兼容的函数
 def get_embedding_service():
@@ -22,5 +24,9 @@ __all__ = [
     'EmbeddingManager',
     'EmbeddingType',
     'get_embedding_manager',
-    'get_embedding_service'
+    'get_embedding_service',
+    'VectorChunk',
+    'VectorizationService',
+    'vectorize_chunks',
+    'vectorize_text'
 ]

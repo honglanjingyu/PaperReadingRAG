@@ -37,7 +37,7 @@ class QuickParseService:
 
 # 在 quick_parse_service.py 中添加清洗功能
 
-from app.service.core.cleaner.data_cleaner import DataCleaner, TableCleaner, NoiseFilter
+from app.service.core.deepdoc.cleaner.data_cleaner import DataCleaner, TableCleaner, NoiseFilter
 
 
 class QuickParseService:

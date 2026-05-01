@@ -1,10 +1,13 @@
+# app/service/core/chunking/chunk_processor.py
 """
 分块处理器 - 整合清洗和分块流程
 """
 
 from typing import List, Dict, Any, Optional, Tuple
 from .chunk_manager import ChunkManager, Chunk
-from service.core.cleaner.data_cleaner import DataCleaner, NoiseFilter
+
+# 直接从 deepdoc.cleaner 导入，避免循环导入
+from app.service.core.deepdoc.cleaner import DataCleaner, NoiseFilter
 
 
 class ChunkProcessor:
