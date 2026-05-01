@@ -2,14 +2,18 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="文档加载,数据清洗">
-      <change afterPath="$PROJECT_DIR$/app/service/core/chunking/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/chunking/chunk_manager.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/chunking/chunk_processor.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/chunking/chunk_strategies.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/RAG1-数据清洗.py" beforeDir="false" afterPath="$PROJECT_DIR$/RAG2-分块.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/rag/app/native.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/app/native.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.env" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/RAG1.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/base_embedding.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/embedding_manager.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/embedding_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/local_embedding.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/remote_embedding.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/vector_processor.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/vector_retriever.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/rag/nlp/model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/RAG2-分块.py" beforeDir="false" afterPath="$PROJECT_DIR$/RAG2-向量化.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -55,6 +59,7 @@
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "Python.RAG1-数据清洗.executor": "Run",
     "Python.RAG2-分块.executor": "Run",
+    "Python.RAG2-向量化.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
