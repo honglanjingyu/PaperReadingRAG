@@ -1,3 +1,4 @@
+# app/service/core/cleaner/pipeline.py - 修复版
 """
 数据清洗管道 - 整合所有清洗步骤
 """
@@ -10,6 +11,9 @@ class CleaningPipeline:
     """数据清洗管道"""
 
     def __init__(self, config: Optional[Dict] = None):
+        # 修复：如果 config 为 None，使用空字典
+        config = config or {}
+
         self.text_cleaner = DataCleaner(config)
         self.html_cleaner = HTMLCleaner()
         self.table_cleaner = TableCleaner()

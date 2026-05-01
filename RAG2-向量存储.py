@@ -440,51 +440,6 @@ def process_pdf(
 
     return chunks
 
-
-def save_results(chunks: List[VectorChunk], output_dir: str = "."):
-    """保存结果到文件"""
-    if not chunks:
-        return
-
-    # 保存为JSON格式（包含向量）
-    json_path = os.path.join(output_dir, "rag2_vector_chunks.json")
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump([c.to_dict() for c in chunks], f, ensure_ascii=False, indent=2)
-    print(f"\nJSON结果已保存: {json_path}")
-
-    # 保存为文本格式（只包含内容）
-    text_path = os.path.join(output_dir, "rag2_chunks.txt")
-    with open(text_path, 'w', encoding='utf-8') as f:
-        f.write("=" * 60 + "\n")
-        f.write(f"RAG2 分块结果\n")
-        f.write(f"总块数: {len(chunks)}\n")
-        f.write("=" * 60 + "\n\n")
-
-        for i, chunk in enumerate(chunks):
-            f.write(f"\n{'=' * 40}\n")
-            f.write(f"块 {i + 1} (ID: {chunk.id})\n")
-            f.write(f"Token数: {chunk.token_count}\n")
-            f.write(f"向量化: {'是' if chunk.vector else '否'}\n")
-            if chunk.vector:
-                f.write(f"向量维度: {len(chunk.vector)}\n")
-            f.write(f"{'-' * 40}\n")
-            f.write(f"{chunk.content}\n")
-
-    print(f"文本结果已保存: {text_path}")
-
-    # 保存为ES批量导入格式
-    if chunks and chunks[0].vector:
-        es_path = os.path.join(output_dir, "rag2_es_bulk.json")
-        with open(es_path, 'w', encoding='utf-8') as f:
-            for chunk in chunks:
-                doc = {
-                    "index": {"_index": "rag_documents", "_id": chunk.id}
-                }
-                f.write(json.dumps(doc, ensure_ascii=False) + "\n")
-                f.write(json.dumps(chunk.to_es_document(), ensure_ascii=False) + "\n")
-        print(f"ES批量导入文件已保存: {es_path}")
-
-
 def print_summary(chunks: List[VectorChunk]):
     """打印摘要信息"""
     if not chunks:
@@ -576,10 +531,6 @@ def main():
 
     # 打印摘要
     print_summary(chunks)
-
-    # 保存结果
-    if chunks:
-        save_results(chunks)
 
     # 存储到向量数据库
     print("\n" + "=" * 60)
