@@ -122,3 +122,43 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     res.extend(tokenize_chunks(chunks, doc, is_english, pdf_parser))
 
     return res
+
+
+# app/service/core/rag/app/naive.py
+
+from service.core.chunking import ChunkManager, ChunkProcessor
+
+
+def chunk_with_manager(filename, binary=None, from_page=0, to_page=100000,
+                       lang="Chinese", callback=None, **kwargs):
+    """
+    使用分块管理器的统一分块入口
+    """
+    parser_config = kwargs.get("parser_config", {
+        "chunk_token_num": 128,
+        "delimiter": "\n!?。；！？",
+        "strategy": "recursive"  # 新增策略配置
+    })
+
+    # 初始化分块管理器
+    chunk_manager = ChunkManager({
+        'chunk_token_num': parser_config.get('chunk_token_num', 128),
+        'strategy': parser_config.get('strategy', 'recursive')
+    })
+
+    # ... 原有的解析逻辑 ...
+
+    # 使用分块管理器进行分块
+    chunks = chunk_manager.naive_merge(sections,
+                                       chunk_token_num,
+                                       delimiter)
+
+    # 或者使用 ChunkProcessor 进行清洗+分块
+    processor = ChunkProcessor({
+        'chunk_token_num': chunk_token_num,
+        'strategy': parser_config.get('strategy', 'recursive')
+    })
+
+    chunks = processor.process_sections(sections)
+
+    return res
