@@ -12,21 +12,30 @@ from .models import PageContent, TextBlock, TableBlock
 class CrossPageConnector:
     """跨页内容连接器 - 合并跨页段落和表格"""
 
-    def __init__(self):
+    def __init__(self, max_print: int = 5):
+        """
+        初始化跨页连接器
+
+        Args:
+            max_print: 最多打印的跨页条目数量（默认5条）
+        """
         self._current_paragraph = ""
         self._current_paragraph_pages = []
         self._stats = {
             'paragraphs_merged': 0,
             'tables_merged': 0
         }
+        self._print_count = 0
+        self._max_print = max_print
 
     def connect(self, pages_content: List[PageContent], verbose: bool = False) -> List[PageContent]:
         """连接跨页内容"""
         if not pages_content:
             return pages_content
 
-        # 重置统计
+        # 重置统计和打印计数器
         self._stats = {'paragraphs_merged': 0, 'tables_merged': 0}
+        self._print_count = 0
 
         # 连接跨页段落
         pages_content = self._connect_paragraphs(pages_content, verbose)
@@ -60,9 +69,10 @@ class CrossPageConnector:
                         # 上一页段落结束，保存（这是一个跨页段落）
                         if len(self._current_paragraph_pages) > 1:
                             self._stats['paragraphs_merged'] += 1
-                            if verbose:
+                            if verbose and self._print_count < self._max_print:
                                 pages_range = f"{self._current_paragraph_pages[0][0]}-{self._current_paragraph_pages[-1][0]}"
                                 print(f"    跨页段落: 页 {pages_range}")
+                                self._print_count += 1
 
                         merged_text = ' '.join([c for _, c in self._current_paragraph_pages])
                         new_text_blocks.append(TextBlock(
@@ -84,9 +94,10 @@ class CrossPageConnector:
                     # 段落结束在当页
                     if len(self._current_paragraph_pages) > 1:
                         self._stats['paragraphs_merged'] += 1
-                        if verbose:
+                        if verbose and self._print_count < self._max_print:
                             pages_range = f"{self._current_paragraph_pages[0][0]}-{self._current_paragraph_pages[-1][0]}"
                             print(f"    跨页段落: 页 {pages_range}")
+                            self._print_count += 1
 
                     merged_text = ' '.join([c for _, c in self._current_paragraph_pages])
                     new_text_blocks.append(TextBlock(
@@ -103,9 +114,10 @@ class CrossPageConnector:
         if self._current_paragraph:
             if len(self._current_paragraph_pages) > 1:
                 self._stats['paragraphs_merged'] += 1
-                if verbose:
+                if verbose and self._print_count < self._max_print:
                     pages_range = f"{self._current_paragraph_pages[0][0]}-{self._current_paragraph_pages[-1][0]}"
                     print(f"    跨页段落: 页 {pages_range}")
+                    self._print_count += 1
 
             merged_text = ' '.join([c for _, c in self._current_paragraph_pages])
             if pages_content:
@@ -115,10 +127,18 @@ class CrossPageConnector:
                     column=0
                 ))
 
+        # 如果还有更多跨页段落未显示，打印提示
+        if verbose and self._stats['paragraphs_merged'] > self._max_print:
+            remaining = self._stats['paragraphs_merged'] - self._max_print
+            print(f"    ... 还有 {remaining} 个跨页段落未显示")
+
         return pages_content
 
     def _connect_tables(self, pages_content: List[PageContent], verbose: bool = False) -> List[PageContent]:
         """连接跨页表格"""
+        tables_printed = 0
+        max_print_tables = 3  # 表格最多打印3条
+
         for i in range(len(pages_content) - 1):
             current_page = pages_content[i]
             next_page = pages_content[i + 1]
@@ -131,8 +151,9 @@ class CrossPageConnector:
                 if self._should_merge_tables(current_table, next_table):
                     # 记录跨页表格信息
                     self._stats['tables_merged'] += 1
-                    if verbose:
+                    if verbose and tables_printed < max_print_tables:
                         print(f"    跨页表格: 第 {current_table.page_num} 页 -> 第 {next_table.page_num} 页")
+                        tables_printed += 1
 
                     # 跳过重复的表头
                     start_row = 1 if self._has_same_header(current_table.data[0], next_table.data[0]) else 0
@@ -146,6 +167,11 @@ class CrossPageConnector:
 
             # 移除已合并的表格
             next_page.tables = [t for t in next_page.tables if t is not None]
+
+        # 如果还有更多跨页表格未显示，打印提示
+        if verbose and self._stats['tables_merged'] > max_print_tables:
+            remaining = self._stats['tables_merged'] - max_print_tables
+            print(f"    ... 还有 {remaining} 个跨页表格未显示")
 
         return pages_content
 
