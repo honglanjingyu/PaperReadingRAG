@@ -13,47 +13,35 @@ from .base_embedding import BaseEmbeddingModel
 
 logger = logging.getLogger(__name__)
 
-
 class RemoteEmbeddingModel(BaseEmbeddingModel):
-    """
-    远程API Embedding模型
-    支持OpenAI兼容的API接口
-    """
+    """远程API Embedding模型 - 支持配置维度"""
 
     def __init__(
             self,
             api_key: str = None,
             base_url: str = None,
             model_name: str = "text-embedding-v3",
-            dimensions: int = 1024,
+            dimensions: int = 1024,  # 从环境变量读取
             encoding_format: str = "float",
             max_batch_size: int = 10
     ):
-        """
-        初始化远程Embedding模型
-
-        Args:
-            api_key: API密钥
-            base_url: API基础URL
-            model_name: 模型名称
-            dimensions: 向量维度
-            encoding_format: 编码格式
-            max_batch_size: 最大批量大小
-        """
         self._api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
         self._base_url = base_url or os.getenv("DASHSCOPE_BASE_URL")
         self._model_name = model_name
-        self._dimensions = dimensions
+        self._dimensions = dimensions  # 使用传入的维度
         self._encoding_format = encoding_format
         self._max_batch_size = max_batch_size
 
-        # 初始化客户端
         self._client = OpenAI(
             api_key=self._api_key,
             base_url=self._base_url
         )
 
         logger.info(f"初始化远程Embedding模型: {model_name}, 维度={dimensions}")
+
+    @property
+    def dimension(self) -> int:
+        return self._dimensions
 
     def generate_embedding(self, text: str) -> Optional[List[float]]:
         """生成单个文本的向量"""

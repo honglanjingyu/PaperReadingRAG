@@ -77,6 +77,7 @@ from app.service.core.vector_store import (
     ESVectorStore,
     VectorStorageService,
     get_vector_storage_service,
+    get_vector_search_service,
 )
 
 
@@ -427,9 +428,6 @@ def vectorize_user_question(
         dict: 包含问题文本、向量、向量维度、模型信息的结果字典
     """
     if verbose:
-        print("\n" + "=" * 70)
-        print("【功能 8 & 9】用户问题向量化")
-        print("=" * 70)
         print("\n[8/9] 接收用户问题...")
         print(f"\n用户问题: {question}")
         print(f"问题长度: {len(question)} 字符")
@@ -501,10 +499,6 @@ def test_user_question_vectorization():
         "世运电子的竞争优势是什么？"
     ]
 
-    print("\n" + "=" * 70)
-    print("RAG3 - 用户问题向量化测试")
-    print("=" * 70)
-
     # 使用第一个测试问题
     test_question = test_questions[0]
 
@@ -540,9 +534,6 @@ def process_user_question():
     用户问题处理函数
     接收用户输入问题并输出向量化结果
     """
-    print("\n" + "=" * 70)
-    print("RAG3 - 用户问题向量化")
-    print("=" * 70)
 
     # 初始化向量化服务
     model_type = os.getenv("EMBEDDING_TYPE", "remote")
@@ -592,15 +583,256 @@ def process_user_question():
     except Exception as e:
         print(f"向量化失败: {e}")
 
-# ==================== 演示 ====================
+# RAG3-查询向量化.py - 在文件末尾添加以下代码
 
+# ==================== 新增功能：相似度搜索 ====================
+
+def search_similar_documents(
+    question: str,
+    es_index_name: str = None,
+    top_k: int = 5,
+    similarity_threshold: float = 0.5,
+    model_type: str = None,
+    verbose: bool = True
+) -> dict:
+    """
+    10. 相似度搜索：在向量数据库中召回最相关的 Top-K 个文档块
+
+    处理流程：
+    8. 用户问题 - 接收用户输入的问题
+    9. 问题向量 - 将用户输入的问题向量化
+    10. 相似度搜索 - 在向量数据库中召回最相关的 Top-K 个文档块
+
+    Args:
+        question: 用户问题
+        index_name: ES索引名称，默认从环境变量读取
+        top_k: 返回的文档块数量 (Top-K)
+        similarity_threshold: 相似度阈值
+        model_type: 模型类型 ('remote' 或 'local')
+        verbose: 是否打印详细信息
+
+    Returns:
+        dict: 包含问题、向量、搜索结果的结果字典
+    """
+    # 8. 接收用户问题
+    if verbose:
+        print(f"\n[8/10] 用户问题: {question}")
+        print(f"问题长度: {len(question)} 字符")
+
+    # 9. 问题向量化
+    if verbose:
+        print("\n[9/10] 问题向量化...")
+
+    try:
+        from app.service.core.embedding import VectorizationService
+
+        if model_type is None:
+            model_type = os.getenv("EMBEDDING_TYPE", "remote")
+
+        vec_service = VectorizationService(model_type)
+
+        # 生成问题向量
+        question_vector = vec_service.manager.generate_embedding(question)
+
+        if question_vector is None:
+            return {
+                "success": False,
+                "question": question,
+                "error": "问题向量化失败"
+            }
+
+        if verbose:
+            print(f"  向量维度: {len(question_vector)}")
+            print(f"  向量前5维预览: {question_vector[:5]}...")
+
+    except Exception as e:
+        if verbose:
+            print(f"  向量化失败: {e}")
+        return {
+            "success": False,
+            "question": question,
+            "error": str(e)
+        }
+
+    # 10. 相似度搜索：在向量数据库中召回最相关的 Top-K 个文档块
+    if verbose:
+        print(f"\n[10/10] 相似度搜索 (Top-K={top_k})...")
+
+    try:
+        from app.service.core.vector_store import get_vector_search_service
+
+        # 确定索引名称
+        if es_index_name is None:
+            es_index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+
+        search_service = get_vector_search_service()
+        results = search_service.similarity_search(
+            query_vector=question_vector,
+            index_name=es_index_name,
+            top_k=top_k,
+            similarity_threshold=similarity_threshold
+        )
+
+        if verbose:
+            print(f"  索引名称: {es_index_name}")
+            print(f"  召回数量: {len(results)}/{top_k}")
+            print(f"  相似度阈值: {similarity_threshold}")
+
+        # 格式化结果
+        formatted_results = []
+        for i, result in enumerate(results, 1):
+            formatted_results.append({
+                "rank": i,
+                "score": result.get("_score", 0),
+                "content": result.get("content_with_weight", result.get("content", "")),
+                "document_name": result.get("docnm", result.get("docnm_kwd", "")),
+                "chunk_id": result.get("_id", result.get("id", "")),
+                "metadata": {k: v for k, v in result.items()
+                           if k not in ["content", "content_with_weight", "_score", "_id", "id"]}
+            })
+
+        if verbose and formatted_results:
+            print("\n" + "-" * 70)
+            print("搜索结果详情:")
+            print("-" * 70)
+            for res in formatted_results:
+                print(f"\n  [排名 {res['rank']}] 相似度: {res['score']:.4f}")
+                print(f"  文档: {res['document_name']}")
+                content_preview = res['content'][:200].replace('\n', ' ')
+                print(f"  内容预览: {content_preview}...")
+
+        return {
+            "success": True,
+            "question": question,
+            "question_length": len(question),
+            "query_vector": question_vector,
+            "vector_dimension": len(question_vector),
+            "model_type": model_type,
+            "model_info": vec_service.get_model_info(),
+            "index_name": es_index_name,
+            "top_k": top_k,
+            "similarity_threshold": similarity_threshold,
+            "total_recalled": len(results),
+            "results": formatted_results
+        }
+
+    except Exception as e:
+        if verbose:
+            print(f"  相似度搜索失败: {e}")
+        return {
+            "success": False,
+            "question": question,
+            "error": str(e)
+        }
+
+
+def test_similarity_search():
+    """
+    测试相似度搜索功能
+    """
+    # 默认测试问题
+    test_questions = [
+        "世运电子的主要业务是什么？",
+        "公司2023年中报的营收情况如何？"
+    ]
+
+    # 从环境变量读取配置
+    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
+    similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.5"))
+
+    print(f"\n配置信息:")
+    print(f"  索引名称: {index_name}")
+    print(f"  Top-K: {top_k}")
+    print(f"  相似度阈值: {similarity_threshold}")
+
+    for i, question in enumerate(test_questions, 1):
+        print(f"\n{'=' * 70}")
+        print(f"测试 {i}: {question}")
+        print("=" * 70)
+
+        result = search_similar_documents(
+            question=question,
+            es_index_name=index_name,
+            top_k=top_k,
+            similarity_threshold=similarity_threshold,
+            verbose=True
+        )
+
+        if result.get("success"):
+            print(f"\n✓ 测试 {i} 成功")
+            print(f"  召回文档块数: {result['total_recalled']}")
+        else:
+            print(f"\n✗ 测试 {i} 失败: {result.get('error')}")
+
+
+def interactive_search():
+    """
+    交互式相似度搜索
+    用户输入问题，返回最相关的文档块
+    """
+    print("\n" + "=" * 70)
+    print("RAG3 - 交互式相似度搜索")
+    print("=" * 70)
+
+    # 初始化配置
+    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
+    similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.5"))
+
+    # 显示模型信息
+    try:
+        from app.service.core.embedding import get_embedding_manager
+        manager = get_embedding_manager()
+        model_info = manager.get_model_info()
+        print(f"\n当前模型配置:")
+        print(f"  模型类型: {model_info.get('type', 'unknown')}")
+        print(f"  模型名称: {model_info.get('model_name', 'unknown')}")
+        print(f"  向量维度: {model_info.get('dimension', 'unknown')}")
+    except Exception as e:
+        print(f"初始化失败: {e}")
+        return
+
+    print(f"\n搜索配置:")
+    print(f"  索引名称: {index_name}")
+    print(f"  Top-K: {top_k}")
+    print(f"  相似度阈值: {similarity_threshold}")
+
+    print("\n" + "-" * 70)
+    print("输入 'exit' 或 'quit' 退出")
+    print("-" * 70)
+
+    while True:
+        question = input("\n请输入您的问题: ").strip()
+
+        if question.lower() in ['exit', 'quit', 'q']:
+            print("再见！")
+            break
+
+        if not question:
+            print("问题不能为空，请重新输入")
+            continue
+
+        result = search_similar_documents(
+            question=question,
+            es_index_name=index_name,
+            top_k=top_k,
+            similarity_threshold=similarity_threshold,
+            verbose=True
+        )
+
+        if not result.get("success"):
+            print(f"\n搜索失败: {result.get('error')}")
+
+# ==================== 演示 ====================
 if __name__ == "__main__":
     print("=" * 70)
-    print("RAG2 - 智能分块 + 向量化 + 向量存储（调用入口）")
+    print("RAG3 - 智能分块 + 向量化 + 向量存储 + 相似度搜索")
     print("=" * 70)
     print("\n处理流程:")
     print("  RAG1 流程: 数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗")
     print("  RAG2 功能: 智能分块 -> 向量化 -> 向量存储")
+    print("  RAG3 功能: 用户问题向量化 -> 相似度搜索")
     print("=" * 70)
 
     # 从环境变量读取配置
@@ -609,12 +841,20 @@ if __name__ == "__main__":
     ENABLE_STORAGE = os.getenv("ENABLE_STORAGE", "false").lower() == "true"
     MODEL_TYPE = os.getenv("EMBEDDING_TYPE", "local")
 
+    # 定义索引名称（供后续使用）
+    INDEX_NAME = os.getenv("ES_INDEX_NAME", "rag_documents")
+    TOP_K = int(os.getenv("SIMILARITY_TOP_K", "5"))
+    SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.5"))
+
     print(f"\n配置信息:")
     print(f"  分块大小: {CHUNK_SIZE} tokens")
     print(f"  向量化: {'启用' if ENABLE_VECTORIZATION else '禁用'}")
     print(f"  存储: {'启用' if ENABLE_STORAGE else '禁用'}")
     if ENABLE_VECTORIZATION:
         print(f"  模型类型: {MODEL_TYPE}")
+    print(f"  索引名称: {INDEX_NAME}")
+    print(f"  Top-K: {TOP_K}")
+    print(f"  相似度阈值: {SIMILARITY_THRESHOLD}")
 
     # 测试 PDF 文件
     pdf_file = "【兴证电子】世运电路2023中报点评.pdf"
@@ -669,27 +909,117 @@ if __name__ == "__main__":
             if f.lower().endswith('.pdf'):
                 print(f"  - {f}")
 
-    # ==================== 新增：用户问题向量化测试 ====================
+    # ==================== 用户问题向量化测试 ====================
 
-    # 使用默认测试问题进行向量化测试
-    test_result = test_user_question_vectorization()
+    print("\n" + "=" * 70)
+    print("RAG3 - 用户问题向量化测试")
+    print("=" * 70)
 
-    # 测试多个问题
-    print("\n" + "-" * 70)
-    print("测试多个问题示例:")
-    print("-" * 70)
-
-    test_questions = [
+    test_questions_for_vector = [
         "世运电子的主要业务是什么？",
-        "公司2023年中报的营收情况如何？",
-        "请分析世运电子的盈利能力"
+        # "公司2023年中报的营收情况如何？",
+        # "请分析世运电子的盈利能力",
+        # "公司的主要客户有哪些？",
+        # "世运电子的竞争优势是什么？"
     ]
 
-    for i, q in enumerate(test_questions, 1):
+    print(f"\n测试 {len(test_questions_for_vector)} 个问题的向量化:")
+    print("-" * 70)
+
+    for i, q in enumerate(test_questions_for_vector, 1):
         print(f"\n{i}. 问题: {q}")
         result_vec = vectorize_user_question(question=q, verbose=False)
         if result_vec and result_vec.get("success"):
-            print(f"   向量维度: {result_vec['vector_dimension']}")
+            print(f"   ✓ 向量维度: {result_vec['vector_dimension']}")
             print(f"   向量前3维: {result_vec['vector'][:3]}...")
         else:
-            print(f"   向量化失败")
+            print(f"   ✗ 向量化失败: {result_vec.get('error', '未知错误')}")
+
+    # ==================== 相似度搜索测试（使用测试问题） ====================
+
+    print("\n" + "=" * 70)
+    print("RAG3 - 相似度搜索测试")
+    print("=" * 70)
+
+    # 测试问题列表
+    test_questions_for_search = [
+        "世运电子的主要业务是什么？",
+        # "公司2023年中报的营收情况如何？",
+        # "请分析世运电子的盈利能力",
+        # "公司的主要客户有哪些？",
+        # "世运电子的竞争优势是什么？"
+    ]
+
+    # 检查索引是否存在
+    try:
+        from app.service.core.vector_store import get_vector_search_service
+
+        search_service = get_vector_search_service()
+
+        index_exists = search_service.es_store.index_exists(INDEX_NAME)
+
+        if not index_exists:
+            print(f"\n⚠ 警告: 索引 '{INDEX_NAME}' 不存在")
+            print("请先运行文档处理流程创建索引:")
+            print("  python RAG3-查询向量化.py (设置 ENABLE_STORAGE=true)")
+        else:
+            doc_count = search_service.es_store.get_document_count(INDEX_NAME)
+            print(f"\n索引 '{INDEX_NAME}' 存在，包含 {doc_count} 个文档块")
+
+            if doc_count == 0:
+                print("\n⚠ 索引为空，请先处理文档")
+            else:
+                print(f"\n开始测试相似度搜索 (Top-K={TOP_K}, 阈值={SIMILARITY_THRESHOLD})")
+                print("-" * 70)
+
+                all_results = []
+
+                for i, question in enumerate(test_questions_for_search, 1):
+                    print(f"\n{'=' * 70}")
+                    print(f"测试问题 {i}/{len(test_questions_for_search)}: {question}")
+                    print("=" * 70)
+
+                    result = search_similar_documents(
+                        question=question,
+                        es_index_name=INDEX_NAME,
+                        top_k=TOP_K,
+                        similarity_threshold=SIMILARITY_THRESHOLD,
+                        verbose=True
+                    )
+
+                    if result.get("success"):
+                        print(f"\n✓ 搜索成功")
+                        print(f"  召回文档块数: {result['total_recalled']}")
+
+                        # 保存结果摘要
+                        all_results.append({
+                            "question": question,
+                            "total_recalled": result['total_recalled'],
+                            "top_score": result['results'][0]['score'] if result['results'] else 0,
+                            "results": result['results']
+                        })
+                    else:
+                        print(f"\n✗ 搜索失败: {result.get('error')}")
+
+                # ==================== 输出汇总结果 ====================
+                print("\n" + "=" * 70)
+                print("相似度搜索汇总结果")
+                print("=" * 70)
+
+                for res in all_results:
+                    print(f"\n问题: {res['question']}")
+                    print(f"  召回数量: {res['total_recalled']}")
+                    print(f"  最高相似度: {res['top_score']:.4f}")
+                    if res['results']:
+                        print(f"  最佳匹配文档: {res['results'][0]['document_name']}")
+                        print(f"  最佳匹配内容预览: {res['results'][0]['content'][:100]}...")
+
+    except NameError as e:
+        print(f"\n变量未定义错误: {e}")
+        print("请确保 INDEX_NAME 已定义")
+    except ImportError as e:
+        print(f"\n导入错误: {e}")
+        print("请确保已安装必要的依赖")
+    except Exception as e:
+        print(f"\n检查索引时出错: {e}")
+        print("请确保 Elasticsearch 服务已启动")
