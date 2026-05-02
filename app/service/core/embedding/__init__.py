@@ -28,5 +28,5 @@ __all__ = [
     'VectorChunk',
     'VectorizationService',
     'vectorize_chunks',
-    'vectorize_text'
+    'vectorize_text',
 ]

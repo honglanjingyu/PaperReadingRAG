@@ -96,7 +96,7 @@ def process_document(
     """
     完整的文档处理流程：
     RAG1流程：数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗
-    RAG2扩展：智能分块 -> 向量化 -> 向量存储
+    RAG2功能：智能分块 -> 向量化 -> 向量存储
 
     Args:
         file_path: 文件路径
@@ -116,11 +116,13 @@ def process_document(
         print("=" * 70)
         print(f"处理文档: {os.path.basename(file_path)}")
         print("=" * 70)
+        print("\n" + "-" * 70)
         print("\nRAG1 流程（文档解析与清洗）:")
         print("  1. 数据加载")
         print("  2. 布局识别")
         print("  3. 连接跨页内容")
         print("  4. 数据清洗")
+        print("-" * 70)
 
     # ========== RAG1 完整流程：数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗 ==========
     parser = DocumentParser()
@@ -146,13 +148,13 @@ def process_document(
 
     if verbose:
         print("\n" + "-" * 70)
-        print("RAG2 扩展流程:")
+        print("RAG2 流程:")
         print("  5. 智能分块")
         print("  6. 向量化")
         print("  7. 向量存储")
         print("-" * 70)
 
-    # ========== RAG2 扩展：智能分块 ==========
+    # ========== RAG2 功能：智能分块 ==========
     if verbose:
         print("\n[5/7] 智能分块...")
 
@@ -174,7 +176,7 @@ def process_document(
               f"最大={stats['max_token_count']}, "
               f"平均={stats['avg_token_count']:.1f}")
 
-    # ========== RAG2 扩展：向量化 ==========
+    # ========== RAG2 功能：向量化 ==========
     vector_chunks = []
     if enable_vectorization and chunks:
         if verbose:
@@ -212,7 +214,7 @@ def process_document(
                 print(f"  向量化失败: {e}")
             vector_chunks = []
 
-    # ========== RAG2 扩展：向量存储 ==========
+    # ========== RAG2 功能：向量存储 ==========
     if enable_storage and vector_chunks:
         if verbose:
             print("\n[7/7] 存储到向量数据库...")
@@ -405,6 +407,191 @@ __all__ = [
 ]
 
 
+# ==================== 新增功能：用户问题向量化 ====================
+
+def vectorize_user_question(
+        question: str,
+        model_type: str = None,
+        verbose: bool = True
+) -> dict:
+    """
+    8. 用户问题 - 接收用户输入的问题
+    9. 问题向量 - 将用户输入的问题向量化
+
+    Args:
+        question: 用户问题文本
+        model_type: 模型类型 ('remote' 或 'local')，默认从环境变量读取
+        verbose: 是否打印详细信息
+
+    Returns:
+        dict: 包含问题文本、向量、向量维度、模型信息的结果字典
+    """
+    if verbose:
+        print("\n" + "=" * 70)
+        print("【功能 8 & 9】用户问题向量化")
+        print("=" * 70)
+        print("\n[8/9] 接收用户问题...")
+        print(f"\n用户问题: {question}")
+        print(f"问题长度: {len(question)} 字符")
+
+    # 9. 将用户输入的问题向量化
+    if verbose:
+        print("\n[9/9] 问题向量化...")
+
+    try:
+        # 使用 embedding 服务生成向量
+        from app.service.core.embedding import VectorizationService
+
+        # 确定模型类型
+        if model_type is None:
+            model_type = os.getenv("EMBEDDING_TYPE", "remote")
+
+        vec_service = VectorizationService(model_type)
+
+        # 生成问题向量
+        question_vector = vec_service.manager.generate_embedding(question)
+
+        if question_vector is None:
+            print(f"  问题向量化失败")
+            return None
+
+        if verbose:
+            print(f"  问题向量化成功")
+            print(f"  向量维度: {len(question_vector)}")
+            print(f"  向量前5维预览: {question_vector[:5]}...")
+
+            # 获取模型信息
+            model_info = vec_service.get_model_info()
+            print(f"  模型类型: {model_info.get('type', 'unknown')}")
+            print(f"  模型名称: {model_info.get('model_name', 'unknown')}")
+
+        result = {
+            "success": True,
+            "question": question,
+            "question_length": len(question),
+            "vector": question_vector,
+            "vector_dimension": len(question_vector),
+            "model_type": model_type,
+            "model_info": vec_service.get_model_info()
+        }
+
+        return result
+
+    except Exception as e:
+        if verbose:
+            print(f"  问题向量化失败: {e}")
+        return {
+            "success": False,
+            "question": question,
+            "error": str(e)
+        }
+
+
+def test_user_question_vectorization():
+    """
+    测试用户问题向量化功能
+    使用默认测试问题进行测试
+    """
+    # 默认测试问题
+    test_questions = [
+        "世运电子的主要业务是什么？",
+        "公司2023年中报的营收情况如何？",
+        "请分析世运电子的盈利能力",
+        "公司的主要客户有哪些？",
+        "世运电子的竞争优势是什么？"
+    ]
+
+    print("\n" + "=" * 70)
+    print("RAG3 - 用户问题向量化测试")
+    print("=" * 70)
+
+    # 使用第一个测试问题
+    test_question = test_questions[0]
+
+    print(f"\n默认测试问题: {test_question}")
+
+    # 执行向量化
+    result = vectorize_user_question(question=test_question, verbose=True)
+
+    # 输出详细结果
+    if result and result.get("success"):
+        print("\n" + "-" * 70)
+        print("向量化结果详情:")
+        print("-" * 70)
+        print(f"  问题: {result['question']}")
+        print(f"  问题长度: {result['question_length']} 字符")
+        print(f"  向量维度: {result['vector_dimension']}")
+        print(f"  向量前10维: {result['vector'][:10]}")
+        print(f"  向量后10维: {result['vector'][-10:]}")
+        print(f"  模型类型: {result['model_type']}")
+        print(f"  模型名称: {result['model_info']['model_name']}")
+
+        # 可选：显示完整向量（需要时可取消注释）
+        # print(f"\n完整向量: {result['vector']}")
+
+        return result
+    else:
+        print(f"\n向量化失败: {result.get('error', '未知错误')}")
+        return None
+
+
+def process_user_question():
+    """
+    用户问题处理函数
+    接收用户输入问题并输出向量化结果
+    """
+    print("\n" + "=" * 70)
+    print("RAG3 - 用户问题向量化")
+    print("=" * 70)
+
+    # 初始化向量化服务
+    model_type = os.getenv("EMBEDDING_TYPE", "remote")
+    try:
+        from app.service.core.embedding import VectorizationService
+        vec_service = VectorizationService(model_type)
+        model_info = vec_service.get_model_info()
+        print(f"\n当前模型配置:")
+        print(f"  模型类型: {model_info.get('type', 'unknown')}")
+        print(f"  模型名称: {model_info.get('model_name', 'unknown')}")
+        print(f"  向量维度: {model_info.get('dimension', 'unknown')}")
+    except Exception as e:
+        print(f"初始化失败: {e}")
+        return
+
+    print("\n" + "-" * 70)
+
+    # 8. 接收用户输入的问题
+    question = input("请输入您的问题: ").strip()
+
+    if not question:
+        print("错误: 问题不能为空")
+        return
+
+    print(f"\n用户问题: {question}")
+    print(f"问题长度: {len(question)} 字符")
+
+    # 9. 将用户输入的问题向量化
+    print("\n正在生成问题向量...")
+
+    try:
+        # 生成向量
+        question_vector = vec_service.manager.generate_embedding(question)
+
+        if question_vector is None:
+            print("向量化失败")
+            return
+
+        print("\n" + "=" * 70)
+        print("向量化结果:")
+        print("=" * 70)
+        print(f"  问题: {question}")
+        print(f"  向量维度: {len(question_vector)}")
+        print(f"  向量内容: {question_vector}")
+        print(f"  向量前10维预览: {question_vector[:10]}...")
+
+    except Exception as e:
+        print(f"向量化失败: {e}")
+
 # ==================== 演示 ====================
 
 if __name__ == "__main__":
@@ -413,7 +600,7 @@ if __name__ == "__main__":
     print("=" * 70)
     print("\n处理流程:")
     print("  RAG1 流程: 数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗")
-    print("  RAG2 扩展: 智能分块 -> 向量化 -> 向量存储")
+    print("  RAG2 功能: 智能分块 -> 向量化 -> 向量存储")
     print("=" * 70)
 
     # 从环境变量读取配置
@@ -463,7 +650,7 @@ if __name__ == "__main__":
             for i, chunk in enumerate(result[:3]):
                 preview = chunk.content[:150].replace('\n', ' ')
                 token_count = chunk.token_count if hasattr(chunk, 'token_count') else 0
-                print(f"\n  块 {i+1} (Token: {token_count}):")
+                print(f"\n  块 {i + 1} (Token: {token_count}):")
                 print(f"    {preview}...")
 
             # 如果启用了向量化，显示向量预览
@@ -482,6 +669,27 @@ if __name__ == "__main__":
             if f.lower().endswith('.pdf'):
                 print(f"  - {f}")
 
-    print("\n" + "=" * 70)
-    print("模块加载完成")
-    print("=" * 70)
+    # ==================== 新增：用户问题向量化测试 ====================
+
+    # 使用默认测试问题进行向量化测试
+    test_result = test_user_question_vectorization()
+
+    # 测试多个问题
+    print("\n" + "-" * 70)
+    print("测试多个问题示例:")
+    print("-" * 70)
+
+    test_questions = [
+        "世运电子的主要业务是什么？",
+        "公司2023年中报的营收情况如何？",
+        "请分析世运电子的盈利能力"
+    ]
+
+    for i, q in enumerate(test_questions, 1):
+        print(f"\n{i}. 问题: {q}")
+        result_vec = vectorize_user_question(question=q, verbose=False)
+        if result_vec and result_vec.get("success"):
+            print(f"   向量维度: {result_vec['vector_dimension']}")
+            print(f"   向量前3维: {result_vec['vector'][:3]}...")
+        else:
+            print(f"   向量化失败")
