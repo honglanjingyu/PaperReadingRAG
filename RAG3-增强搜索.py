@@ -1,17 +1,18 @@
-# RAG2.py - 入口文件，只调用不实现
+# RAG3.py - 入口文件，只调用不实现
 """
-RAG 文档处理 - 智能分块 + 向量化 + 向量存储
-
 本文件现在只是一个调用入口，所有功能通过导入 app/service/core 模块实现
 
 处理顺序：
-1. 数据加载 - 加载文档原始内容（来自 RAG1）
-2. 布局识别 - 识别文档布局（来自 RAG1）
-3. 连接跨页内容 - 合并跨页段落和表格（来自 RAG1）
-4. 数据清洗 - 清洗文本、过滤噪声（来自 RAG1）
-5. 智能分块 - 使用 chunking 模块进行分块
-6. 向量化 - 使用 embedding 模块生成向量
-7. 向量存储 - 使用 vector_store 模块存储到 ES
+1. 数据加载
+2. 布局识别
+3. 连接跨页内容
+4. 数据清洗
+5. 智能分块
+6. 向量化
+7. 向量存储
+8. 用户问题向量化
+9. 相似度搜索
+10.增强搜索
 """
 
 import os
@@ -81,6 +82,17 @@ from app.service.core.vector_store import (
 )
 
 
+# ==================== 全局测试问题列表 ====================
+
+TEST_QUESTIONS = [
+    "世运电子的主要业务是什么？",
+    # "公司2023年中报的营收情况如何？",
+    # "请分析世运电子的盈利能力",
+    # "公司的主要客户有哪些？",
+    # "世运电子的竞争优势是什么？",
+    # "世运电子的盈利能力怎么样？",
+]
+
 # ==================== 便捷函数：完整的文档处理流程 ====================
 
 def process_document(
@@ -97,7 +109,8 @@ def process_document(
     """
     完整的文档处理流程：
     RAG1流程：数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗
-    RAG2功能：智能分块 -> 向量化 -> 向量存储
+    RAG2流程：智能分块 -> 向量化 -> 向量存储
+    RAG3流程: 用户问题向量化 -> 相似度搜索 -> 增强搜索
 
     Args:
         file_path: 文件路径
@@ -118,7 +131,7 @@ def process_document(
         print(f"处理文档: {os.path.basename(file_path)}")
         print("=" * 70)
         print("\n" + "-" * 70)
-        print("\nRAG1 流程（文档解析与清洗）:")
+        print("\nRAG1 流程:")
         print("  1. 数据加载")
         print("  2. 布局识别")
         print("  3. 连接跨页内容")
@@ -231,11 +244,6 @@ def process_document(
         except Exception as e:
             if verbose:
                 print(f"  存储失败: {e}")
-
-    if verbose:
-        print("\n" + "=" * 70)
-        print("处理完成！")
-        print("=" * 70)
 
     return vector_chunks if vector_chunks else chunks
 
@@ -405,6 +413,9 @@ __all__ = [
     'vectorize_chunk_texts',      # 仅向量化
     'get_rag1_processing_stats',  # RAG1 统计信息
     'RecursiveChunker',
+
+    # 全局测试问题
+    'TEST_QUESTIONS',
 ]
 
 
@@ -428,13 +439,13 @@ def vectorize_user_question(
         dict: 包含问题文本、向量、向量维度、模型信息的结果字典
     """
     if verbose:
-        print("\n[8/9] 接收用户问题...")
+        print("\n[8/10] 接收用户问题...")
         print(f"\n用户问题: {question}")
         print(f"问题长度: {len(question)} 字符")
 
     # 9. 将用户输入的问题向量化
     if verbose:
-        print("\n[9/9] 问题向量化...")
+        print("\n问题向量化...")
 
     try:
         # 使用 embedding 服务生成向量
@@ -485,105 +496,37 @@ def vectorize_user_question(
         }
 
 
-def test_user_question_vectorization():
+def test_user_question_vectorization(questions: List[str] = None):
     """
     测试用户问题向量化功能
-    使用默认测试问题进行测试
+
+    Args:
+        questions: 要测试的问题列表，默认使用全局 TEST_QUESTIONS
     """
-    # 默认测试问题
-    test_questions = [
-        "世运电子的主要业务是什么？",
-        "公司2023年中报的营收情况如何？",
-        "请分析世运电子的盈利能力",
-        "公司的主要客户有哪些？",
-        "世运电子的竞争优势是什么？"
-    ]
+    if questions is None:
+        questions = TEST_QUESTIONS
 
-    # 使用第一个测试问题
-    test_question = test_questions[0]
+    print("\n默认测试问题:")
+    for q in questions[:3]:  # 只显示前3个
+        print(f"  - {q}")
+    if len(questions) > 3:
+        print(f"  ... 共 {len(questions)} 个问题")
 
-    print(f"\n默认测试问题: {test_question}")
+    results = []
+    for question in questions:
+        result = vectorize_user_question(question=question, verbose=False)
 
-    # 执行向量化
-    result = vectorize_user_question(question=test_question, verbose=True)
+        if result and result.get("success"):
+            print(f"\n✓ 问题: {question}")
+            print(f"  向量维度: {result['vector_dimension']}")
+            print(f"  向量前5维: {result['vector'][:5]}...")
+            results.append(result)
+        else:
+            print(f"\n✗ 问题: {question}")
+            print(f"  失败: {result.get('error', '未知错误') if result else '未知错误'}")
 
-    # 输出详细结果
-    if result and result.get("success"):
-        print("\n" + "-" * 70)
-        print("向量化结果详情:")
-        print("-" * 70)
-        print(f"  问题: {result['question']}")
-        print(f"  问题长度: {result['question_length']} 字符")
-        print(f"  向量维度: {result['vector_dimension']}")
-        print(f"  向量前10维: {result['vector'][:10]}")
-        print(f"  向量后10维: {result['vector'][-10:]}")
-        print(f"  模型类型: {result['model_type']}")
-        print(f"  模型名称: {result['model_info']['model_name']}")
+    return results
 
-        # 可选：显示完整向量（需要时可取消注释）
-        # print(f"\n完整向量: {result['vector']}")
-
-        return result
-    else:
-        print(f"\n向量化失败: {result.get('error', '未知错误')}")
-        return None
-
-
-def process_user_question():
-    """
-    用户问题处理函数
-    接收用户输入问题并输出向量化结果
-    """
-
-    # 初始化向量化服务
-    model_type = os.getenv("EMBEDDING_TYPE", "remote")
-    try:
-        from app.service.core.embedding import VectorizationService
-        vec_service = VectorizationService(model_type)
-        model_info = vec_service.get_model_info()
-        print(f"\n当前模型配置:")
-        print(f"  模型类型: {model_info.get('type', 'unknown')}")
-        print(f"  模型名称: {model_info.get('model_name', 'unknown')}")
-        print(f"  向量维度: {model_info.get('dimension', 'unknown')}")
-    except Exception as e:
-        print(f"初始化失败: {e}")
-        return
-
-    print("\n" + "-" * 70)
-
-    # 8. 接收用户输入的问题
-    question = input("请输入您的问题: ").strip()
-
-    if not question:
-        print("错误: 问题不能为空")
-        return
-
-    print(f"\n用户问题: {question}")
-    print(f"问题长度: {len(question)} 字符")
-
-    # 9. 将用户输入的问题向量化
-    print("\n正在生成问题向量...")
-
-    try:
-        # 生成向量
-        question_vector = vec_service.manager.generate_embedding(question)
-
-        if question_vector is None:
-            print("向量化失败")
-            return
-
-        print("\n" + "=" * 70)
-        print("向量化结果:")
-        print("=" * 70)
-        print(f"  问题: {question}")
-        print(f"  向量维度: {len(question_vector)}")
-        print(f"  向量内容: {question_vector}")
-        print(f"  向量前10维预览: {question_vector[:10]}...")
-
-    except Exception as e:
-        print(f"向量化失败: {e}")
-
-# RAG3-查询向量化.py - 在文件末尾添加以下代码
 
 # ==================== 新增功能：相似度搜索 ====================
 
@@ -621,7 +564,7 @@ def search_similar_documents(
 
     # 9. 问题向量化
     if verbose:
-        print("\n[9/10] 问题向量化...")
+        print("\n问题向量化...")
 
     try:
         from app.service.core.embedding import VectorizationService
@@ -656,7 +599,7 @@ def search_similar_documents(
 
     # 10. 相似度搜索：在向量数据库中召回最相关的 Top-K 个文档块
     if verbose:
-        print(f"\n[10/10] 相似度搜索 (Top-K={top_k})...")
+        print(f"\n[9/10] 相似度搜索 (Top-K={top_k})...")
 
     try:
         from app.service.core.vector_store import get_vector_search_service
@@ -726,15 +669,15 @@ def search_similar_documents(
         }
 
 
-def test_similarity_search():
+def test_similarity_search(questions: List[str] = None):
     """
     测试相似度搜索功能
+
+    Args:
+        questions: 要测试的问题列表，默认使用全局 TEST_QUESTIONS
     """
-    # 默认测试问题
-    test_questions = [
-        "世运电子的主要业务是什么？",
-        "公司2023年中报的营收情况如何？"
-    ]
+    if questions is None:
+        questions = TEST_QUESTIONS
 
     # 从环境变量读取配置
     index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
@@ -746,7 +689,9 @@ def test_similarity_search():
     print(f"  Top-K: {top_k}")
     print(f"  相似度阈值: {similarity_threshold}")
 
-    for i, question in enumerate(test_questions, 1):
+    all_results = []
+
+    for i, question in enumerate(questions, 1):
         print(f"\n{'=' * 70}")
         print(f"测试 {i}: {question}")
         print("=" * 70)
@@ -762,77 +707,419 @@ def test_similarity_search():
         if result.get("success"):
             print(f"\n✓ 测试 {i} 成功")
             print(f"  召回文档块数: {result['total_recalled']}")
+            all_results.append(result)
         else:
             print(f"\n✗ 测试 {i} 失败: {result.get('error')}")
 
+    return all_results
 
-def interactive_search():
+
+# ==================== 新增功能：增强检索 ====================
+
+def enhanced_search_with_hybrid_and_rerank(
+    question: str,
+    index_name: str = None,
+    top_k: int = 5,
+    keyword_weight: float = 0.3,
+    vector_weight: float = 0.7,
+    enable_rerank: bool = True,
+    enable_query_rewrite: bool = False,
+    similarity_threshold: float = 0.3,
+    verbose: bool = True
+) -> dict:
     """
-    交互式相似度搜索
-    用户输入问题，返回最相关的文档块
+    增强检索：混合检索 + 重排序 + Query改写
+
+    功能说明：
+    1. 混合检索 - 同时使用关键词检索和向量检索
+    2. 重排序 - 使用Cross-Encoder或向量相似度对结果重新排序
+    3. Query改写 - 同义词扩展，提升召回率
+
+    Args:
+        question: 用户问题
+        index_name: ES索引名称
+        top_k: 返回数量
+        keyword_weight: 关键词检索权重 (0-1)
+        vector_weight: 向量检索权重 (0-1)
+        enable_rerank: 是否启用重排序
+        enable_query_rewrite: 是否启用Query改写
+        similarity_threshold: 相似度阈值
+        verbose: 是否打印详细信息
+
+    Returns:
+        增强检索结果
     """
-    print("\n" + "=" * 70)
-    print("RAG3 - 交互式相似度搜索")
-    print("=" * 70)
+    if verbose:
+        print("\n" + "=" * 70)
+        print("增强检索模式 (混合检索 + 重排序 + Query改写)")
+        print("=" * 70)
+        print(f"\n原始问题: {question}")
 
-    # 初始化配置
-    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
-    top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
-    similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.5"))
+    # 确定索引名称
+    if index_name is None:
+        index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
 
-    # 显示模型信息
+    # 1. Query改写（可选）
+    rewritten_query = question
+    if enable_query_rewrite:
+        if verbose:
+            print("\nQuery改写...")
+
+        try:
+            from app.service.core.retrieval import QueryRewriter
+            rewriter = QueryRewriter()
+            rewritten_query = rewriter.rewrite(question, strategy='synonym')
+
+            # 生成子查询用于多路召回
+            sub_queries = rewriter.generate_sub_queries(question, max_queries=3)
+
+            if verbose:
+                print(f"  改写后问题: {rewritten_query}")
+                print(f"  子查询: {sub_queries}")
+        except Exception as e:
+            if verbose:
+                print(f"  Query改写失败: {e}，使用原始查询")
+            rewritten_query = question
+            sub_queries = [question]
+    else:
+        sub_queries = [question]
+
+    # 2. 检查索引
+    if verbose:
+        print("\n检查索引...")
+
     try:
-        from app.service.core.embedding import get_embedding_manager
-        manager = get_embedding_manager()
-        model_info = manager.get_model_info()
-        print(f"\n当前模型配置:")
-        print(f"  模型类型: {model_info.get('type', 'unknown')}")
-        print(f"  模型名称: {model_info.get('model_name', 'unknown')}")
-        print(f"  向量维度: {model_info.get('dimension', 'unknown')}")
+        from app.service.core.vector_store import get_vector_search_service
+        search_service = get_vector_search_service()
+        index_exists = search_service.es_store.index_exists(index_name)
+
+        if not index_exists:
+            return {
+                "success": False,
+                "error": f"索引 '{index_name}' 不存在，请先处理文档"
+            }
+
+        doc_count = search_service.es_store.get_document_count(index_name)
+        if verbose:
+            print(f"  索引名称: {index_name}")
+            print(f"  文档块数量: {doc_count}")
+
+        if doc_count == 0:
+            return {
+                "success": False,
+                "error": f"索引 '{index_name}' 为空"
+            }
+
     except Exception as e:
-        print(f"初始化失败: {e}")
-        return
+        return {"success": False, "error": str(e)}
 
-    print(f"\n搜索配置:")
-    print(f"  索引名称: {index_name}")
-    print(f"  Top-K: {top_k}")
-    print(f"  相似度阈值: {similarity_threshold}")
+    # 3. 混合检索
+    if verbose:
+        print("\n混合检索...")
+        print(f"  关键词权重: {keyword_weight}")
+        print(f"  向量权重: {vector_weight}")
 
-    print("\n" + "-" * 70)
-    print("输入 'exit' 或 'quit' 退出")
-    print("-" * 70)
+    try:
+        from app.service.core.retrieval import HybridRetriever
+        hybrid_retriever = HybridRetriever()
 
-    while True:
-        question = input("\n请输入您的问题: ").strip()
-
-        if question.lower() in ['exit', 'quit', 'q']:
-            print("再见！")
-            break
-
-        if not question:
-            print("问题不能为空，请重新输入")
-            continue
-
-        result = search_similar_documents(
-            question=question,
-            es_index_name=index_name,
-            top_k=top_k,
-            similarity_threshold=similarity_threshold,
-            verbose=True
+        # 使用改写后的查询进行混合检索
+        hybrid_results = hybrid_retriever.hybrid_search(
+            query=rewritten_query,
+            index_name=index_name,
+            top_k=top_k * 2,  # 多召回一些用于重排序
+            keyword_weight=keyword_weight,
+            vector_weight=vector_weight,
+            similarity_threshold=similarity_threshold
         )
 
-        if not result.get("success"):
-            print(f"\n搜索失败: {result.get('error')}")
+        if verbose:
+            print(f"  混合检索召回: {len(hybrid_results)} 个块")
+
+    except Exception as e:
+        if verbose:
+            print(f"  混合检索失败: {e}，回退到向量检索")
+
+        # 回退到向量检索
+        from app.service.core.embedding import get_embedding_manager
+        from app.service.core.vector_store import get_vector_search_service
+
+        embedding_manager = get_embedding_manager()
+        query_vector = embedding_manager.generate_embedding(rewritten_query)
+
+        if query_vector:
+            search_service = get_vector_search_service()
+            hybrid_results = search_service.similarity_search(
+                query_vector=query_vector,
+                index_name=index_name,
+                top_k=top_k * 2,
+                similarity_threshold=similarity_threshold
+            )
+        else:
+            hybrid_results = []
+
+    # 4. 重排序（可选）
+    if enable_rerank and hybrid_results:
+        if verbose:
+            print("\n[10/10] 重排序...")
+
+        try:
+            from app.service.core.retrieval import Reranker
+            reranker = Reranker()
+
+            reranked_results = reranker.rerank(
+                query=rewritten_query,
+                documents=hybrid_results,
+                top_k=top_k
+            )
+
+            if verbose:
+                print(f"  重排序完成: {len(reranked_results)} 个块")
+            final_results = reranked_results
+
+        except Exception as e:
+            if verbose:
+                print(f"  重排序失败: {e}，使用原始排序")
+            final_results = hybrid_results[:top_k]
+    else:
+        final_results = hybrid_results[:top_k]
+
+    # 格式化结果
+    formatted_results = []
+    for i, result in enumerate(final_results, 1):
+        formatted_results.append({
+            "rank": i,
+            "score": result.get("final_score", result.get("_score", result.get("rerank_score", 0))),
+            "vector_score": result.get("vector_score", 0),
+            "keyword_score": result.get("keyword_score", 0),
+            "rerank_score": result.get("rerank_score", 0),
+            "content": result.get("content_with_weight", result.get("content", "")),
+            "document_name": result.get("docnm", result.get("docnm_kwd", "")),
+            "chunk_id": result.get("_id", result.get("id", "")),
+            "search_type": result.get("_search_types", ["unknown"])
+        })
+
+    if verbose and formatted_results:
+        print("\n" + "-" * 70)
+        print("增强检索结果详情:")
+        print("-" * 70)
+        for res in formatted_results:
+            print(f"\n  [排名 {res['rank']}]")
+            print(f"  综合分数: {res['score']:.4f}")
+            print(f"  向量分: {res['vector_score']:.4f} | 关键词分: {res['keyword_score']:.4f}")
+            print(f"  文档: {res['document_name']}")
+            content_preview = res['content'][:200].replace('\n', ' ')
+            print(f"  内容预览: {content_preview}...")
+
+    return {
+        "success": True,
+        "question": question,
+        "rewritten_query": rewritten_query if enable_query_rewrite else None,
+        "index_name": index_name,
+        "top_k": top_k,
+        "keyword_weight": keyword_weight,
+        "vector_weight": vector_weight,
+        "enable_rerank": enable_rerank,
+        "enable_query_rewrite": enable_query_rewrite,
+        "total_recalled": len(hybrid_results),
+        "total_returned": len(formatted_results),
+        "results": formatted_results
+    }
+
+
+def test_enhanced_retrieval(questions: List[str] = None):
+    """测试增强检索功能
+
+    Args:
+        questions: 要测试的问题列表，默认使用全局 TEST_QUESTIONS
+    """
+    if questions is None:
+        questions = TEST_QUESTIONS
+
+    print("\n" + "=" * 70)
+    print("测试增强检索功能")
+    print("=" * 70)
+
+    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
+
+    for i, question in enumerate(questions, 1):
+        print(f"\n{'=' * 70}")
+        print(f"测试 {i}: {question}")
+        print("=" * 70)
+
+        # 对比不同模式
+        modes = [
+            ("向量检索", False, False, False),
+            ("混合检索", True, False, False),
+            ("混合检索+重排序", True, True, False),
+            ("完整增强检索", True, True, True),
+        ]
+
+        for mode_name, use_hybrid, use_rerank, use_rewrite in modes:
+            print(f"\n--- {mode_name} ---")
+
+            result = enhanced_search_with_hybrid_and_rerank(
+                question=question,
+                index_name=index_name,
+                top_k=top_k,
+                keyword_weight=0.3 if use_hybrid else 1.0,
+                vector_weight=0.7 if use_hybrid else 1.0,
+                enable_rerank=use_rerank,
+                enable_query_rewrite=use_rewrite,
+                verbose=False
+            )
+
+            if result.get("success"):
+                print(f"  召回数量: {result['total_returned']}")
+                if result['results']:
+                    best = result['results'][0]
+                    print(f"  最佳匹配: {best['document_name']}")
+                    print(f"  综合分数: {best['score']:.4f}")
+            else:
+                print(f"  失败: {result.get('error')}")
+
+
+def compare_search_methods(questions: List[str] = None):
+    """对比传统检索和增强检索的效果
+
+    Args:
+        questions: 要测试的问题列表，默认使用全局 TEST_QUESTIONS
+    """
+    if questions is None:
+        questions = TEST_QUESTIONS
+
+    print("\n" + "=" * 70)
+    print("传统检索 vs 增强检索 对比")
+    print("=" * 70)
+
+    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
+
+    comparison_results = []
+
+    for question in questions:
+        print(f"\n问题: {question}")
+        print("-" * 50)
+
+        # 传统向量检索
+        from app.service.core.vector_store import get_vector_search_service
+        from app.service.core.embedding import get_embedding_manager
+
+        embedding_manager = get_embedding_manager()
+        query_vector = embedding_manager.generate_embedding(question)
+
+        if query_vector:
+            search_service = get_vector_search_service()
+            traditional_results = search_service.similarity_search(
+                query_vector=query_vector,
+                index_name=index_name,
+                top_k=top_k,
+                similarity_threshold=0.3
+            )
+            traditional_avg_score = sum(r.get('_score', 0) for r in traditional_results) / len(traditional_results) if traditional_results else 0
+            traditional_count = len(traditional_results)
+        else:
+            traditional_avg_score = 0
+            traditional_count = 0
+
+        # 增强检索
+        enhanced_result = enhanced_search_with_hybrid_and_rerank(
+            question=question,
+            index_name=index_name,
+            top_k=top_k,
+            keyword_weight=0.3,
+            vector_weight=0.7,
+            enable_rerank=True,
+            enable_query_rewrite=True,
+            verbose=False
+        )
+
+        enhanced_count = enhanced_result.get('total_returned', 0) if enhanced_result.get('success') else 0
+        enhanced_avg_score = 0
+        if enhanced_result.get('success') and enhanced_result['results']:
+            enhanced_avg_score = sum(r['score'] for r in enhanced_result['results']) / len(enhanced_result['results'])
+
+        print(f"  传统向量检索: 召回 {traditional_count} 块, 平均分数 {traditional_avg_score:.4f}")
+        print(f"  增强检索: 召回 {enhanced_count} 块, 平均分数 {enhanced_avg_score:.4f}")
+
+        comparison_results.append({
+            "question": question,
+            "traditional": {"count": traditional_count, "avg_score": traditional_avg_score},
+            "enhanced": {"count": enhanced_count, "avg_score": enhanced_avg_score}
+        })
+
+    # 汇总对比
+    print("\n" + "=" * 70)
+    print("对比汇总")
+    print("=" * 70)
+
+    avg_traditional_count = sum(r["traditional"]["count"] for r in comparison_results) / len(comparison_results)
+    avg_enhanced_count = sum(r["enhanced"]["count"] for r in comparison_results) / len(comparison_results)
+    avg_traditional_score = sum(r["traditional"]["avg_score"] for r in comparison_results) / len(comparison_results)
+    avg_enhanced_score = sum(r["enhanced"]["avg_score"] for r in comparison_results) / len(comparison_results)
+
+    print(f"\n平均召回数量: 传统={avg_traditional_count:.1f} | 增强={avg_enhanced_count:.1f} | 提升={avg_enhanced_count - avg_traditional_count:.1f}")
+    print(f"平均相似度: 传统={avg_traditional_score:.4f} | 增强={avg_enhanced_score:.4f} | 提升={avg_enhanced_score - avg_traditional_score:.4f}")
+
+    return comparison_results
+
+
+def run_all_tests():
+    """运行所有测试"""
+    print("\n" + "=" * 70)
+    print("运行所有测试")
+    print("=" * 70)
+
+    # 1. 用户问题向量化测试
+    print("\n" + "=" * 70)
+    print("1. 用户问题向量化测试")
+    print("=" * 70)
+    test_user_question_vectorization()
+
+    # 2. 相似度搜索测试
+    print("\n" + "=" * 70)
+    print("2. 相似度搜索测试")
+    print("=" * 70)
+
+    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    try:
+        from app.service.core.vector_store import get_vector_search_service
+        search_service = get_vector_search_service()
+        index_exists = search_service.es_store.index_exists(index_name)
+
+        if index_exists and search_service.es_store.get_document_count(index_name) > 0:
+            test_similarity_search()
+        else:
+            print(f"\n⚠ 索引 '{index_name}' 不存在或为空，跳过相似度搜索测试")
+    except Exception as e:
+        print(f"\n检查索引时出错: {e}")
+
+    # 3. 增强检索测试
+    print("\n" + "=" * 70)
+    print("3. 增强检索测试")
+    print("=" * 70)
+
+    try:
+        from app.service.core.vector_store import get_vector_search_service
+        search_service = get_vector_search_service()
+        index_exists = search_service.es_store.index_exists(index_name)
+
+        if index_exists and search_service.es_store.get_document_count(index_name) > 0:
+            # 使用前3个问题进行测试
+            test_enhanced_retrieval(TEST_QUESTIONS[:3])
+        else:
+            print(f"\n⚠ 索引 '{index_name}' 不存在或为空，跳过增强检索测试")
+    except Exception as e:
+        print(f"\n增强检索测试失败: {e}")
+
 
 # ==================== 演示 ====================
 if __name__ == "__main__":
-    print("=" * 70)
-    print("RAG3 - 智能分块 + 向量化 + 向量存储 + 相似度搜索")
-    print("=" * 70)
     print("\n处理流程:")
     print("  RAG1 流程: 数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗")
-    print("  RAG2 功能: 智能分块 -> 向量化 -> 向量存储")
-    print("  RAG3 功能: 用户问题向量化 -> 相似度搜索")
+    print("  RAG2 流程: 智能分块 -> 向量化 -> 向量存储")
+    print("  RAG3 流程: 用户问题向量化 -> 相似度搜索 -> 增强搜索")
     print("=" * 70)
 
     # 从环境变量读取配置
@@ -855,6 +1142,10 @@ if __name__ == "__main__":
     print(f"  索引名称: {INDEX_NAME}")
     print(f"  Top-K: {TOP_K}")
     print(f"  相似度阈值: {SIMILARITY_THRESHOLD}")
+
+    print(f"\n全局测试问题列表 ({len(TEST_QUESTIONS)} 个):")
+    for i, q in enumerate(TEST_QUESTIONS, 1):
+        print(f"  {i}. {q}")
 
     # 测试 PDF 文件
     pdf_file = "【兴证电子】世运电路2023中报点评.pdf"
@@ -910,58 +1201,25 @@ if __name__ == "__main__":
                 print(f"  - {f}")
 
     # ==================== 用户问题向量化测试 ====================
-
     print("\n" + "=" * 70)
     print("RAG3 - 用户问题向量化测试")
     print("=" * 70)
 
-    test_questions_for_vector = [
-        "世运电子的主要业务是什么？",
-        # "公司2023年中报的营收情况如何？",
-        # "请分析世运电子的盈利能力",
-        # "公司的主要客户有哪些？",
-        # "世运电子的竞争优势是什么？"
-    ]
+    test_user_question_vectorization()
 
-    print(f"\n测试 {len(test_questions_for_vector)} 个问题的向量化:")
-    print("-" * 70)
-
-    for i, q in enumerate(test_questions_for_vector, 1):
-        print(f"\n{i}. 问题: {q}")
-        result_vec = vectorize_user_question(question=q, verbose=False)
-        if result_vec and result_vec.get("success"):
-            print(f"   ✓ 向量维度: {result_vec['vector_dimension']}")
-            print(f"   向量前3维: {result_vec['vector'][:3]}...")
-        else:
-            print(f"   ✗ 向量化失败: {result_vec.get('error', '未知错误')}")
-
-    # ==================== 相似度搜索测试（使用测试问题） ====================
-
-    print("\n" + "=" * 70)
-    print("RAG3 - 相似度搜索测试")
-    print("=" * 70)
-
-    # 测试问题列表
-    test_questions_for_search = [
-        "世运电子的主要业务是什么？",
-        # "公司2023年中报的营收情况如何？",
-        # "请分析世运电子的盈利能力",
-        # "公司的主要客户有哪些？",
-        # "世运电子的竞争优势是什么？"
-    ]
+    # ==================== 相似度搜索测试 ====================
 
     # 检查索引是否存在
     try:
         from app.service.core.vector_store import get_vector_search_service
 
         search_service = get_vector_search_service()
-
         index_exists = search_service.es_store.index_exists(INDEX_NAME)
 
         if not index_exists:
             print(f"\n⚠ 警告: 索引 '{INDEX_NAME}' 不存在")
             print("请先运行文档处理流程创建索引:")
-            print("  python RAG3-查询向量化.py (设置 ENABLE_STORAGE=true)")
+            print("  python RAG3.py (设置 ENABLE_STORAGE=true)")
         else:
             doc_count = search_service.es_store.get_document_count(INDEX_NAME)
             print(f"\n索引 '{INDEX_NAME}' 存在，包含 {doc_count} 个文档块")
@@ -969,57 +1227,64 @@ if __name__ == "__main__":
             if doc_count == 0:
                 print("\n⚠ 索引为空，请先处理文档")
             else:
-                print(f"\n开始测试相似度搜索 (Top-K={TOP_K}, 阈值={SIMILARITY_THRESHOLD})")
-                print("-" * 70)
+                test_similarity_search()
 
-                all_results = []
-
-                for i, question in enumerate(test_questions_for_search, 1):
-                    print(f"\n{'=' * 70}")
-                    print(f"测试问题 {i}/{len(test_questions_for_search)}: {question}")
-                    print("=" * 70)
-
-                    result = search_similar_documents(
-                        question=question,
-                        es_index_name=INDEX_NAME,
-                        top_k=TOP_K,
-                        similarity_threshold=SIMILARITY_THRESHOLD,
-                        verbose=True
-                    )
-
-                    if result.get("success"):
-                        print(f"\n✓ 搜索成功")
-                        print(f"  召回文档块数: {result['total_recalled']}")
-
-                        # 保存结果摘要
-                        all_results.append({
-                            "question": question,
-                            "total_recalled": result['total_recalled'],
-                            "top_score": result['results'][0]['score'] if result['results'] else 0,
-                            "results": result['results']
-                        })
-                    else:
-                        print(f"\n✗ 搜索失败: {result.get('error')}")
-
-                # ==================== 输出汇总结果 ====================
-                print("\n" + "=" * 70)
-                print("相似度搜索汇总结果")
-                print("=" * 70)
-
-                for res in all_results:
-                    print(f"\n问题: {res['question']}")
-                    print(f"  召回数量: {res['total_recalled']}")
-                    print(f"  最高相似度: {res['top_score']:.4f}")
-                    if res['results']:
-                        print(f"  最佳匹配文档: {res['results'][0]['document_name']}")
-                        print(f"  最佳匹配内容预览: {res['results'][0]['content'][:100]}...")
-
-    except NameError as e:
-        print(f"\n变量未定义错误: {e}")
-        print("请确保 INDEX_NAME 已定义")
-    except ImportError as e:
-        print(f"\n导入错误: {e}")
-        print("请确保已安装必要的依赖")
     except Exception as e:
         print(f"\n检查索引时出错: {e}")
         print("请确保 Elasticsearch 服务已启动")
+
+    # ==================== 增强检索演示 ====================
+
+    try:
+        from app.service.core.vector_store import get_vector_search_service
+
+        search_service = get_vector_search_service()
+        index_exists = search_service.es_store.index_exists(INDEX_NAME)
+
+        if index_exists and search_service.es_store.get_document_count(INDEX_NAME) > 0:
+            print(f"\n索引 '{INDEX_NAME}' 存在，开始演示增强检索...")
+            print(f"文档块数量: {search_service.es_store.get_document_count(INDEX_NAME)}")
+
+            success_count = 0
+            # 使用前3个问题进行演示
+            demo_questions = TEST_QUESTIONS[:3]
+
+            for idx, question in enumerate(demo_questions, 1):
+                print(f"\n{'=' * 70}")
+                print(f"问题 {idx}/{len(demo_questions)}: {question}")
+                print("=" * 70)
+
+                result = enhanced_search_with_hybrid_and_rerank(
+                    question=question,
+                    index_name=INDEX_NAME,
+                    top_k=TOP_K,
+                    keyword_weight=0.3,
+                    vector_weight=0.7,
+                    enable_rerank=True,
+                    enable_query_rewrite=True,
+                    verbose=True
+                )
+
+                if result.get("success") and result['results']:
+                    print(f"\n✓ 增强检索成功")
+                    print(f"  召回块数: {result['total_returned']}")
+                    print(f"  最佳匹配文档: {result['results'][0]['document_name']}")
+                    print(f"  最佳匹配分数: {result['results'][0]['score']:.4f}")
+                    success_count += 1
+                else:
+                    print(f"\n✗ 增强检索失败: {result.get('error', '未知错误')}")
+
+            # 输出汇总
+            print("\n" + "=" * 70)
+            print("演示完成汇总")
+            print("=" * 70)
+            print(f"\n总问题数: {len(demo_questions)}")
+            print(f"成功: {success_count}")
+            print(f"失败: {len(demo_questions) - success_count}")
+
+        else:
+            print(f"\n⚠ 索引 '{INDEX_NAME}' 不存在或为空，跳过增强检索演示")
+            print("请先运行文档处理流程创建索引")
+
+    except Exception as e:
+        print(f"\n增强检索演示失败: {e}")

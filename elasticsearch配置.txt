@@ -1,3 +1,10 @@
+下载
+https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.4.1-linux-x86_64.tar.gz
+
+tar -xzf elasticsearch-8.4.1-linux-x86_64.tar.gz
+cd elasticsearch-8.4.1/
+
+配置
 config/elasticsearch.yml
 cluster.name: my-rag-cluster
 node.name: node-1
@@ -19,3 +26,6 @@ path.logs: /home/elasticsearch/elasticsearch-8.4.1/logs
 
 插件安装
 bin/elasticsearch-plugin install https://get.infini.cloud/elasticsearch/analysis-ik/8.4.1
+
+启动
+./elasticsearch-8.4.1/bin/elasticsearch
