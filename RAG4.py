@@ -13,11 +13,13 @@
 8. 用户问题向量化
 9. 相似度搜索
 10.增强搜索
+11.增强与上下文构造
+12.生成模块
 """
 
 import os
 import sys
-from typing import Optional, List
+from typing import Optional, List, Dict
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -81,6 +83,8 @@ from app.service.core.vector_store import (
     get_vector_search_service,
 )
 
+from app.service.core.prompt import PromptBuilder
+
 
 # ==================== 全局测试问题列表 ====================
 
@@ -129,14 +133,6 @@ def process_document(
     if verbose:
         print("=" * 70)
         print(f"处理文档: {os.path.basename(file_path)}")
-        print("=" * 70)
-        print("\n" + "-" * 70)
-        print("\nRAG1 流程:")
-        print("  1. 数据加载")
-        print("  2. 布局识别")
-        print("  3. 连接跨页内容")
-        print("  4. 数据清洗")
-        print("-" * 70)
 
     # ========== RAG1 完整流程：数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗 ==========
     parser = DocumentParser()
@@ -160,17 +156,9 @@ def process_document(
         print(f"  总页数: {parsed.total_pages}")
         print(f"  清洗后文本长度: {len(parsed.cleaned_text)} 字符")
 
-    if verbose:
-        print("\n" + "-" * 70)
-        print("RAG2 流程:")
-        print("  5. 智能分块")
-        print("  6. 向量化")
-        print("  7. 向量存储")
-        print("-" * 70)
-
     # ========== RAG2 功能：智能分块 ==========
     if verbose:
-        print("\n[5/7] 智能分块...")
+        print("\n[5/12] 智能分块...")
 
     chunks = chunk_text_to_chunks(
         parsed.cleaned_text,
@@ -194,7 +182,7 @@ def process_document(
     vector_chunks = []
     if enable_vectorization and chunks:
         if verbose:
-            print("\n[6/7] 向量化处理...")
+            print("\n[6/12] 向量化处理...")
 
         try:
             # 转换为 VectorChunk
@@ -231,7 +219,7 @@ def process_document(
     # ========== RAG2 功能：向量存储 ==========
     if enable_storage and vector_chunks:
         if verbose:
-            print("\n[7/7] 存储到向量数据库...")
+            print("\n[7/12] 存储到向量数据库...")
 
         try:
             storage_service = get_vector_storage_service()
@@ -439,7 +427,7 @@ def vectorize_user_question(
         dict: 包含问题文本、向量、向量维度、模型信息的结果字典
     """
     if verbose:
-        print("\n[8/10] 接收用户问题...")
+        print("\n[8/12] 接收用户问题...")
         print(f"\n用户问题: {question}")
         print(f"问题长度: {len(question)} 字符")
 
@@ -559,7 +547,7 @@ def search_similar_documents(
     """
     # 8. 接收用户问题
     if verbose:
-        print(f"\n[8/10] 用户问题: {question}")
+        print(f"\n[8/12] 用户问题: {question}")
         print(f"问题长度: {len(question)} 字符")
 
     # 9. 问题向量化
@@ -599,7 +587,7 @@ def search_similar_documents(
 
     # 10. 相似度搜索：在向量数据库中召回最相关的 Top-K 个文档块
     if verbose:
-        print(f"\n[9/10] 相似度搜索 (Top-K={top_k})...")
+        print(f"\n[9/12] 相似度搜索 (Top-K={top_k})...")
 
     try:
         from app.service.core.vector_store import get_vector_search_service
@@ -861,7 +849,7 @@ def enhanced_search_with_hybrid_and_rerank(
     # 4. 重排序（可选）
     if enable_rerank and hybrid_results:
         if verbose:
-            print("\n[10/10] 重排序...")
+            print("\n[10/12] 重排序...")
 
         try:
             from app.service.core.retrieval import Reranker
@@ -1114,12 +1102,199 @@ def run_all_tests():
         print(f"\n增强检索测试失败: {e}")
 
 
+# ==================== 新增功能：生成模块 ====================
+
+from app.service.core.llm import get_llm_service
+
+
+def generate_answer(
+        question: str,
+        results: List[Dict],
+        history: List[Dict] = None,
+        template_name: str = "detailed",
+        model_type: str = None,
+        verbose: bool = True
+) -> dict:
+    """
+    12. 生成模块：将构造好的 Prompt 发送给 LLM，生成最终答案
+
+    Args:
+        question: 用户问题
+        results: 检索结果列表
+        history: 对话历史
+        template_name: Prompt模板名称
+        model_type: 模型类型 ('remote')
+        verbose: 是否打印详细信息
+
+    Returns:
+        包含答案的字典
+    """
+    if verbose:
+        print("\n[12/12] 生成模块 - 调用大语言模型...")
+        print("=" * 70)
+
+    # 构造 messages
+    prompt_builder = PromptBuilder(max_context_length=4000, include_scores=True)
+    messages = prompt_builder.build_messages(
+        question=question,
+        results=results,
+        history=history,
+        template_name=template_name
+    )
+
+    if verbose:
+        print(f"\n构造的 Prompt 预览:")
+        for msg in messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")[:200]
+            print(f"  [{role}]: {content}...")
+
+    # 调用 LLM
+    llm_service = get_llm_service(model_type)
+    answer = llm_service.generate(messages, verbose=verbose)
+
+    if verbose and answer:
+        print("\n" + "-" * 70)
+        print("LLM 生成结果:")
+        print("-" * 70)
+        print(answer)
+        print("-" * 70)
+
+    return {
+        "success": answer is not None,
+        "question": question,
+        "messages": messages,
+        "answer": answer,
+        "model_info": llm_service.get_model_info()
+    }
+
+
+def generate_answer_stream(
+        question: str,
+        results: List[Dict],
+        history: List[Dict] = None,
+        template_name: str = "detailed",
+        model_type: str = None,
+        verbose: bool = True
+):
+    """
+    流式生成答案
+
+    Args:
+        question: 用户问题
+        results: 检索结果列表
+        history: 对话历史
+        template_name: Prompt模板名称
+        model_type: 模型类型
+        verbose: 是否打印详细信息
+    """
+    if verbose:
+        print("\n[12/12] 生成模块 - 流式调用大语言模型...")
+        print("=" * 70)
+
+    # 构造 messages
+    prompt_builder = PromptBuilder(max_context_length=4000, include_scores=True)
+    messages = prompt_builder.build_messages(
+        question=question,
+        results=results,
+        history=history,
+        template_name=template_name
+    )
+
+    # 流式调用 LLM
+    llm_service = get_llm_service(model_type)
+    print("\n回答: ", end="", flush=True)
+
+    for chunk in llm_service.generate_stream(messages, verbose=verbose):
+        print(chunk, end="", flush=True)
+        yield chunk
+    print("\n")
+
+
+def test_llm_generation(questions: List[str] = None, stream: bool = False):
+    """
+    测试 LLM 生成功能
+
+    Args:
+        questions: 要测试的问题列表
+        stream: 是否使用流式输出
+    """
+    if questions is None:
+        questions = TEST_QUESTIONS
+
+    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
+
+    for question in questions:
+        print(f"\n{'=' * 70}")
+        print(f"问题: {question}")
+        print("=" * 70)
+
+        # 先检索
+        search_result = search_similar_documents(
+            question=question,
+            es_index_name=index_name,
+            top_k=top_k,
+            similarity_threshold=0.3,
+            verbose=False
+        )
+
+        if not search_result.get("success") or not search_result.get("results"):
+            print("未找到相关文档，跳过生成")
+            continue
+
+        if stream:
+            # 流式生成
+            for _ in generate_answer_stream(
+                    question=question,
+                    results=search_result["results"],
+                    template_name="detailed",
+                    verbose=False
+            ):
+                pass
+        else:
+            # 非流式生成
+            result = generate_answer(
+                question=question,
+                results=search_result["results"],
+                template_name="detailed",
+                verbose=True
+            )
+
+            if result.get("success"):
+                print(f"\n✓ 生成成功")
+                print(f"  模型: {result['model_info']['model_name']}")
+            else:
+                print(f"\n✗ 生成失败")
+
+
+# 在 __main__ 中添加生成测试（放在原有代码末尾，run_all_tests 之后）
+def run_generation_tests():
+
+    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+
+    try:
+        from app.service.core.vector_store import get_vector_search_service
+        search_service = get_vector_search_service()
+        index_exists = search_service.es_store.index_exists(index_name)
+
+        if not index_exists or search_service.es_store.get_document_count(index_name) == 0:
+            print(f"\n⚠ 索引 '{index_name}' 不存在或为空，跳过生成测试")
+            return
+
+        # 测试 LLM 生成
+        test_llm_generation(TEST_QUESTIONS[:2], stream=False)
+
+    except Exception as e:
+        print(f"\n生成测试失败: {e}")
+
 # ==================== 演示 ====================
 if __name__ == "__main__":
     print("\n处理流程:")
     print("  RAG1 流程: 数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗")
     print("  RAG2 流程: 智能分块 -> 向量化 -> 向量存储")
     print("  RAG3 流程: 用户问题向量化 -> 相似度搜索 -> 增强搜索")
+    print("  RAG4 流程: 上下文构造 -> 推理生成")
     print("=" * 70)
 
     # 从环境变量读取配置
@@ -1275,9 +1450,6 @@ if __name__ == "__main__":
                     print(f"\n✗ 增强检索失败: {result.get('error', '未知错误')}")
 
             # 输出汇总
-            print("\n" + "=" * 70)
-            print("演示完成汇总")
-            print("=" * 70)
             print(f"\n总问题数: {len(demo_questions)}")
             print(f"成功: {success_count}")
             print(f"失败: {len(demo_questions) - success_count}")
@@ -1288,3 +1460,16 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"\n增强检索演示失败: {e}")
+
+    prompt_builder = PromptBuilder(max_context_length=4000, include_scores=True)
+    messages = prompt_builder.build_messages(
+        question=question,
+        results=result['results'],  # 检索结果
+        history=None,  # 对话历史（可选）
+        template_name="detailed"
+    )
+
+    print("\n[11/12] 上下文提示词构造...")
+    print(f"构造的消息: {messages}")
+
+    run_generation_tests()

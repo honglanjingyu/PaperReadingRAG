@@ -73,7 +73,7 @@ class DocumentParser:
 
         # 步骤1: 数据加载
         if verbose:
-            print("\n[1/4] 数据加载...")
+            print("\n[1/12] 数据加载...")
         raw_data = self.data_loader.load(file_path, from_page, to_page)
         if verbose:
             print(f"  文件类型: {raw_data['file_type']}")
@@ -81,7 +81,7 @@ class DocumentParser:
 
         # 步骤2: 布局识别
         if verbose:
-            print("\n[2/4] 布局识别...")
+            print("\n[2/12] 布局识别...")
         pages_content = self.layout_recognizer.recognize(raw_data)
         if verbose:
             total_blocks = sum(len(p.text_blocks) for p in pages_content)
@@ -91,12 +91,12 @@ class DocumentParser:
 
         # 步骤3: 连接跨页内容
         if verbose:
-            print("\n[3/4] 连接跨页内容...")
+            print("\n[3/12] 连接跨页内容...")
         pages_content = self.cross_page_connector.connect(pages_content, verbose=verbose)
 
         # 步骤4: 数据清洗
         if verbose:
-            print("\n[4/4] 数据清洗...")
+            print("\n[4/12] 数据清洗...")
 
         # 提取文本
         all_text = self._extract_text_from_pages(pages_content)
