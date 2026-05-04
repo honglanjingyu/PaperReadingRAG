@@ -11,6 +11,7 @@ from .html_parser import RAGFlowHtmlParser
 from .json_parser import RAGFlowJsonParser
 from .markdown_parser import RAGFlowMarkdownParser
 from .ppt_parser import RAGFlowPptParser
+from .remote_pdf_parser import RemotePDFParser, parse_pdf_remote, is_remote_parse_enabled
 
 __all__ = [
     'PlainParser',
@@ -22,4 +23,7 @@ __all__ = [
     'RAGFlowJsonParser',
     'RAGFlowMarkdownParser',
     'RAGFlowPptParser',
+    'RemotePDFParser',
+    'parse_pdf_remote',
+    'is_remote_parse_enabled',
 ]

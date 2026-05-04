@@ -16,6 +16,9 @@ from .parser import (
     RAGFlowJsonParser,
     RAGFlowMarkdownParser,
     RAGFlowPptParser,
+    RemotePDFParser,
+    parse_pdf_remote,
+    is_remote_parse_enabled,
 )
 
 from .cleaner import (
@@ -77,6 +80,9 @@ __all__ = [
     'RAGFlowJsonParser',
     'RAGFlowMarkdownParser',
     'RAGFlowPptParser',
+    'RemotePDFParser',
+    'parse_pdf_remote',
+    'is_remote_parse_enabled',
 
     # 清洗器
     'DataCleaner',

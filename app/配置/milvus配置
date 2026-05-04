@@ -68,6 +68,6 @@ networks:
     external: true
 
 
-docker-compose up -d
+docker-compose up -d --build
 
 注意使用wsl中的python,而milvus部署在windows环境的时候ip地址

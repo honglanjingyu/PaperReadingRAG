@@ -39,14 +39,8 @@ class DocumentParser:
         # 使用 CleaningPipeline 进行批量处理
         self.cleaning_pipeline = CleaningPipeline(clean_config)
 
-    def parse(
-        self,
-        file_path: str,
-        from_page: int = 0,
-        to_page: int = 100000,
-        enable_cleaning: bool = True,
-        verbose: bool = False
-    ) -> ParsedDocument:
+    def parse(self, file_path: str, from_page: int = 0, to_page: int = 100000,
+              enable_cleaning: bool = True, verbose: bool = False) -> ParsedDocument:
         """
         解析文档
 
@@ -75,6 +69,7 @@ class DocumentParser:
         if verbose:
             print("\n[1/12] 数据加载...")
         raw_data = self.data_loader.load(file_path, from_page, to_page)
+        is_remote = raw_data.get('parse_method') == 'remote'
         if verbose:
             print(f"  文件类型: {raw_data['file_type']}")
             print(f"  总页数: {raw_data['total_pages']}")
@@ -92,7 +87,7 @@ class DocumentParser:
         # 步骤3: 连接跨页内容
         if verbose:
             print("\n[3/12] 连接跨页内容...")
-        pages_content = self.cross_page_connector.connect(pages_content, verbose=verbose)
+        pages_content = self.cross_page_connector.connect(pages_content, verbose=verbose, is_remote=is_remote)
 
         # 步骤4: 数据清洗
         if verbose:

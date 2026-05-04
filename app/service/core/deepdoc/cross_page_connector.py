@@ -28,19 +28,23 @@ class CrossPageConnector:
         self._print_count = 0
         self._max_print = max_print
 
-    def connect(self, pages_content: List[PageContent], verbose: bool = False) -> List[PageContent]:
+    def connect(self, pages_content: List[PageContent], verbose: bool = False, is_remote: bool = False) -> List[
+        PageContent]:
         """连接跨页内容"""
         if not pages_content:
             return pages_content
 
-        # 重置统计和打印计数器
+        # 【关键修复】远程解析已经处理了跨页内容，直接返回
+        if is_remote or len(pages_content) <= 1:
+            if verbose:
+                print("  远程解析模式：跳过跨页连接（已由API处理）")
+            return pages_content
+
+        # 原有逻辑...
         self._stats = {'paragraphs_merged': 0, 'tables_merged': 0}
         self._print_count = 0
 
-        # 连接跨页段落
         pages_content = self._connect_paragraphs(pages_content, verbose)
-
-        # 连接跨页表格
         pages_content = self._connect_tables(pages_content, verbose)
 
         if verbose:
