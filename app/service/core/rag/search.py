@@ -268,7 +268,7 @@ def enhanced_search_with_hybrid_and_rerank(
 
     try:
         from app.service.core.retrieval import HybridRetriever
-        hybrid_retriever = HybridRetriever()
+        hybrid_retriever = HybridRetriever(use_jieba=True)
 
         # ✅ 关键修复：使用改写后的问题进行相似度搜索，并传递 verbose 参数
         hybrid_results = hybrid_retriever.hybrid_search(

@@ -119,7 +119,6 @@ def run_all_tests():
             if generation_result.get("success"):
                 print(f"\n✓ 生成成功")
                 print(f"  模型: {generation_result['model_info']['model_name']}")
-                print(f"\n答案预览: {generation_result['answer'][:300]}...")
             else:
                 print(f"\n✗ 生成失败")
     else:

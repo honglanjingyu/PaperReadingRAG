@@ -72,6 +72,7 @@ beautifulsoup4==4.12.3
 tika==2.6.0
 colorlog==6.8.0
 dotenv==0.9.9
+rank-bm25==0.2.2
 
 # 可选 本地模型部署
 # 安装torch,torchaudio,torchvision,sentence-transformers
