@@ -17,12 +17,12 @@ class VectorSearchService:
         self.es_store = self.store  # 保持向后兼容
 
     def similarity_search(
-        self,
-        query_vector: List[float],
-        index_name: str,
-        top_k: int = 5,
-        similarity_threshold: float = 0.5,
-        filter_condition: Optional[Dict] = None
+            self,
+            query_vector: List[float],
+            index_name: str,
+            top_k: int = 5,
+            similarity_threshold: float = 0.5,
+            filter_condition: Optional[Dict] = None
     ) -> List[Dict[str, Any]]:
         """相似度搜索"""
         if not query_vector:
@@ -46,6 +46,10 @@ class VectorSearchService:
                 filter_condition=filter_condition,
                 similarity_threshold=similarity_threshold
             )
+
+            # 关键修复：确保结果按 _score 降序排序
+            results.sort(key=lambda x: x.get("_score", 0), reverse=True)
+
             logger.info(f"相似度搜索完成: 召回 {len(results)} 个文档块")
             return results
         except Exception as e:
@@ -53,11 +57,11 @@ class VectorSearchService:
             return []
 
     def batch_similarity_search(
-        self,
-        query_vectors: List[List[float]],
-        index_name: str,
-        top_k: int = 5,
-        similarity_threshold: float = 0.5
+            self,
+            query_vectors: List[List[float]],
+            index_name: str,
+            top_k: int = 5,
+            similarity_threshold: float = 0.5
     ) -> List[List[Dict[str, Any]]]:
         """批量相似度搜索"""
         all_results = []

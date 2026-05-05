@@ -43,7 +43,7 @@ def process_document(
     file_path: str,
     chunk_size: int = 256,
     enable_vectorization: bool = True,
-    enable_storage: bool = False,
+    enable_storage: bool = True,
     model_type: str = None,
     from_page: int = 0,
     to_page: int = None,

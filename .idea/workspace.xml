@@ -1,27 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="可以使用milvus">
-      <change afterPath="$PROJECT_DIR$/app/service/core/deepdoc/parser/remote_pdf_parser.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/test/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/debug_remote_parse.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/测试输出(远程文档解析).txt" afterDir="false" />
+    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="使用Mineru解析PDF">
+      <change afterPath="$PROJECT_DIR$/app/test/debug_remote_parse.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/demo_milvus.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/cross_page_connector.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/cross_page_connector.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/document_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/document_parser.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/layout_recognizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/layout_recognizer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/loader.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/parser/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/RAG4.py" beforeDir="false" afterPath="$PROJECT_DIR$/RAG4.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/embedding_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/embedding_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/local_embedding.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/local_embedding.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/remote_embedding.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/remote_embedding.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/rag/processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/processor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/rag/search.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/search.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/retrieval/hybrid_retriever.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/retrieval/hybrid_retriever.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/retrieval/reranker.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/retrieval/reranker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/es_vector_store.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/es_vector_store.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/milvus_vector_store.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/milvus_vector_store.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/vector_search_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/vector_search_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/delete_index.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/test/delete_index.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/milvus_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/test/milvus_test.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/vector_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/test/vector_test.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/典型RAG架构.txt" beforeDir="false" afterPath="$PROJECT_DIR$/典型RAG架构.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/测试输出.txt" beforeDir="false" afterPath="$PROJECT_DIR$/测试输出(本地文档解析).txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/配置/elasticsearch配置.txt" beforeDir="false" afterPath="$PROJECT_DIR$/app/配置/elasticsearch配置.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/配置/milvus配置" beforeDir="false" afterPath="$PROJECT_DIR$/app/配置/milvus配置" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -90,6 +87,7 @@
     "Python.debug_remote_parse.executor": "Run",
     "Python.delete_index.executor": "Run",
     "Python.demo.executor": "Run",
+    "Python.demo_milvus.executor": "Run",
     "Python.elasticsearch_test.executor": "Run",
     "Python.es_delete.executor": "Run",
     "Python.milvus_demo.executor": "Run",
@@ -120,6 +118,7 @@
       <recent name="D:\JetBrains\PyCharm 2025.3.3\pycharmproject\PaperReadingRAG\pdfparse_demo" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="D:\JetBrains\PyCharm 2025.3.3\pycharmproject\PaperReadingRAG\app\test" />
       <recent name="D:\JetBrains\PyCharm 2025.3.3\pycharmproject\PaperReadingRAG\app" />
       <recent name="D:\JetBrains\PyCharm 2025.3.3\pycharmproject\PaperReadingRAG\配置" />
       <recent name="D:\JetBrains\PyCharm 2025.3.3\pycharmproject\PaperReadingRAG\test" />
@@ -162,7 +161,14 @@
       <workItem from="1777853707276" duration="2039000" />
       <workItem from="1777855906514" duration="408000" />
       <workItem from="1777856383440" duration="359000" />
-      <workItem from="1777857829952" duration="3831000" />
+      <workItem from="1777857829952" duration="4400000" />
+      <workItem from="1777863712663" duration="2128000" />
+      <workItem from="1777879813003" duration="172000" />
+      <workItem from="1777880340517" duration="12000" />
+      <workItem from="1777889349454" duration="183000" />
+      <workItem from="1777890356439" duration="19000" />
+      <workItem from="1777907763775" duration="784000" />
+      <workItem from="1777938238527" duration="2970000" />
     </task>
     <task id="LOCAL-00001" summary="First Commit">
       <option name="closed" value="true" />
@@ -276,7 +282,15 @@
       <option name="project" value="LOCAL" />
       <updated>1777771123362</updated>
     </task>
-    <option name="localTasksCounter" value="15" />
+    <task id="LOCAL-00015" summary="使用Mineru解析PDF">
+      <option name="closed" value="true" />
+      <created>1777861981113</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1777861981113</updated>
+    </task>
+    <option name="localTasksCounter" value="16" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -305,19 +319,21 @@
     <MESSAGE value="上下文构建,大模型生成" />
     <MESSAGE value="重构架构" />
     <MESSAGE value="可以使用milvus" />
-    <option name="LAST_COMMIT_MESSAGE" value="可以使用milvus" />
+    <MESSAGE value="使用Mineru解析PDF" />
+    <option name="LAST_COMMIT_MESSAGE" value="使用Mineru解析PDF" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/PaperReadingRAG$rerank_test.coverage" NAME="rerank_test 覆盖结果" MODIFIED="1777706882591" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$utils.coverage" NAME="utils 覆盖结果" MODIFIED="1777730598073" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/pdfparse_demo/deepdoc/parser" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG2_.coverage" NAME="RAG2-向量存储 覆盖结果" MODIFIED="1777639463730" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG4.coverage" NAME="RAG4 覆盖结果" MODIFIED="1777861486227" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG4.coverage" NAME="RAG4 覆盖结果" MODIFIED="1777941298332" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$vector_test.coverage" NAME="vector_test 覆盖结果" MODIFIED="1777769328809" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG1.coverage" NAME="RAG1 覆盖结果" MODIFIED="1777642924854" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo.coverage" NAME="demo 覆盖结果" MODIFIED="1777731978788" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/deepdoc" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG1_.coverage" NAME="RAG1-数据清洗 覆盖结果" MODIFIED="1777606611791" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$vector_storage_service.coverage" NAME="vector_storage_service 覆盖结果" MODIFIED="1777633493351" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/service/core/vector_store" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$milvus_demo.coverage" NAME="milvus_demo 覆盖结果" MODIFIED="1777728934140" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_milvus.coverage" NAME="demo_milvus 覆盖结果" MODIFIED="1777940209494" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$es_delete.coverage" NAME="es_delete 覆盖结果" MODIFIED="1777684537873" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$debug_remote_parse.coverage" NAME="debug_remote_parse 覆盖结果" MODIFIED="1777858371817" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$test_remote_parse.coverage" NAME="test_remote_parse 覆盖结果" MODIFIED="1777860321156" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

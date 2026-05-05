@@ -75,14 +75,15 @@ def main():
     # 从环境变量读取配置
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "256"))
     ENABLE_VECTORIZATION = os.getenv("ENABLE_VECTORIZATION", "true").lower() == "true"
-    ENABLE_STORAGE = os.getenv("ENABLE_STORAGE", "false").lower() == "true"
-    MODEL_TYPE = os.getenv("EMBEDDING_TYPE", "local")
-    INDEX_NAME = os.getenv("ES_INDEX_NAME", "rag_documents")
+    # 存储功能默认启用，不再从环境变量读取
+    ENABLE_STORAGE = True  # 写死为 True
+    MODEL_TYPE = os.getenv("EMBEDDING_TYPE", "remote")
+    INDEX_NAME = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
 
     print(f"\n配置信息:")
     print(f"  分块大小: {CHUNK_SIZE} tokens")
     print(f"  向量化: {'启用' if ENABLE_VECTORIZATION else '禁用'}")
-    print(f"  存储: {'启用' if ENABLE_STORAGE else '禁用'}")
+    print(f"  存储: {'启用' if ENABLE_STORAGE else '禁用'} (默认启用)")
     if ENABLE_VECTORIZATION:
         print(f"  模型类型: {MODEL_TYPE}")
     print(f"  索引名称: {INDEX_NAME}")
@@ -95,12 +96,11 @@ def main():
     pdf_file = "【兴证电子】世运电路2023中报点评.pdf"
 
     if os.path.exists(pdf_file):
-
         result = process_document(
             file_path=pdf_file,
             chunk_size=CHUNK_SIZE,
             enable_vectorization=ENABLE_VECTORIZATION,
-            enable_storage=ENABLE_STORAGE,
+            enable_storage=ENABLE_STORAGE,  # 现在总是 True
             model_type=MODEL_TYPE,
             from_page=0,
             to_page=5,
@@ -129,7 +129,6 @@ def main():
 
     # 运行测试
     run_all_tests()
-
 
 if __name__ == "__main__":
     main()

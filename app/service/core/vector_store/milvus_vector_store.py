@@ -64,7 +64,7 @@ class MilvusVectorStore:
 
     def create_index(self, index_name: str, vector_dim: int = None,
                      metric_type: str = "COSINE", **kwargs) -> bool:
-        """创建集合"""
+        """创建集合 - 确保索引正确创建"""
         self._ensure_connected()
 
         if vector_dim is None:
@@ -73,6 +73,22 @@ class MilvusVectorStore:
         # 检查集合是否存在
         if utility.has_collection(index_name):
             logger.info(f"集合已存在: {index_name}")
+            # 关键修复：即使集合存在，也要检查索引是否存在
+            collection = Collection(index_name)
+            try:
+                # 检查索引是否存在
+                collection.index()
+                logger.info(f"索引已存在，跳过创建")
+            except Exception as e:
+                logger.warning(f"索引不存在，正在创建: {e}")
+                # 创建索引
+                index_params = {
+                    "metric_type": metric_type,
+                    "index_type": "IVF_FLAT",
+                    "params": {"nlist": 128}
+                }
+                collection.create_index("vector", index_params)
+                logger.info(f"索引创建成功")
             return True
 
         # 定义字段
@@ -94,7 +110,7 @@ class MilvusVectorStore:
         schema = CollectionSchema(fields, description=f"RAG 文档集合: {index_name}")
         collection = Collection(index_name, schema)
 
-        # 创建索引
+        # 关键修复：创建索引（必须在插入数据之前，或者插入之后但搜索之前）
         index_params = {
             "metric_type": metric_type,
             "index_type": "IVF_FLAT",
@@ -288,8 +304,19 @@ class MilvusVectorStore:
             # 确保查询向量是浮点数列表
             query_vector = [float(v) for v in query_vector]
 
-            # 构建搜索参数
-            search_params = {"metric_type": "COSINE", "params": {"nprobe": 10}}
+            # 关键修复1：检查向量维度是否匹配
+            vector_dim = len(query_vector)
+            logger.info(f"搜索: 查询向量维度={vector_dim}, top_k={top_k}, 阈值={similarity_threshold}")
+
+            # 关键修复2：不是归一化，而是使用正确的搜索参数
+            # Milvus 的 COSINE 相似度：返回的是 (1 - cosine_distance) 范围 0-2
+            # 不需要预先归一化，Milvus 内部会处理
+
+            # 构建搜索参数 - 使用更宽松的参数
+            search_params = {
+                "metric_type": "COSINE",
+                "params": {"nprobe": 20}  # 增加 nprobe 值提高召回率
+            }
 
             # 构建过滤表达式
             expr = self._build_filter_expr(filter_condition) if filter_condition else None
@@ -308,15 +335,23 @@ class MilvusVectorStore:
                 ]
             )
 
-            # 格式化结果
+            # 格式化结果 - COSINE 返回的分数范围是 0-2，需要转换
+            # 转换公式: cosine_similarity = 1 - distance (对于 COSINE metric_type)
             formatted_results = []
             for hits in results:
+                logger.info(f"搜索返回 {len(hits)} 个结果")
                 for hit in hits:
-                    score = hit.score
-                    if score >= similarity_threshold:
+                    # Milvus 返回的 score 是距离，对于 COSINE 是 1 - cosine_similarity
+                    # 所以实际相似度 = 1 - score
+                    raw_score = hit.score
+                    similarity = 1.0 - raw_score  # 转换回余弦相似度
+
+                    logger.debug(f"  hit: id={hit.id}, raw_score={raw_score:.4f}, similarity={similarity:.4f}")
+
+                    if similarity >= similarity_threshold:
                         doc = {
                             "_id": hit.id,
-                            "_score": score,
+                            "_score": similarity,  # 使用转换后的相似度
                             "content": hit.entity.get("content", ""),
                             "content_with_weight": hit.entity.get("content_with_weight", ""),
                             "docnm": hit.entity.get("docnm", ""),
@@ -331,6 +366,12 @@ class MilvusVectorStore:
 
             logger.info(f"向量搜索完成: 召回 {len(formatted_results)} 个文档")
             return formatted_results
+
+        except Exception as e:
+            logger.error(f"向量搜索失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
         except Exception as e:
             logger.error(f"向量搜索失败: {e}")

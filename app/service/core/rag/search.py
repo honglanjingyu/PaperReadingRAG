@@ -71,14 +71,13 @@ def vectorize_user_question(
             print(f"  问题向量化失败: {e}")
         return {"success": False, "question": question, "error": str(e)}
 
-
 def search_similar_documents(
-    question: str,
-    es_index_name: str = None,
-    top_k: int = 5,
-    similarity_threshold: float = 0.5,
-    model_type: str = None,
-    verbose: bool = True
+        question: str,
+        es_index_name: str = None,
+        top_k: int = 5,
+        similarity_threshold: float = 0.5,
+        model_type: str = None,
+        verbose: bool = True
 ) -> dict:
     """
     相似度搜索：在向量数据库中召回最相关的 Top-K 个文档块
@@ -125,16 +124,22 @@ def search_similar_documents(
             print(f"  索引名称: {es_index_name}")
             print(f"  召回数量: {len(results)}/{top_k}")
 
+        # 关键修复：确保结果按 _score 降序排序
+        results = sorted(results, key=lambda x: x.get("_score", 0), reverse=True)
+
         formatted_results = []
         for i, result in enumerate(results, 1):
+            # 确保使用正确的分数
+            score = result.get("_score", 0)
+
             formatted_results.append({
                 "rank": i,
-                "score": result.get("_score", 0),
+                "score": score,
                 "content": result.get("content_with_weight", result.get("content", "")),
                 "document_name": result.get("docnm", result.get("docnm_kwd", "")),
                 "chunk_id": result.get("_id", result.get("id", "")),
                 "metadata": {k: v for k, v in result.items()
-                           if k not in ["content", "content_with_weight", "_score", "_id", "id"]}
+                             if k not in ["content", "content_with_weight", "_score", "_id", "id"]}
             })
 
         if verbose and formatted_results:
@@ -165,10 +170,6 @@ def search_similar_documents(
             print(f"  相似度搜索失败: {e}")
         return {"success": False, "question": question, "error": str(e)}
 
-
-# app/service/core/rag/search.py
-# 修改 enhanced_search_with_hybrid_and_rerank 函数
-
 def enhanced_search_with_hybrid_and_rerank(
         question: str,
         index_name: str = None,
@@ -178,7 +179,7 @@ def enhanced_search_with_hybrid_and_rerank(
         enable_rerank: bool = True,
         enable_query_rewrite: bool = True,
         similarity_threshold: float = 0.3,
-        rerank_type: str = "auto",  # auto, api, local, vector
+        rerank_type: str = "auto",
         verbose: bool = True
 ) -> dict:
     """
@@ -253,6 +254,10 @@ def enhanced_search_with_hybrid_and_rerank(
         )
         if verbose:
             print(f"  混合检索召回: {len(hybrid_results)} 个块")
+
+        # 确保混合检索结果已排序
+        hybrid_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
+
     except Exception as e:
         if verbose:
             print(f"  混合检索失败: {e}，回退到向量检索")
@@ -271,14 +276,14 @@ def enhanced_search_with_hybrid_and_rerank(
         else:
             hybrid_results = []
 
+    # 重排序
+    final_results = hybrid_results
     if enable_rerank and hybrid_results:
         if verbose:
             print("\n[11/12] 重排序...")
             print(f"  重排序类型: {rerank_type}")
-            # 显示配置的模型信息
             rerank_model = os.getenv("RERANK_MODEL", "gte-rerank")
             print(f"  Rerank模型: {rerank_model}")
-            print(f"  Rerank API: {os.getenv('RERANK_API_URL', '未配置')}")
 
         try:
             from app.service.core.retrieval import Reranker
@@ -291,7 +296,6 @@ def enhanced_search_with_hybrid_and_rerank(
 
             if verbose:
                 print(f"  重排序完成: {len(final_results)} 个块")
-                # 显示实际使用的重排序方式
                 if final_results and len(final_results) > 0:
                     source = final_results[0].get('rerank_source', 'unknown')
                     if source == 'dashscope_http':
@@ -302,20 +306,36 @@ def enhanced_search_with_hybrid_and_rerank(
                         print(f"  实际使用: 向量相似度")
                     else:
                         print(f"  实际使用: {source}")
+
+            # 关键修复：确保重排序结果按分数降序排列
+            if final_results:
+                final_results.sort(key=lambda x: x.get('rerank_score', x.get('final_score', 0)), reverse=True)
+                final_results = final_results[:top_k]
+
         except Exception as e:
             if verbose:
                 print(f"  重排序失败: {e}，使用原始排序")
             final_results = hybrid_results[:top_k]
+            final_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
     else:
         final_results = hybrid_results[:top_k]
         if verbose and not enable_rerank:
             print("\n[10/12] 重排序已跳过 (enable_rerank=False)")
+        # 确保排序
+        if final_results:
+            final_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
 
+    # 格式化结果
     formatted_results = []
     for i, result in enumerate(final_results, 1):
+        # 获取综合分数，优先级：rerank_score > final_score > _score
+        score = result.get('rerank_score',
+                           result.get('final_score',
+                                      result.get('_score', 0)))
+
         formatted_results.append({
             "rank": i,
-            "score": result.get("final_score", result.get("_score", result.get("rerank_score", 0))),
+            "score": score,
             "vector_score": result.get("vector_score", 0),
             "keyword_score": result.get("keyword_score", 0),
             "rerank_score": result.get("rerank_score", 0),

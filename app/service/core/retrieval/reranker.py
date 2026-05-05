@@ -1,8 +1,4 @@
 # app/service/core/retrieval/reranker.py
-"""
-重排序器 - 使用 HTTP API 调用 DashScope Rerank
-支持 HTTP API、本地Cross-Encoder、向量相似度三种方式
-"""
 
 import logging
 import os
@@ -12,81 +8,75 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入本地sentence-transformers
 try:
     from sentence_transformers import CrossEncoder
-
     CROSS_ENCODER_AVAILABLE = True
 except ImportError:
     CROSS_ENCODER_AVAILABLE = False
     logger.info("sentence-transformers未安装，本地Cross-Encoder重排序不可用")
 
 
+def get_rerank_type() -> str:
+    """获取重排序类型配置"""
+    rerank_type = os.getenv("RERANK_TYPE", "auto").lower()
+    if rerank_type == "api":
+        return "remote"
+    return rerank_type
+
+
+def get_rerank_api_key() -> str:
+    """获取 Rerank API Key：优先获取专用 key，再获取通用 key"""
+    return os.getenv("RERANK_API_KEY") or os.getenv("MODEL_API_KEY")
+
+
+def get_rerank_base_url() -> str:
+    """获取 Rerank API Base URL"""
+    return os.getenv("RERANK_BASE_URL") or os.getenv("RERANK_API_URL") or os.getenv("LLM_BASE_URL")
+
+
+def get_rerank_model() -> str:
+    """获取 Rerank 模型名称"""
+    return os.getenv("RERANK_MODEL", "gte-rerank")
+
+
+def get_local_rerank_path() -> str:
+    """获取本地 Rerank 模型路径"""
+    return os.getenv("LOCAL_RERANK_PATH")
+
+
+def get_local_rerank_model() -> str:
+    """获取本地 Rerank 模型名称"""
+    return os.getenv("LOCAL_RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+
 class DashScopeRerankHTTP:
     """使用 HTTP API 直接调用 DashScope Rerank"""
 
     def __init__(self, api_key: str = None, base_url: str = None, model: str = None):
-        """
-        初始化 HTTP Rerank 客户端
+        # 优先级：参数 > 专用环境变量 > 通用环境变量
+        self.api_key = api_key or get_rerank_api_key()
+        self.base_url = base_url or get_rerank_base_url()
+        self.model = model or get_rerank_model()
 
-        Args:
-            api_key: API Key，从环境变量 LLM_API_KEY 读取
-            base_url: Rerank API 地址，从环境变量 RERANK_API_URL 读取
-            model: 模型名称，从环境变量 RERANK_MODEL 读取
-        """
-        # 从环境变量读取配置
-        self.api_key = api_key or os.getenv("LLM_API_KEY")
-        self.base_url = base_url or os.getenv("RERANK_API_URL")
-        self.model = model or os.getenv("RERANK_MODEL", "gte-rerank")
-
-        # 验证配置
         if not self.api_key:
-            logger.warning("未配置 LLM_API_KEY，HTTP Rerank 不可用")
+            logger.warning("未配置 Rerank API Key，请设置 RERANK_API_KEY 或 MODEL_API_KEY")
 
         if not self.base_url:
-            logger.warning("未配置 RERANK_API_URL，HTTP Rerank 不可用")
-            logger.info(
-                "请在 .env 中设置 RERANK_API_URL=https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank")
+            logger.warning("未配置 Rerank API URL，请设置 RERANK_BASE_URL 或 RERANK_API_URL")
+            logger.info("例如: RERANK_BASE_URL=https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank")
 
         if self.api_key and self.base_url:
-            logger.info(f"HTTP Rerank 客户端初始化成功")
-            logger.info(f"  API URL: {self.base_url}")
-            logger.info(f"  Model: {self.model}")
+            logger.info(f"HTTP Rerank 客户端初始化成功: model={self.model}")
         else:
             logger.warning("HTTP Rerank 客户端初始化失败，配置不完整")
 
-    def rerank(
-            self,
-            query: str,
-            documents: List[str],
-            top_n: int = 5,
-            model: str = None
-    ) -> List[Dict]:
-        """
-        调用 Rerank API
-
-        Args:
-            query: 查询文本
-            documents: 文档文本列表
-            top_n: 返回数量
-            model: 模型名称（可选，覆盖默认值）
-
-        Returns:
-            排序后的结果列表，每个结果包含 index 和 relevance_score
-        """
-        # 检查配置
-        if not self.api_key:
-            logger.error("缺少 API Key (LLM_API_KEY)，无法调用 Rerank API")
-            return []
-
-        if not self.base_url:
-            logger.error("缺少 Rerank API URL (RERANK_API_URL)，无法调用 Rerank API")
+    def rerank(self, query: str, documents: List[str], top_n: int = 5, model: str = None) -> List[Dict]:
+        if not self.api_key or not self.base_url:
             return []
 
         if not documents:
             return []
 
-        # 使用传入的 model 或默认的 self.model
         model_name = model or self.model
 
         headers = {
@@ -94,7 +84,6 @@ class DashScopeRerankHTTP:
             "Content-Type": "application/json"
         }
 
-        # 构建请求体
         body = {
             "model": model_name,
             "input": {
@@ -107,15 +96,7 @@ class DashScopeRerankHTTP:
         }
 
         try:
-            logger.debug(
-                f"调用 Rerank API: URL={self.base_url}, model={model_name}, query={query[:50]}..., docs={len(documents)}")
-
-            response = requests.post(
-                self.base_url,
-                headers=headers,
-                json=body,
-                timeout=30
-            )
+            response = requests.post(self.base_url, headers=headers, json=body, timeout=30)
 
             if response.status_code == 200:
                 result = response.json()
@@ -123,42 +104,17 @@ class DashScopeRerankHTTP:
                 logger.info(f"Rerank API 调用成功: 返回 {len(api_results)} 个结果")
                 return api_results
             else:
-                logger.error(f"Rerank API 调用失败: status={response.status_code}, response={response.text}")
+                logger.error(f"Rerank API 调用失败: status={response.status_code}")
                 return []
 
-        except requests.exceptions.Timeout:
-            logger.error("Rerank API 请求超时")
-            return []
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"Rerank API 连接失败: {e}")
-            return []
         except Exception as e:
             logger.error(f"Rerank API 请求异常: {e}")
             return []
 
-    def rerank_documents(
-            self,
-            query: str,
-            documents: List[Dict],
-            content_field: str = "content_with_weight",
-            top_n: int = 5
-    ) -> Optional[List[Dict]]:
-        """
-        对文档列表进行重排序
-
-        Args:
-            query: 查询文本
-            documents: 文档字典列表
-            content_field: 内容字段名
-            top_n: 返回数量
-
-        Returns:
-            重排序后的文档列表，失败返回 None
-        """
+    def rerank_documents(self, query: str, documents: List[Dict], content_field: str = "content_with_weight", top_n: int = 5) -> Optional[List[Dict]]:
         if not documents:
             return None
 
-        # 提取文本内容，同时记录有效索引
         texts = []
         valid_indices = []
 
@@ -169,16 +125,13 @@ class DashScopeRerankHTTP:
                 valid_indices.append(i)
 
         if not texts:
-            logger.warning("没有有效的文档内容用于重排序")
             return None
 
-        # 调用 API
         api_results = self.rerank(query, texts, top_n)
 
         if not api_results:
             return None
 
-        # 映射回原始文档
         reranked = []
         for api_result in api_results:
             idx = api_result.get("index")
@@ -190,11 +143,12 @@ class DashScopeRerankHTTP:
                 doc['rerank_source'] = 'dashscope_http'
                 reranked.append(doc)
 
-        logger.info(f"HTTP Rerank 完成: {len(reranked)}/{len(documents)} 个结果")
+        # 关键修复：按 rerank_score 降序排序（确保顺序正确）
+        reranked.sort(key=lambda x: x.get('rerank_score', 0), reverse=True)
+
         return reranked
 
     def is_available(self) -> bool:
-        """检查客户端是否可用"""
         return bool(self.api_key and self.base_url)
 
 
@@ -203,31 +157,22 @@ class Reranker:
 
     def __init__(
             self,
-            model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
-            api_type: str = "auto",  # auto: 自动选择, api: HTTP API, local: 本地模型, vector: 向量相似度
+            model_name: str = None,
+            api_type: str = None,
             api_key: str = None,
             rerank_model: str = None,
             base_url: str = None
     ):
-        """
-        初始化重排序器
-
-        Args:
-            model_name: 本地Cross-Encoder模型名称
-            api_type: 重排序类型 ('auto', 'api', 'local', 'vector')
-            api_key: API Key（从环境变量 LLM_API_KEY 读取）
-            rerank_model: Rerank 模型名称（从环境变量 RERANK_MODEL 读取）
-            base_url: Rerank API 地址（从环境变量 RERANK_API_URL 读取）
-        """
-        self.api_type = api_type
+        # 优先级：参数 > 环境变量 > 默认值
+        self.api_type = api_type or get_rerank_type()
         self.cross_encoder = None
 
-        # 从环境变量读取配置
-        self.api_key = api_key or os.getenv("LLM_API_KEY")
-        self.rerank_model = rerank_model or os.getenv("RERANK_MODEL", "gte-rerank")
-        self.base_url = base_url or os.getenv("RERANK_API_URL")
+        self.api_key = api_key or get_rerank_api_key()
+        self.rerank_model = rerank_model or get_rerank_model()
+        self.base_url = base_url or get_rerank_base_url()
+        self.local_model_path = get_local_rerank_path()
+        self.local_model_name = model_name or get_local_rerank_model()
 
-        # 初始化 HTTP Rerank 客户端
         self.http_reranker = None
         if self.api_key and self.base_url:
             self.http_reranker = DashScopeRerankHTTP(
@@ -236,94 +181,67 @@ class Reranker:
                 model=self.rerank_model
             )
         else:
-            logger.warning("HTTP Rerank 配置不完整，将使用其他重排序方式")
+            logger.warning("HTTP Rerank 配置不完整")
 
-        # 根据 api_type 初始化
-        if api_type == "auto":
+        if self.api_type == "auto":
             self._auto_select()
-        elif api_type == "remote":
+        elif self.api_type == "remote" or self.api_type == "api":
             if not self.http_reranker or not self.http_reranker.is_available():
                 logger.warning("HTTP API 不可用，降级到向量相似度")
-        elif api_type == "local":
-            self._init_local(model_name)
-        elif api_type == "vector":
+        elif self.api_type == "local":
+            self._init_local()
+        elif self.api_type == "vector":
             logger.info("使用向量相似度重排序")
-        else:
-            self._auto_select()
 
     def _auto_select(self):
-        """自动选择最佳可用的重排序方式"""
-        # 优先使用 HTTP API
         if self.http_reranker and self.http_reranker.is_available():
             logger.info("自动选择: HTTP Rerank API")
             return
 
-        # 其次使用本地Cross-Encoder
         if CROSS_ENCODER_AVAILABLE:
             logger.info("自动选择: 本地Cross-Encoder模型")
             self._init_local()
             return
 
-        # 最后使用向量相似度
         logger.info("自动选择: 向量相似度重排序")
 
-    def _init_local(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
-        """初始化本地Cross-Encoder模型"""
+    def _init_local(self):
         if not CROSS_ENCODER_AVAILABLE:
             logger.warning("sentence-transformers未安装，无法使用本地Cross-Encoder")
             return
 
         try:
-            self.cross_encoder = CrossEncoder(model_name)
-            logger.info(f"本地Cross-Encoder模型加载成功: {model_name}")
+            model_path = self.local_model_path or self.local_model_name
+            self.cross_encoder = CrossEncoder(model_path)
+            logger.info(f"本地Cross-Encoder模型加载成功: {model_path}")
         except Exception as e:
             logger.warning(f"本地Cross-Encoder模型加载失败: {e}")
 
-    def rerank(
-            self,
-            query: str,
-            documents: List[Dict[str, Any]],
-            top_k: int = 5,
-            content_field: str = "content_with_weight"
-    ) -> List[Dict[str, Any]]:
-        """
-        对检索结果进行重排序
-
-        Args:
-            query: 查询文本
-            documents: 检索结果列表
-            top_k: 返回数量
-            content_field: 内容字段名
-
-        Returns:
-            重排序后的结果列表
-        """
+    def rerank(self, query: str, documents: List[Dict], top_k: int = 5, content_field: str = "content_with_weight") -> List[Dict]:
+        """重排序"""
         if not documents:
             return []
 
-        # 根据选择的类型进行重排序
-        if self.api_type == "remote" or (
-                self.api_type == "auto" and self.http_reranker and self.http_reranker.is_available()):
+        result = None
+
+        if self.api_type == "remote" or self.api_type == "api" or (self.api_type == "auto" and self.http_reranker and self.http_reranker.is_available()):
             result = self._rerank_with_http_api(query, documents, top_k, content_field)
             if result:
-                return result
+                # 确保排序
+                result.sort(key=lambda x: x.get('rerank_score', 0), reverse=True)
+                return result[:top_k]
 
         if self.api_type == "local" or (self.api_type == "auto" and self.cross_encoder):
             result = self._rerank_with_cross_encoder(query, documents, top_k, content_field)
             if result:
-                return result
+                result.sort(key=lambda x: x.get('rerank_score', 0), reverse=True)
+                return result[:top_k]
 
-        # 默认使用向量相似度
-        return self._rerank_with_vector_similarity(query, documents, top_k, content_field)
+        result = self._rerank_with_vector_similarity(query, documents, top_k, content_field)
+        result.sort(key=lambda x: x.get('rerank_score', 0), reverse=True)
+        return result[:top_k]
 
-    def _rerank_with_http_api(
-            self,
-            query: str,
-            documents: List[Dict],
-            top_k: int,
-            content_field: str
-    ) -> Optional[List[Dict]]:
-        """使用 HTTP API 重排序"""
+    def _rerank_with_http_api(self, query: str, documents: List[Dict], top_k: int, content_field: str) -> Optional[List[Dict]]:
         if not self.http_reranker or not self.http_reranker.is_available():
             return None
 
@@ -333,14 +251,7 @@ class Reranker:
             logger.error(f"HTTP API 重排序失败: {e}")
             return None
 
-    def _rerank_with_cross_encoder(
-            self,
-            query: str,
-            documents: List[Dict],
-            top_k: int,
-            content_field: str
-    ) -> Optional[List[Dict]]:
-        """使用本地Cross-Encoder重排序"""
+    def _rerank_with_cross_encoder(self, query: str, documents: List[Dict], top_k: int, content_field: str) -> Optional[List[Dict]]:
         if not self.cross_encoder:
             return None
 
@@ -355,20 +266,13 @@ class Reranker:
                 doc['rerank_source'] = 'cross_encoder'
 
             documents.sort(key=lambda x: x.get('rerank_score', 0), reverse=True)
-            logger.info(f"Cross-Encoder 重排序完成: {len(documents)} -> {top_k}")
             return documents[:top_k]
 
         except Exception as e:
             logger.error(f"Cross-Encoder重排序失败: {e}")
             return None
 
-    def _rerank_with_vector_similarity(
-            self,
-            query: str,
-            documents: List[Dict],
-            top_k: int,
-            content_field: str
-    ) -> List[Dict]:
+    def _rerank_with_vector_similarity(self, query: str, documents: List[Dict], top_k: int, content_field: str) -> List[Dict]:
         """使用向量相似度重排序（备用方案）"""
         try:
             from app.service.core.embedding import get_embedding_manager
@@ -383,6 +287,10 @@ class Reranker:
             for doc in documents:
                 # 尝试从文档中获取向量
                 doc_vector = None
+                # 优先查找 vector 字段（Milvus）
+                if 'vector' in doc and isinstance(doc['vector'], list):
+                    doc_vector = doc['vector']
+                # 然后查找 q_{dim}_vec 格式的字段（ES）
                 for key, value in doc.items():
                     if key.endswith('_vec') and isinstance(value, list):
                         doc_vector = value
@@ -408,7 +316,6 @@ class Reranker:
             return documents[:top_k]
 
     def get_available_method(self) -> str:
-        """获取当前可用的重排序方法"""
         if self.http_reranker and self.http_reranker.is_available() and self.api_type != "local":
             return "http_api"
         elif self.cross_encoder:
@@ -417,4 +324,4 @@ class Reranker:
             return "vector_similarity"
 
 
-__all__ = ['Reranker', 'DashScopeRerankHTTP']
+__all__ = ['Reranker', 'DashScopeRerankHTTP', 'get_rerank_type', 'get_rerank_api_key', 'get_rerank_base_url', 'get_rerank_model']

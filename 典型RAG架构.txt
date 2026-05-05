@@ -24,3 +24,17 @@
 数据更新、版本管理、缓存等
 8.待解决
 可视化,权限问题
+
+优化:
+1.远程mineru解析pdf      完成
+2.fastapi
+3.允许本地部署模型,允许embedding,rerank,llm 这三者的base_url和api_key 不同  完成
+4.文档权限
+5.redis缓存
+6.过长文档自动拆分
+7.chunk优化 表格不切块 标题和下面的文档一起返回
+8.去重
+9.意图识别,路由
+10.并行
+11.AI自动构建图谱
+12.similar top 10 然后 rerank混合排序 top 5

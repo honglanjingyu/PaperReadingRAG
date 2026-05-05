@@ -230,6 +230,9 @@ class ESVectorStore:
                     result["_id"] = hit["_id"]
                     results.append(result)
 
+            # 关键修复：确保按分数降序排序
+            results.sort(key=lambda x: x.get("_score", 0), reverse=True)
+
             logger.info(f"向量搜索完成: 召回 {len(results)} 个文档")
             return results
 
