@@ -170,10 +170,12 @@ def search_similar_documents(
             print(f"  相似度搜索失败: {e}")
         return {"success": False, "question": question, "error": str(e)}
 
+
 def enhanced_search_with_hybrid_and_rerank(
         question: str,
         index_name: str = None,
-        top_k: int = 5,
+        top_k: int = 5,  # 最终返回数量
+        recall_k: int = 10,  # 召回数量
         keyword_weight: float = 0.3,
         vector_weight: float = 0.7,
         enable_rerank: bool = True,
@@ -183,34 +185,55 @@ def enhanced_search_with_hybrid_and_rerank(
         verbose: bool = True
 ) -> dict:
     """
-    增强检索：混合检索 + 重排序 + Query改写
+    增强检索：用户问题向量化 -> Query改写 -> 相似度搜索 -> 重排序
+
+    处理顺序：
+    [8/12] 用户问题
+    [9/12] Query改写
+    [10/12] 相似度搜索（使用改写后的问题）
+    [11/12] 重排序（使用改写后的问题）
     """
-    if verbose:
-        print("\n" + "=" * 70)
-        print("增强检索模式 (混合检索 + 重排序 + Query改写)")
-        print("=" * 70)
-        print(f"\n原始问题: {question}")
+    # ========== 健壮性检查 ==========
+    if top_k > recall_k:
+        if verbose:
+            print(f"\n⚠ 警告: RERANK_TOP_K({top_k}) > SIMILARITY_TOP_K({recall_k})")
+            print(f"  已自动调整: SIMILARITY_TOP_K = RERANK_TOP_K = {top_k}")
+        recall_k = top_k
+
+    if top_k <= 0:
+        top_k = 1
+    if recall_k <= 0:
+        recall_k = 1
 
     if index_name is None:
         index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
 
-    # Query改写
+    # ========== [8/12] 用户问题 ==========
+    if verbose:
+        print(f"[8/12] 用户问题: {question}")
+
+    # ========== [9/12] Query改写 ==========
     rewritten_query = question
     sub_queries = [question]
+
     if enable_query_rewrite:
         if verbose:
-            print("\n[10/12] Query改写...")
+            print("\n[9/12] Query改写...")
         try:
             from app.service.core.retrieval import QueryRewriter
             rewriter = QueryRewriter()
             rewritten_query = rewriter.rewrite(question, strategy='synonym')
             sub_queries = rewriter.generate_sub_queries(question, max_queries=3)
             if verbose:
+                print(f"  原始问题: {question}")
                 print(f"  改写后问题: {rewritten_query}")
                 print(f"  子查询: {sub_queries}")
         except Exception as e:
             if verbose:
-                print(f"  Query改写失败: {e}")
+                print(f"  Query改写失败: {e}，使用原始问题")
+    else:
+        if verbose:
+            print("\n[9/12] Query改写已跳过 (enable_query_rewrite=False)")
 
     # 检查索引
     if verbose:
@@ -235,25 +258,31 @@ def enhanced_search_with_hybrid_and_rerank(
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-    # 混合检索
+    # ========== [10/12] 相似度搜索（使用改写后的问题）==========
     if verbose:
-        print("\n混合检索...")
+        print("\n[10/12] 相似度搜索...")
+        print(f"  使用问题: {rewritten_query}")
+        print(f"  召回数量: {recall_k}")
         print(f"  关键词权重: {keyword_weight}")
         print(f"  向量权重: {vector_weight}")
 
     try:
         from app.service.core.retrieval import HybridRetriever
         hybrid_retriever = HybridRetriever()
+
+        # ✅ 关键修复：使用改写后的问题进行相似度搜索，并传递 verbose 参数
         hybrid_results = hybrid_retriever.hybrid_search(
-            query=rewritten_query,
+            query=rewritten_query,  # 使用改写后的问题
             index_name=index_name,
-            top_k=top_k * 2,
+            top_k=recall_k,  # 召回数量
             keyword_weight=keyword_weight,
             vector_weight=vector_weight,
-            similarity_threshold=similarity_threshold
+            similarity_threshold=similarity_threshold,
+            verbose=verbose  # 传递 verbose 参数
         )
+
         if verbose:
-            print(f"  混合检索召回: {len(hybrid_results)} 个块")
+            print(f"\n  混合检索总召回: {len(hybrid_results)} 个块")
 
         # 确保混合检索结果已排序
         hybrid_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
@@ -263,6 +292,7 @@ def enhanced_search_with_hybrid_and_rerank(
             print(f"  混合检索失败: {e}，回退到向量检索")
         from app.service.core.embedding import get_embedding_manager
         embedding_manager = get_embedding_manager()
+        # ✅ 使用改写后的问题生成向量
         query_vector = embedding_manager.generate_embedding(rewritten_query)
         if query_vector:
             from app.service.core.vector_store import get_vector_search_service
@@ -270,26 +300,32 @@ def enhanced_search_with_hybrid_and_rerank(
             hybrid_results = search_service.similarity_search(
                 query_vector=query_vector,
                 index_name=index_name,
-                top_k=top_k * 2,
+                top_k=recall_k,
                 similarity_threshold=similarity_threshold
             )
+            if verbose:
+                print(f"  向量检索召回: {len(hybrid_results)} 个块")
         else:
             hybrid_results = []
 
-    # 重排序
+    # ========== [11/12] 重排序（使用改写后的问题）==========
     final_results = hybrid_results
+
     if enable_rerank and hybrid_results:
         if verbose:
             print("\n[11/12] 重排序...")
+            print(f"  使用问题: {rewritten_query}")
             print(f"  重排序类型: {rerank_type}")
-            rerank_model = os.getenv("RERANK_MODEL", "gte-rerank")
-            print(f"  Rerank模型: {rerank_model}")
+            print(f"  输入文档数: {len(hybrid_results)}")
+            print(f"  输出文档数: {top_k}")
 
         try:
             from app.service.core.retrieval import Reranker
             reranker = Reranker(api_type=rerank_type)
+
+            # ✅ 关键修复：使用改写后的问题进行重排序
             final_results = reranker.rerank(
-                query=rewritten_query,
+                query=rewritten_query,  # 使用改写后的问题
                 documents=hybrid_results,
                 top_k=top_k
             )
@@ -298,6 +334,7 @@ def enhanced_search_with_hybrid_and_rerank(
                 print(f"  重排序完成: {len(final_results)} 个块")
                 if final_results and len(final_results) > 0:
                     source = final_results[0].get('rerank_source', 'unknown')
+                    rerank_model = os.getenv("RERANK_MODEL", "gte-rerank")
                     if source == 'dashscope_http':
                         print(f"  实际使用: DashScope HTTP API ({rerank_model})")
                     elif source == 'cross_encoder':
@@ -307,7 +344,7 @@ def enhanced_search_with_hybrid_and_rerank(
                     else:
                         print(f"  实际使用: {source}")
 
-            # 关键修复：确保重排序结果按分数降序排列
+            # 确保重排序结果按分数降序排列
             if final_results:
                 final_results.sort(key=lambda x: x.get('rerank_score', x.get('final_score', 0)), reverse=True)
                 final_results = final_results[:top_k]
@@ -318,17 +355,15 @@ def enhanced_search_with_hybrid_and_rerank(
             final_results = hybrid_results[:top_k]
             final_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
     else:
-        final_results = hybrid_results[:top_k]
         if verbose and not enable_rerank:
-            print("\n[10/12] 重排序已跳过 (enable_rerank=False)")
-        # 确保排序
+            print("\n[11/12] 重排序已跳过 (enable_rerank=False)")
+        final_results = hybrid_results[:top_k]
         if final_results:
             final_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
 
     # 格式化结果
     formatted_results = []
     for i, result in enumerate(final_results, 1):
-        # 获取综合分数，优先级：rerank_score > final_score > _score
         score = result.get('rerank_score',
                            result.get('final_score',
                                       result.get('_score', 0)))
@@ -360,10 +395,11 @@ def enhanced_search_with_hybrid_and_rerank(
 
     return {
         "success": True,
-        "question": question,
-        "rewritten_query": rewritten_query if enable_query_rewrite else None,
+        "question": question,  # 原始问题
+        "rewritten_query": rewritten_query if enable_query_rewrite else None,  # 改写后的问题
         "index_name": index_name,
         "top_k": top_k,
+        "recall_k": recall_k,
         "keyword_weight": keyword_weight,
         "vector_weight": vector_weight,
         "enable_rerank": enable_rerank,
@@ -401,8 +437,8 @@ def test_user_question_vectorization(questions: List[str] = None):
     return results
 
 
-def test_similarity_search(questions: List[str] = None):
-    """测试相似度搜索功能"""
+def test_similarity_search(questions: List[str] = None, verbose: bool = True):
+    """测试相似度搜索功能 - 优化版本，减少重复输出"""
     from .utils import TEST_QUESTIONS
     if questions is None:
         questions = TEST_QUESTIONS
@@ -411,31 +447,36 @@ def test_similarity_search(questions: List[str] = None):
     top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
     similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.5"))
 
-    print(f"\n配置信息:")
-    print(f"  索引名称: {index_name}")
-    print(f"  Top-K: {top_k}")
-    print(f"  相似度阈值: {similarity_threshold}")
+    # 只在 verbose 为 True 时打印配置
+    if verbose:
+        print(f"\n配置信息:")
+        print(f"  索引名称: {index_name}")
+        print(f"  Top-K: {top_k}")
+        print(f"  相似度阈值: {similarity_threshold}")
 
     all_results = []
     for i, question in enumerate(questions, 1):
-        print(f"\n{'=' * 70}")
-        print(f"测试 {i}: {question}")
-        print("=" * 70)
+        if verbose and len(questions) > 1:
+            print(f"\n{'=' * 70}")
+            print(f"测试 {i}: {question}")
+            print("=" * 70)
 
         result = search_similar_documents(
             question=question,
             es_index_name=index_name,
             top_k=top_k,
             similarity_threshold=similarity_threshold,
-            verbose=True
+            verbose=verbose and len(questions) == 1  # 只有一个问题时才打印详细结果
         )
 
         if result.get("success"):
-            print(f"\n✓ 测试 {i} 成功")
-            print(f"  召回文档块数: {result['total_recalled']}")
+            if verbose:
+                print(f"\n✓ 测试 {i} 成功")
+                print(f"  召回文档块数: {result['total_recalled']}")
             all_results.append(result)
         else:
-            print(f"\n✗ 测试 {i} 失败: {result.get('error')}")
+            if verbose:
+                print(f"\n✗ 测试 {i} 失败: {result.get('error')}")
 
     return all_results
 

@@ -40,34 +40,20 @@ from app.service.core.vector_store import (
 
 
 def process_document(
-    file_path: str,
-    chunk_size: int = 256,
-    enable_vectorization: bool = True,
-    enable_storage: bool = True,
-    model_type: str = None,
-    from_page: int = 0,
-    to_page: int = None,
-    index_name: str = None,
-    verbose: bool = False
+        file_path: str,
+        chunk_size: int = 256,
+        enable_vectorization: bool = True,
+        enable_storage: bool = True,
+        model_type: str = None,
+        from_page: int = 0,
+        to_page: int = None,
+        index_name: str = None,
+        verbose: bool = False
 ) -> List[VectorChunk]:
     """
-    完整的文档处理流程：
-    RAG1流程：数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗
-    RAG2流程：智能分块 -> 向量化 -> 向量存储
+    完整的文档处理流程
 
-    Args:
-        file_path: 文件路径
-        chunk_size: 分块大小（token数）
-        enable_vectorization: 是否启用向量化
-        enable_storage: 是否存储到向量数据库
-        model_type: 模型类型 ('remote' 或 'local')
-        from_page: 起始页
-        to_page: 结束页
-        index_name: ES索引名称
-        verbose: 是否打印详细信息
-
-    Returns:
-        VectorChunk 列表
+    优化：减少重复输出，合并统计信息
     """
     if verbose:
         print("=" * 70)
@@ -88,6 +74,7 @@ def process_document(
             print("错误: 未能提取文本内容")
         return []
 
+    # 合并统计输出
     if verbose:
         print(f"\n处理结果:")
         print(f"  文件名: {parsed.file_name}")
@@ -97,7 +84,7 @@ def process_document(
 
     # ========== RAG2 功能：智能分块 ==========
     if verbose:
-        print("\n[5/12] 智能分块...")
+        print("\n智能分块...")
 
     chunks = chunk_text_to_chunks(
         parsed.cleaned_text,
@@ -121,33 +108,18 @@ def process_document(
     vector_chunks = []
     if enable_vectorization and chunks:
         if verbose:
-            print("\n[6/12] 向量化处理...")
+            print("\n向量化处理...")
 
         try:
-            # 转换为 VectorChunk
-            vector_chunks = []
-            for i, chunk in enumerate(chunks):
-                chunk_id = hashlib.md5(f"{i}_{chunk.content[:100]}".encode()).hexdigest()[:16]
-                vector_chunks.append(VectorChunk(
-                    id=f"chunk_{i}_{chunk_id}",
-                    content=chunk.content,
-                    metadata={
-                        **chunk.metadata,
-                        'chunk_index': i,
-                        'token_count': chunk.token_count
-                    },
-                    token_count=chunk.token_count,
-                    chunk_index=i
-                ))
+            # 直接创建 VectorChunk 并向量化，避免重复转换
+            vector_chunks = create_and_vectorize_chunks(
+                chunks, model_type, verbose
+            )
 
-            # 向量化
-            vec_service = VectorizationService(model_type)
-            vector_chunks = vec_service.vectorize_chunks(vector_chunks)
-
-            if verbose:
+            if verbose and vector_chunks:
                 vectorized_count = len([c for c in vector_chunks if c.vector])
-                print(f"  向量化完成: {vectorized_count}/{len(vector_chunks)} 个块")
-                print(f"  向量维度: {vec_service.dimension}")
+                print(f"  完成: {vectorized_count}/{len(vector_chunks)} 个块")
+                print(f"  向量维度: {vector_chunks[0].vector if vector_chunks else 'N/A'}")
 
         except Exception as e:
             if verbose:
@@ -157,7 +129,7 @@ def process_document(
     # ========== RAG2 功能：向量存储 ==========
     if enable_storage and vector_chunks:
         if verbose:
-            print("\n[7/12] 存储到向量数据库...")
+            print("\n存储到向量数据库...")
 
         try:
             storage_service = get_vector_storage_service()
@@ -165,13 +137,37 @@ def process_document(
             inserted = storage_service.store_vector_chunks(vector_chunks, index, parsed.file_name)
 
             if verbose:
-                print(f"  存储完成: {inserted}/{len(vector_chunks)} 条")
+                print(f"  完成: {inserted}/{len(vector_chunks)} 条")
 
         except Exception as e:
             if verbose:
                 print(f"  存储失败: {e}")
 
     return vector_chunks if vector_chunks else chunks
+
+
+def create_and_vectorize_chunks(chunks, model_type: str = None, verbose: bool = False) -> List[VectorChunk]:
+    """创建 VectorChunk 并向量化 - 合并操作避免重复"""
+    import hashlib
+
+    vector_chunks = []
+    for i, chunk in enumerate(chunks):
+        chunk_id = hashlib.md5(f"{i}_{chunk.content[:100]}".encode()).hexdigest()[:16]
+        vector_chunks.append(VectorChunk(
+            id=f"chunk_{i}_{chunk_id}",
+            content=chunk.content,
+            metadata={
+                **chunk.metadata,
+                'chunk_index': i,
+                'token_count': chunk.token_count
+            },
+            token_count=chunk.token_count,
+            chunk_index=i
+        ))
+
+    # 向量化
+    vec_service = VectorizationService(model_type)
+    return vec_service.vectorize_chunks(vector_chunks)
 
 
 def parse_only(

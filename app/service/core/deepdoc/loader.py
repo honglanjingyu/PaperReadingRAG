@@ -117,8 +117,6 @@ class DataLoader:
                 to_page=to_page
             )
 
-            print(f"  RemoteParser 返回: {len(sections)} 段落, {len(tables)} 表格")
-
             # 构建 text_blocks 和完整文本
             text_blocks_for_pages = []
             all_text_parts = []
@@ -168,8 +166,6 @@ class DataLoader:
                 'remote_tables': tables
             }
 
-            print(
-                f"  pages_raw 构建完成: text_blocks={len(pages_raw[0]['text_blocks'])}, tables={len(pages_raw[0]['tables'])}")
             return result
 
         except Exception as e:

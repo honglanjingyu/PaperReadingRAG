@@ -263,7 +263,6 @@ class RemotePDFParser:
             if text:
                 sections.append((text, "paragraph"))
 
-        print(f"  解析结果: {len(sections)}段落, {len(tables)}表格")
         return sections, tables
 
     def _parse_md_table(self, table_lines: List[str]) -> List[List[str]]:

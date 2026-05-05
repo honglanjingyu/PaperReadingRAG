@@ -63,6 +63,8 @@ __all__ = [
 ]
 
 
+# main.py 中的 main 函数简化
+
 def main():
     """主入口函数"""
     print("\n处理流程:")
@@ -75,8 +77,7 @@ def main():
     # 从环境变量读取配置
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "256"))
     ENABLE_VECTORIZATION = os.getenv("ENABLE_VECTORIZATION", "true").lower() == "true"
-    # 存储功能默认启用，不再从环境变量读取
-    ENABLE_STORAGE = True  # 写死为 True
+    ENABLE_STORAGE = True
     MODEL_TYPE = os.getenv("EMBEDDING_TYPE", "remote")
     INDEX_NAME = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
 
@@ -100,7 +101,7 @@ def main():
             file_path=pdf_file,
             chunk_size=CHUNK_SIZE,
             enable_vectorization=ENABLE_VECTORIZATION,
-            enable_storage=ENABLE_STORAGE,  # 现在总是 True
+            enable_storage=ENABLE_STORAGE,
             model_type=MODEL_TYPE,
             from_page=0,
             to_page=5,
@@ -110,11 +111,10 @@ def main():
         print(f"\n处理结果摘要:")
         print(f"  生成块数: {len(result)}")
 
-        if result:
-            vectorized = [c for c in result if hasattr(c, 'vector') and c.vector]
-            if vectorized:
-                print(f"  向量化块数: {len(vectorized)}")
-                print(f"  向量维度: {len(vectorized[0].vector)}")
+        if result and hasattr(result[0], 'vector') and result[0].vector:
+            vectorized = [c for c in result if c.vector]
+            print(f"  向量化块数: {len(vectorized)}")
+            print(f"  向量维度: {len(vectorized[0].vector)}")
 
             print(f"\n前3个块预览:")
             for i, chunk in enumerate(result[:3]):
@@ -127,7 +127,7 @@ def main():
         print(f"\n测试文件不存在: {pdf_file}")
         print("请将 PDF 文件放在当前目录下")
 
-    # 运行测试
+    # 运行测试 - 已优化避免重复
     run_all_tests()
 
 if __name__ == "__main__":

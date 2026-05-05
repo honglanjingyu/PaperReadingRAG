@@ -24,6 +24,7 @@ from .generation import (
     generate_answer,
     generate_answer_stream,
     test_llm_generation,
+    test_llm_generation_with_rewritten_only,  # 新增
 )
 from .utils import (
     TEST_QUESTIONS,
@@ -50,6 +51,7 @@ __all__ = [
     'generate_answer',
     'generate_answer_stream',
     'test_llm_generation',
+    'test_llm_generation_with_rewritten_only',  # 新增
     # 工具
     'TEST_QUESTIONS',
     'run_all_tests',

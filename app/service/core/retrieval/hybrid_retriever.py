@@ -35,7 +35,8 @@ class HybridRetriever:
             top_k: int = 5,
             keyword_weight: float = 0.3,
             vector_weight: float = 0.7,
-            similarity_threshold: float = 0.3
+            similarity_threshold: float = 0.3,
+            verbose: bool = False  # 新增 verbose 参数
     ) -> List[Dict[str, Any]]:
         """
         混合检索：同时进行关键词检索和向量检索，融合结果
@@ -47,6 +48,7 @@ class HybridRetriever:
             keyword_weight: 关键词检索权重
             vector_weight: 向量检索权重
             similarity_threshold: 相似度阈值
+            verbose: 是否打印详细信息
 
         Returns:
             融合后的检索结果列表
@@ -55,10 +57,10 @@ class HybridRetriever:
             return []
 
         # 1. 向量检索
-        vector_results = self._vector_search(query, index_name, top_k * 2)
+        vector_results = self._vector_search(query, index_name, top_k * 2, verbose=verbose)
 
         # 2. 关键词检索（仅 Elasticsearch 支持，Milvus 暂不支持）
-        keyword_results = self._keyword_search(query, index_name, top_k * 2)
+        keyword_results = self._keyword_search(query, index_name, top_k * 2, verbose=verbose)
 
         # 3. 融合结果
         if not vector_results and not keyword_results:
@@ -79,14 +81,33 @@ class HybridRetriever:
         # 过滤低于阈值的结果
         filtered = [r for r in results if r.get('final_score', 0) >= similarity_threshold]
 
+        # 打印详细结果
+        if verbose and filtered:
+            print("\n" + "-" * 70)
+            print("混合检索结果详情:")
+            print("-" * 70)
+            for i, res in enumerate(filtered[:top_k], 1):
+                score = res.get('final_score', 0)
+                content = res.get('content_with_weight', res.get('content', ''))
+                doc_name = res.get('docnm', res.get('docnm_kwd', ''))
+
+                print(f"\n  [排名 {i}] 综合分数: {score:.4f}")
+                print(f"  向量分数: {res.get('vector_score', 0):.4f}")
+                print(f"  关键词分数: {res.get('keyword_score', 0):.4f}")
+                print(f"  文档: {doc_name}")
+                content_preview = content[:200].replace('\n', ' ')
+                print(f"  内容预览: {content_preview}...")
+
         return filtered[:top_k]
 
-    def _vector_search(self, query: str, index_name: str, top_k: int) -> List[Dict]:
+    def _vector_search(self, query: str, index_name: str, top_k: int, verbose: bool = False) -> List[Dict]:
         """执行向量检索"""
         try:
             # 生成查询向量
             query_vector = self.embedding_manager.generate_embedding(query)
             if not query_vector:
+                if verbose:
+                    print("  向量检索: 查询向量生成失败")
                 return []
 
             # 执行向量搜索（使用统一的 vector_store 接口）
@@ -96,6 +117,14 @@ class HybridRetriever:
                 top_k=top_k,
                 similarity_threshold=0.1
             )
+
+            if verbose and results:
+                print(f"\n  向量检索召回: {len(results)} 个块")
+                # 打印向量检索结果预览
+                for i, r in enumerate(results[:3], 1):
+                    score = r.get('_score', 0)
+                    content = r.get('content_with_weight', r.get('content', ''))
+                    print(f"    [{i}] 分数: {score:.4f} - {content[:80]}...")
 
             # 添加结果类型标记
             for r in results:
@@ -107,19 +136,23 @@ class HybridRetriever:
             return results
 
         except Exception as e:
-            logger.error(f"向量检索失败: {e}")
+            if verbose:
+                print(f"  向量检索失败: {e}")
             return []
 
-    def _keyword_search(self, query: str, index_name: str, top_k: int) -> List[Dict]:
+    def _keyword_search(self, query: str, index_name: str, top_k: int, verbose: bool = False) -> List[Dict]:
         """执行关键词检索（仅 Elasticsearch 支持）"""
         try:
             # 检查是否为 Elasticsearch 实例（有 es 属性）
             if not hasattr(self.vector_store, 'es') or self.vector_store.es is None:
                 # Milvus 不支持关键词检索，直接返回空
-                logger.debug("当前向量存储不支持关键词检索，仅使用向量检索")
+                if verbose:
+                    print("  关键词检索: Milvus 不支持，跳过")
                 return []
 
             if not self.vector_store.es.indices.exists(index=index_name):
+                if verbose:
+                    print(f"  关键词检索: 索引 {index_name} 不存在")
                 return []
 
             # 构建关键词查询
@@ -139,6 +172,8 @@ class HybridRetriever:
 
             hits = response["hits"]["hits"]
             if not hits:
+                if verbose:
+                    print("  关键词检索: 无结果")
                 return []
 
             # 收集所有原始分数
@@ -172,12 +207,18 @@ class HybridRetriever:
 
             results.sort(key=lambda x: x["raw_keyword_score"], reverse=True)
 
-            logger.debug(f"关键词检索: min_score={min_score:.2f}, max_score={max_score:.2f}, range={score_range:.2f}")
+            if verbose:
+                print(f"\n  关键词检索召回: {len(results)} 个块")
+                for i, r in enumerate(results[:3], 1):
+                    score = r.get('raw_keyword_score', 0)
+                    content = r.get('content_with_weight', r.get('content', ''))
+                    print(f"    [{i}] 分数: {score:.4f} - {content[:80]}...")
 
             return results
 
         except Exception as e:
-            logger.error(f"关键词检索失败: {e}")
+            if verbose:
+                print(f"  关键词检索失败: {e}")
             return []
 
     def _fuse_results(
