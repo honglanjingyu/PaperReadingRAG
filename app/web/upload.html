@@ -1,0 +1,99 @@
+<!-- app/web/upload.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文档上传 - RAG智能问答系统</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/upload.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 左侧边栏导航 -->
+        <div class="sidebar-nav">
+            <div class="logo">📚 RAG智能问答系统</div>
+            <div class="nav-menu">
+                <a href="/upload" class="nav-item active">
+                    <span class="nav-icon">📤</span>
+                    <span>上传文档</span>
+                </a>
+                <a href="/chat" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span>智能问答</span>
+                </a>
+            </div>
+            <div class="sidebar-footer">
+                <div class="system-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">检测中...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧主内容区域 -->
+        <div class="main-content">
+            <!-- 主卡片 -->
+            <div class="card">
+                <div class="card-title">📄 文档上传与处理</div>
+                <div class="card-subtitle">上传文档后，系统将自动进行解析、分块、向量化并存入知识库</div>
+
+                <!-- 上传区域 -->
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">点击或拖拽文件到此区域上传</div>
+                    <div class="upload-hint">支持 PDF、DOCX、TXT、MD 格式，最大 50MB</div>
+                    <input type="file" id="fileInput" class="file-input" accept=".pdf,.docx,.txt,.md,.markdown">
+                </div>
+
+                <!-- 配置面板 -->
+                <div class="config-panel">
+                    <div class="config-title">⚙️ 处理配置</div>
+                    <div class="config-grid">
+                        <div class="config-item">
+                            <label class="config-label">分块大小 (Token)</label>
+                            <input type="number" id="chunkSize" class="config-input" value="256" step="32">
+                        </div>
+                        <div class="config-item">
+                            <label class="config-label">起始页 (PDF)</label>
+                            <input type="number" id="fromPage" class="config-input" value="0" min="0">
+                        </div>
+                        <div class="config-item">
+                            <label class="config-label">结束页 (PDF)</label>
+                            <input type="number" id="toPage" class="config-input" value="100000" min="1">
+                        </div>
+                        <div class="config-item config-checkbox">
+                            <input type="checkbox" id="enableVectorization" checked>
+                            <label class="config-label">启用向量化</label>
+                        </div>
+                        <div class="config-item config-checkbox">
+                            <input type="checkbox" id="enableStorage" checked>
+                            <label class="config-label">启用存储</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 进度条 -->
+                <div class="progress-container" id="progressContainer" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-text" id="progressText">正在处理...</div>
+                </div>
+            </div>
+
+            <!-- 已上传文档列表 -->
+            <div class="card">
+                <div class="card-title">📋 已上传文档</div>
+                <div class="card-subtitle">已处理的文档列表，可删除重新上传</div>
+                <div id="fileList" class="file-list">
+                    <div style="text-align: center; color: #999; padding: 32px;">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/upload.js"></script>
+</body>
+</html>

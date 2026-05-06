@@ -72,6 +72,8 @@ def generate_answer(
     }
 
 
+# app/service/core/rag/generation.py
+
 def generate_answer_stream(
         question: str,
         results: List[Dict],
@@ -80,7 +82,7 @@ def generate_answer_stream(
         model_type: str = None,
         verbose: bool = True
 ):
-    """流式生成答案"""
+    """流式生成答案 - 修复版"""
     if verbose:
         print("\n[12/12] 生成模块 - 流式调用大语言模型...")
         print("=" * 70)
@@ -94,13 +96,11 @@ def generate_answer_stream(
     )
 
     llm_service = get_llm_service(model_type)
-    print("\n回答: ", end="", flush=True)
 
+    # 直接流式输出，不累积
     for chunk in llm_service.generate_stream(messages, verbose=verbose):
-        print(chunk, end="", flush=True)
-        yield chunk
-    print("\n")
-
+        if chunk:
+            yield chunk
 
 def test_llm_generation(questions: List[str] = None, stream: bool = False, use_enhanced_search: bool = True):
     """

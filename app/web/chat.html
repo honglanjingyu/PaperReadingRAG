@@ -1,0 +1,98 @@
+<!-- app/web/chat.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能问答 - RAG智能问答系统</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/chat.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 左侧边栏导航 -->
+        <div class="sidebar-nav">
+            <div class="logo">📚 RAG智能问答系统</div>
+            <div class="nav-menu">
+                <a href="/upload" class="nav-item">
+                    <span class="nav-icon">📤</span>
+                    <span>上传文档</span>
+                </a>
+                <a href="/chat" class="nav-item active">
+                    <span class="nav-icon">💬</span>
+                    <span>智能问答</span>
+                </a>
+            </div>
+            <div class="sidebar-footer">
+                <div class="system-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">检测中...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧主内容区域 -->
+        <div class="main-layout">
+            <!-- 聊天区域 -->
+            <div class="chat-container">
+                <div class="chat-header">
+                    <h2>💬 智能问答</h2>
+                </div>
+
+                <div class="messages-container" id="messagesContainer">
+                    <div class="message assistant">
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content">
+                            您好！我是RAG智能问答助手。请上传文档后，向我提问任何关于文档内容的问题。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea class="chat-input" id="chatInput" placeholder="输入您的问题..." rows="1"></textarea>
+                        <button class="send-btn" id="sendBtn">发送</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧边栏（检索结果和配置） -->
+            <div class="sidebar">
+                <div class="sidebar-header">
+                    <h3>📄 相关文档片段</h3>
+                </div>
+                <div class="retrieval-results" id="retrievalResults">
+                    <div style="text-align: center; color: #999; padding: 32px;">点击发送问题后，相关文档将显示在这里</div>
+                </div>
+                <div class="config-section">
+                    <div class="config-title">⚙️ 检索配置</div>
+                    <div class="config-item">
+                        <span class="config-label">相似度阈值</span>
+                        <input type="range" id="similarityThreshold" min="0" max="1" step="0.05" value="0.3" style="width: 120px;">
+                        <span class="config-value" id="thresholdValue">0.3</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">返回数量</span>
+                        <select id="topK" class="config-input">
+                            <option value="3">3</option>
+                            <option value="5" selected>5</option>
+                            <option value="10">10</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">启用重排序</span>
+                        <input type="checkbox" id="enableRerank" checked>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">启用Query改写</span>
+                        <input type="checkbox" id="enableQueryRewrite" checked>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/chat.js"></script>
+</body>
+</html>

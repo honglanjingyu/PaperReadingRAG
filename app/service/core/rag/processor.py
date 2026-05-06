@@ -119,7 +119,6 @@ def process_document(
             if verbose and vector_chunks:
                 vectorized_count = len([c for c in vector_chunks if c.vector])
                 print(f"  完成: {vectorized_count}/{len(vector_chunks)} 个块")
-                print(f"  向量维度: {vector_chunks[0].vector if vector_chunks else 'N/A'}")
 
         except Exception as e:
             if verbose:

@@ -35,7 +35,7 @@ class RemotePDFParser:
             from mineru import MinerU
 
             self._client = MinerU()
-            print(f"  MinerU 客户端初始化成功")
+            logger.info(f"  MinerU 客户端初始化成功")
             logger.info("远程PDF解析器初始化成功")
         except ImportError as e:
             logger.error(f"导入 mineru 失败: {e}")
@@ -87,8 +87,8 @@ class RemotePDFParser:
                 logger.error(f"文件不存在: {file_path}")
                 return [], []
 
-            print(f"  正在调用 MinerU API...")
-            print(f"  文件大小: {os.path.getsize(file_path) / 1024:.2f} KB")
+            logger.info(f"  正在调用 MinerU API...")
+            logger.info(f"  文件大小: {os.path.getsize(file_path) / 1024:.2f} KB")
 
             # 调用 MinerU 解析
             os.environ["MINERU_TOKEN"] = self.api_token
@@ -106,17 +106,17 @@ class RemotePDFParser:
                 return [], []
 
             markdown_content = result.markdown
-            print(f"  ✓ API 调用成功，返回内容长度: {len(markdown_content)} 字符")
+            logger.info(f"  ✓ API 调用成功，返回内容长度: {len(markdown_content)} 字符")
 
             # 解析 Markdown 为段落和表格
             sections, tables = self.parse_markdown(markdown_content)
 
-            print(f"  解析完成: {len(sections)}段落, {len(tables)}表格")
+            logger.info(f"  解析完成: {len(sections)}段落, {len(tables)}表格")
             return sections, tables
 
         except Exception as e:
             logger.error(f"远程PDF解析失败: {e}")
-            print(f"  ❌ 解析失败: {e}")
+            logger.info(f"  ❌ 解析失败: {e}")
             import traceback
             traceback.print_exc()
             return [], []
@@ -137,7 +137,7 @@ class RemotePDFParser:
         lines = markdown_content.split('\n')
         total_lines = len(lines)
 
-        print(f"  开始解析 Markdown，共 {total_lines} 行")
+        logger.info(f"  开始解析 Markdown，共 {total_lines} 行")
 
         # 第一步：提取所有表格及其占用的行范围
         tables = []
@@ -167,7 +167,7 @@ class RemotePDFParser:
                     if table_data and len(table_data) > 0:
                         tables.append(table_data)
                         table_ranges.append((start, i, len(tables) - 1))
-                        print(
+                        logger.info(
                             f"    表格 {len(tables)}: {len(table_data)} 行 x {len(table_data[0])} 列 (行 {start + 1}-{i})")
                 continue
 
@@ -190,7 +190,7 @@ class RemotePDFParser:
                 if table_data and len(table_data) > 0:
                     tables.append(table_data)
                     table_ranges.append((start, i, len(tables) - 1))
-                    print(
+                    logger.info(
                         f"    表格 {len(tables)}: {len(table_data)} 行 x {len(table_data[0])} 列 (行 {start + 1}-{i})")
                 continue
 

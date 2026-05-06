@@ -108,7 +108,6 @@ class VectorRetriever:
             return []
 
         vector_field_name = self.embedding_service.get_vector_field_name()
-        vector_field_name = self.embedding_service.get_vector_field_name()
         doc_vectors = []
         valid_docs = []
 

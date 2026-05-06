@@ -24,13 +24,17 @@ from .generation import (
     generate_answer,
     generate_answer_stream,
     test_llm_generation,
-    test_llm_generation_with_rewritten_only,  # 新增
+    test_llm_generation_with_rewritten_only,
 )
 from .utils import (
     TEST_QUESTIONS,
     run_all_tests,
     RecursiveChunker,
 )
+
+# 从 embedding 模块导入 VectorChunk 以便重新导出
+from app.service.core.embedding import VectorChunk
+
 
 __all__ = [
     # 处理器
@@ -51,9 +55,11 @@ __all__ = [
     'generate_answer',
     'generate_answer_stream',
     'test_llm_generation',
-    'test_llm_generation_with_rewritten_only',  # 新增
+    'test_llm_generation_with_rewritten_only',
     # 工具
     'TEST_QUESTIONS',
     'run_all_tests',
     'RecursiveChunker',
+    # 类型
+    'VectorChunk',
 ]

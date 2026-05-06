@@ -11,6 +11,9 @@ from .parser.pdf_parser import PlainParser
 from .parser.docx_parser import RAGFlowDocxParser
 from .parser.txt_parser import RAGFlowTxtParser
 from .parser.excel_parser import RAGFlowExcelParser
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 导入远程PDF解析器
 from .parser.remote_pdf_parser import RemotePDFParser, is_remote_parse_enabled
@@ -40,9 +43,9 @@ class DataLoader:
         self.use_remote_parse = is_remote_parse_enabled()
 
         if self.use_remote_parse:
-            print(f"[DataLoader] 远程PDF解析已启用")
+            logger.info(f"[DataLoader] 远程PDF解析已启用")
         else:
-            print(f"[DataLoader] 使用本地PDF解析")
+            logger.info(f"[DataLoader] 使用本地PDF解析")
 
     def load(self, file_path: str, from_page: int = 0, to_page: int = 100000) -> Dict[str, Any]:
         """加载文档"""
@@ -68,10 +71,10 @@ class DataLoader:
 
         # 判断是否使用远程解析
         if self.use_remote_parse and self.remote_pdf_parser.is_available():
-            print(f"  使用远程API解析PDF: {os.path.basename(file_path)}")
+            logger.info(f"  使用远程API解析PDF: {os.path.basename(file_path)}")
             return self._load_pdf_remote(file_path, from_page, to_page)
         else:
-            print(f"  使用本地解析PDF: {os.path.basename(file_path)}")
+            logger.info(f"  使用本地解析PDF: {os.path.basename(file_path)}")
             return self._load_pdf_local(file_path, from_page, to_page)
 
     def _load_pdf_local(self, file_path: str, from_page: int, to_page: int) -> Dict[str, Any]:
@@ -133,8 +136,8 @@ class DataLoader:
                     })
 
             full_text = '\n'.join(all_text_parts)
-            print(f"  提取文本长度: {len(full_text)} 字符")
-            print(f"  文本块数量: {len(text_blocks_for_pages)}")
+            logger.info(f"  提取文本长度: {len(full_text)} 字符")
+            logger.info(f"  文本块数量: {len(text_blocks_for_pages)}")
 
             # 转换表格格式
             formatted_tables = []
@@ -169,7 +172,7 @@ class DataLoader:
             return result
 
         except Exception as e:
-            print(f"  远程PDF解析失败: {e}，回退到本地解析")
+            logger.info(f"  远程PDF解析失败: {e}，回退到本地解析")
             import traceback
             traceback.print_exc()
             return self._load_pdf_local(file_path, from_page, to_page)
