@@ -1,5 +1,5 @@
 /* app/web/js/chat.js */
-/* 聊天页面逻辑 - 支持流式输出，包含思考动画 */
+/* 聊天页面逻辑 - 支持流式输出，包含思考动画和会话管理 */
 
 // DOM 元素
 const messagesContainer = document.getElementById('messagesContainer');
@@ -11,21 +11,213 @@ const thresholdValue = document.getElementById('thresholdValue');
 const topKSelect = document.getElementById('topK');
 const enableRerank = document.getElementById('enableRerank');
 const enableQueryRewrite = document.getElementById('enableQueryRewrite');
+const enableMemory = document.getElementById('enableMemory');
+const sessionBadge = document.getElementById('sessionBadge');
+const newSessionBtn = document.getElementById('newSessionBtn');  // 只保留新建会话按钮
 
 let isProcessing = false;
-let useStreamMode = true;  // 默认使用流式输出
-let thinkingAnimationInterval = null;  // 思考动画定时器
+let useStreamMode = true;
+let thinkingAnimationInterval = null;
+let currentSessionId = null;  // 当前会话ID
+
+// 本地存储key
+const STORAGE_KEY_SESSION = 'rag_current_session_id';
+
+// ========== 会话管理函数 ==========
+
+// 加载保存的会话ID
+async function loadSavedSession() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY_SESSION);
+        if (saved && saved !== 'null' && saved !== 'undefined' && saved !== 'default') {
+            // 验证会话是否仍然有效
+            const isValid = await verifySessionExists(saved);
+            if (isValid) {
+                currentSessionId = saved;
+                updateSessionBadge(true);
+                console.log('加载保存的会话:', currentSessionId);
+                showSessionToast('✅ 已恢复上次会话', 'info');
+                return;
+            } else {
+                // 会话已失效，清除本地存储
+                console.log('保存的会话已失效，清除');
+                clearSavedSession();
+            }
+        }
+    } catch (e) {
+        console.warn('加载会话失败:', e);
+        clearSavedSession();
+    }
+
+    // 如果没有有效会话，显示欢迎消息但持有null
+    currentSessionId = null;
+    updateSessionBadge(false);
+}
+
+// 验证会话是否存在
+async function verifySessionExists(sessionId) {
+    if (!sessionId || sessionId === 'default' || sessionId === 'null') return false;
+
+    try {
+        const response = await fetch(`${API_BASE}/chat/session/${sessionId}`);
+        if (response.ok) {
+            const data = await response.json();
+            return data.success === true;
+        }
+        return false;
+    } catch (error) {
+        console.warn('验证会话失败:', error);
+        return false;
+    }
+}
+
+// 保存会话ID到本地
+function saveSessionId(sessionId) {
+    if (sessionId && sessionId !== 'default' && sessionId !== 'null' && sessionId !== 'undefined') {
+        currentSessionId = sessionId;
+        try {
+            localStorage.setItem(STORAGE_KEY_SESSION, sessionId);
+            console.log('保存会话:', sessionId);
+        } catch (e) {
+            console.warn('保存会话失败:', e);
+        }
+        updateSessionBadge(true);
+    }
+}
+
+// 清除保存的会话
+function clearSavedSession() {
+    currentSessionId = null;
+    try {
+        localStorage.removeItem(STORAGE_KEY_SESSION);
+        console.log('清除保存的会话');
+    } catch (e) {
+        console.warn('清除会话失败:', e);
+    }
+    updateSessionBadge(false);
+}
+
+// 更新会话徽章显示
+function updateSessionBadge(hasSession) {
+    if (sessionBadge) {
+        if (hasSession && currentSessionId && currentSessionId !== 'default') {
+            const shortId = currentSessionId.substring(0, 8) + '...';
+            sessionBadge.innerHTML = `📝 会话: ${shortId}`;
+            sessionBadge.classList.add('has-session');
+            sessionBadge.title = `会话ID: ${currentSessionId}`;
+        } else {
+            sessionBadge.innerHTML = `📝 新会话`;
+            sessionBadge.classList.remove('has-session');
+            sessionBadge.title = '点击发送问题开始新会话';
+        }
+    }
+}
+
+// 显示会话提示
+function showSessionToast(message, type = 'info') {
+    // 移除已存在的toast
+    const existingToasts = document.querySelectorAll('.session-toast');
+    existingToasts.forEach(toast => toast.remove());
+
+    const toast = document.createElement('div');
+    toast.className = `session-toast ${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+}
+
+// 新建会话
+async function newSession() {
+    if (isProcessing) {
+        showToast('请等待当前回答完成', 'warning');
+        return;
+    }
+
+    // 确认是否清除当前会话（如果有对话历史）
+    const messageCount = document.querySelectorAll('.message:not(.thinking)').length;
+    if (messageCount > 1) {  // 有对话历史（超过欢迎消息）
+        if (!confirm('新建会话将清除当前对话历史，确定要继续吗？')) {
+            return;
+        }
+    }
+
+    // 清除当前会话（如果存在）
+    if (currentSessionId && currentSessionId !== 'default') {
+        try {
+            const response = await fetch(`${API_BASE}/chat/session/${currentSessionId}`, {
+                method: 'DELETE'
+            });
+            if (response.ok) {
+                console.log('后端会话已清除');
+            }
+        } catch (e) {
+            console.warn('清除会话失败:', e);
+        }
+    }
+
+    // 重置状态
+    clearSavedSession();
+
+    // 清空消息区域（保留欢迎消息）
+    clearAllMessages();
+
+    // 添加欢迎消息
+    addWelcomeMessage();
+
+    // 清空检索结果
+    if (retrievalResults) {
+        retrievalResults.innerHTML = '<div style="text-align: center; color: #999; padding: 32px;">点击发送问题后，相关文档将显示在这里</div>';
+    }
+
+    // 显示提示
+    showSessionToast('✨ 已创建新会话', 'info');
+
+    // 聚焦输入框
+    chatInput.focus();
+}
+
+// 清空所有消息
+function clearAllMessages() {
+    const messages = document.querySelectorAll('.message');
+    messages.forEach(msg => {
+        msg.remove();
+    });
+}
+
+// 添加欢迎消息
+function addWelcomeMessage() {
+    const welcomeDiv = document.createElement('div');
+    welcomeDiv.className = 'message assistant';
+    welcomeDiv.innerHTML = `
+        <div class="message-avatar">🤖</div>
+        <div class="message-content">
+            <div class="message-text">您好！我是RAG智能问答助手。请上传文档后，向我提问任何关于文档内容的问题。</div>
+            <div class="message-meta">${new Date().toLocaleTimeString()}</div>
+        </div>
+    `;
+    messagesContainer.appendChild(welcomeDiv);
+    scrollToBottom();
+}
 
 // 显示阈值
-similarityThreshold?.addEventListener('input', () => {
-    thresholdValue.textContent = similarityThreshold.value;
-});
+if (similarityThreshold) {
+    similarityThreshold.addEventListener('input', () => {
+        thresholdValue.textContent = similarityThreshold.value;
+    });
+}
 
 // 自动调整textarea高度
-chatInput?.addEventListener('input', function() {
-    this.style.height = 'auto';
-    this.style.height = Math.min(this.scrollHeight, 100) + 'px';
-});
+if (chatInput) {
+    chatInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+    });
+}
+
+// 新建会话按钮事件
+if (newSessionBtn) {
+    newSessionBtn.addEventListener('click', newSession);
+}
 
 // 发送消息 - 主入口
 async function sendMessage() {
@@ -70,7 +262,7 @@ async function sendMessage() {
 
 // ========== 思考动画相关函数 ==========
 
-// 添加思考动画消息（三个闪烁的点）
+// 添加思考动画消息
 function addThinkingMessage() {
     const messageId = `thinking_${Date.now()}`;
     const messageDiv = document.createElement('div');
@@ -88,16 +280,13 @@ function addThinkingMessage() {
     `;
     messagesContainer.appendChild(messageDiv);
 
-    // 启动点动画
     startThinkingAnimation(messageId);
-
     scrollToBottom();
     return messageId;
 }
 
-// 启动思考动画（... 循环闪烁）
+// 启动思考动画
 function startThinkingAnimation(messageId) {
-    // 清除之前的动画
     if (thinkingAnimationInterval) {
         clearInterval(thinkingAnimationInterval);
     }
@@ -108,13 +297,12 @@ function startThinkingAnimation(messageId) {
     const dotsSpan = messageDiv.querySelector('.thinking-dots');
     if (!dotsSpan) return;
 
-    let dotCount = 3;
-    let increasing = false;
+    let dotCount = 1;
+    let increasing = true;
 
     thinkingAnimationInterval = setInterval(() => {
         const currentDiv = document.getElementById(messageId);
         if (!currentDiv) {
-            // 消息已被替换，清除动画
             if (thinkingAnimationInterval) {
                 clearInterval(thinkingAnimationInterval);
                 thinkingAnimationInterval = null;
@@ -125,7 +313,6 @@ function startThinkingAnimation(messageId) {
         const currentDotsSpan = currentDiv.querySelector('.thinking-dots');
         if (!currentDotsSpan) return;
 
-        // 更新点数（1到3之间循环）
         if (increasing) {
             dotCount++;
             if (dotCount >= 3) {
@@ -140,7 +327,6 @@ function startThinkingAnimation(messageId) {
             }
         }
 
-        // 显示对应的点
         currentDotsSpan.textContent = '.'.repeat(dotCount);
     }, 400);
 }
@@ -153,43 +339,26 @@ function stopThinkingAnimation() {
     }
 }
 
-// 将思考消息替换为实际内容
-function replaceThinkingWithContent(thinkingMessageId, content) {
-    stopThinkingAnimation();
-
-    const thinkingDiv = document.getElementById(thinkingMessageId);
-    if (!thinkingDiv) {
-        // 如果思考消息不存在，直接创建新消息
-        return addMessageAndReturnId('assistant', content);
-    }
-
-    // 移除思考样式
-    thinkingDiv.classList.remove('thinking');
-
-    // 更新内容
-    const textDiv = thinkingDiv.querySelector('.message-text');
-    if (textDiv) {
-        textDiv.innerHTML = formatContent(content);
-    }
-
-    // 更新时间
-    const metaSpan = thinkingDiv.querySelector('.message-meta');
-    if (metaSpan) {
-        metaSpan.textContent = new Date().toLocaleTimeString();
-    }
-
-    // 修改ID
-    const newId = `msg_${Date.now()}`;
-    thinkingDiv.id = newId;
-
-    return newId;
-}
-
 // 移除所有思考指示器
 function removeAllThinkingIndicators() {
     stopThinkingAnimation();
     const indicators = document.querySelectorAll('[id^="thinking_"], [id^="loading_"]');
     indicators.forEach(el => el.remove());
+}
+
+// 添加消息
+function addMessage(role, content) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${role}`;
+    messageDiv.innerHTML = `
+        <div class="message-avatar">${role === 'user' ? '👤' : '🤖'}</div>
+        <div class="message-content">
+            <div class="message-text">${formatContent(content)}</div>
+            <div class="message-meta">${new Date().toLocaleTimeString()}</div>
+        </div>
+    `;
+    messagesContainer.appendChild(messageDiv);
+    scrollToBottom();
 }
 
 // 添加消息并返回ID
@@ -210,6 +379,18 @@ function addMessageAndReturnId(role, content) {
     return messageId;
 }
 
+// 添加系统消息
+function addSystemMessage(content) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+    messageDiv.innerHTML = `
+        <div class="message-avatar">ℹ️</div>
+        <div class="message-content" style="background: #e7f3ff; font-size: 12px;">${escapeHtml(content)}</div>
+    `;
+    messagesContainer.appendChild(messageDiv);
+    scrollToBottom();
+}
+
 // ========== 非流式模式 ==========
 
 async function sendMessageNormal(question) {
@@ -221,10 +402,12 @@ async function sendMessageNormal(question) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 question: question,
+                session_id: currentSessionId,
                 top_k: parseInt(topKSelect?.value || 5),
                 similarity_threshold: parseFloat(similarityThreshold?.value || 0.3),
                 enable_rerank: enableRerank?.checked ?? true,
                 enable_query_rewrite: enableQueryRewrite?.checked ?? true,
+                enable_memory: enableMemory?.checked ?? true,
                 template_name: 'detailed'
             })
         });
@@ -232,12 +415,19 @@ async function sendMessageNormal(question) {
         const data = await response.json();
 
         if (data.success) {
+            // 保存返回的session_id
+            if (data.session_id && data.session_id !== 'default') {
+                saveSessionId(data.session_id);
+            }
             replaceThinkingWithContent(thinkingId, data.answer);
             if (retrievalResults) {
                 displayRetrievalResults(data.results, data.retrieval_info);
             }
             if (data.rewritten_query && data.rewritten_query !== question) {
                 addSystemMessage(`✨ Query改写: "${data.rewritten_query}"`);
+            }
+            if (data.has_history) {
+                addSystemMessage(`📝 已结合对话历史回答问题`);
             }
         } else {
             replaceThinkingWithContent(thinkingId, `抱歉，处理您的问题时出错：${data.error || '未知错误'}`);
@@ -251,6 +441,34 @@ async function sendMessageNormal(question) {
     }
 }
 
+// 将思考消息替换为实际内容
+function replaceThinkingWithContent(thinkingMessageId, content) {
+    stopThinkingAnimation();
+
+    const thinkingDiv = document.getElementById(thinkingMessageId);
+    if (!thinkingDiv) {
+        return addMessageAndReturnId('assistant', content);
+    }
+
+    thinkingDiv.classList.remove('thinking');
+
+    const textDiv = thinkingDiv.querySelector('.message-text');
+    if (textDiv) {
+        textDiv.innerHTML = formatContent(content);
+    }
+
+    const metaSpan = thinkingDiv.querySelector('.message-meta');
+    if (metaSpan) {
+        metaSpan.textContent = new Date().toLocaleTimeString();
+    }
+
+    const newId = `msg_${Date.now()}`;
+    thinkingDiv.id = newId;
+
+    return newId;
+}
+
+// 移除思考指示器
 function removeThinkingIndicator(id) {
     const element = document.getElementById(id);
     if (element) element.remove();
@@ -259,11 +477,11 @@ function removeThinkingIndicator(id) {
 // ========== 流式模式 ==========
 
 async function sendMessageStream(question) {
-    // 添加思考动画
     const thinkingId = addThinkingMessage();
     let assistantMessageId = null;
     let fullResponse = '';
     let hasReceivedFirstChunk = false;
+    let newSessionId = null;
 
     try {
         const response = await fetch(`${API_BASE}/chat/ask/stream`, {
@@ -271,12 +489,14 @@ async function sendMessageStream(question) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 question: question,
+                session_id: currentSessionId,
                 history: getChatHistory(),
                 top_k: parseInt(topKSelect?.value || 5),
                 recall_k: (parseInt(topKSelect?.value || 5) * 2),
                 similarity_threshold: parseFloat(similarityThreshold?.value || 0.3),
                 enable_rerank: enableRerank?.checked ?? true,
                 enable_query_rewrite: enableQueryRewrite?.checked ?? true,
+                enable_memory: enableMemory?.checked ?? true,
                 template_name: 'detailed'
             })
         });
@@ -303,22 +523,22 @@ async function sendMessageStream(question) {
                         const data = JSON.parse(line);
 
                         if (data.type === 'start') {
-                            // 收到开始信号，但保留思考动画直到收到第一个字符
+                            // 开始信号，保存潜在的session_id
+                            if (data.session_id && data.session_id !== 'default') {
+                                newSessionId = data.session_id;
+                            }
                         } else if (data.type === 'answer') {
                             const chunk = data.content;
                             if (chunk) {
-                                // 收到第一个字符，停止思考动画并创建真实消息
                                 if (!hasReceivedFirstChunk) {
                                     hasReceivedFirstChunk = true;
                                     stopThinkingAnimation();
 
-                                    // 隐藏思考消息（或替换为真实消息）
                                     const thinkingDiv = document.getElementById(thinkingId);
                                     if (thinkingDiv) {
                                         thinkingDiv.style.display = 'none';
                                     }
 
-                                    // 创建新的消息容器
                                     assistantMessageId = createAssistantMessageContainer();
                                 }
 
@@ -329,18 +549,23 @@ async function sendMessageStream(question) {
                                 }
                             }
                         } else if (data.type === 'info') {
-                            // 显示检索信息
                             if (retrievalResults && data.results_count !== undefined) {
                                 retrievalResults.innerHTML = `<div style="font-size: 12px; color: #667eea; padding: 8px; text-align: center;">
                                     找到 ${data.results_count} 个相关文档，正在生成回答...
                                 </div>`;
                             }
                         } else if (data.type === 'end') {
-                            // 流结束
+                            // 保存session_id
+                            if (data.session_id && data.session_id !== 'default') {
+                                saveSessionId(data.session_id);
+                            } else if (newSessionId && newSessionId !== 'default') {
+                                saveSessionId(newSessionId);
+                            }
+
                             if (fullResponse && assistantMessageId) {
                                 saveToHistory(question, fullResponse);
                             }
-                            // 如果没有收到任何字符
+
                             if (!hasReceivedFirstChunk) {
                                 stopThinkingAnimation();
                                 const thinkingDiv = document.getElementById(thinkingId);
@@ -369,7 +594,6 @@ async function sendMessageStream(question) {
             }
         }
 
-        // 如果从未收到任何字符
         if (!hasReceivedFirstChunk) {
             stopThinkingAnimation();
             const thinkingDiv = document.getElementById(thinkingId);
@@ -446,33 +670,6 @@ function saveToHistory(question, answer) {
     }
 }
 
-// 添加消息
-function addMessage(role, content) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}`;
-    messageDiv.innerHTML = `
-        <div class="message-avatar">${role === 'user' ? '👤' : '🤖'}</div>
-        <div class="message-content">
-            <div class="message-text">${formatContent(content)}</div>
-            <div class="message-meta">${new Date().toLocaleTimeString()}</div>
-        </div>
-    `;
-    messagesContainer.appendChild(messageDiv);
-    scrollToBottom();
-}
-
-// 添加系统消息
-function addSystemMessage(content) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message assistant';
-    messageDiv.innerHTML = `
-        <div class="message-avatar">ℹ️</div>
-        <div class="message-content" style="background: #e7f3ff; font-size: 12px;">${escapeHtml(content)}</div>
-    `;
-    messagesContainer.appendChild(messageDiv);
-    scrollToBottom();
-}
-
 // 格式化内容（支持Markdown简单解析）
 function formatContent(content) {
     if (!content) return '';
@@ -529,12 +726,14 @@ function displayRetrievalResults(results, info) {
     retrievalResults.innerHTML = html;
 }
 
+// 滚动到底部
 function scrollToBottom() {
     if (messagesContainer) {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 }
 
+// HTML转义
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
@@ -542,6 +741,7 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// JS字符串转义
 function escapeJs(text) {
     return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
@@ -561,10 +761,19 @@ function setStreamMode(enabled) {
 }
 
 // 事件监听
-sendBtn?.addEventListener('click', sendMessage);
-chatInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-    }
+if (sendBtn) {
+    sendBtn.addEventListener('click', sendMessage);
+}
+if (chatInput) {
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+}
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    loadSavedSession();
 });

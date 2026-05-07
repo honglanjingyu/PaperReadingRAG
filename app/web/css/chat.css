@@ -20,15 +20,103 @@
     box-shadow: 0 20px 40px rgba(0,0,0,0.1);
 }
 
+/* 聊天头部区域 */
 .chat-header {
     padding: 20px;
     border-bottom: 1px solid #eee;
     background: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .chat-header h2 {
     font-size: 18px;
     color: #333;
+    margin: 0;
+}
+
+/* 会话信息栏 */
+.session-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.session-badge {
+    background: #f0f0f0;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 11px;
+    color: #666;
+    cursor: default;
+    font-family: monospace;
+}
+
+.session-badge.has-session {
+    background: #e8f4e8;
+    color: #28a745;
+}
+
+/* 新建会话按钮 */
+.new-session-btn {
+    background: none;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+    color: #667eea;
+    background: #f0f0ff;
+}
+
+.new-session-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+/* 配置提示 */
+.config-hint {
+    font-size: 10px;
+    color: #999;
+    margin-left: 4px;
+}
+
+/* 会话提示 */
+.session-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #28a745;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 1000;
+    animation: slideIn 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.session-toast.info {
+    background: #667eea;
+}
+
+.session-toast.warning {
+    background: #ffc107;
+    color: #333;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
 
 /* 消息区域 */
@@ -99,6 +187,19 @@
     padding: 2px 6px;
     border-radius: 4px;
     font-family: monospace;
+}
+
+/* 思考动画样式 */
+.thinking-text {
+    color: #999;
+}
+
+.thinking-dots {
+    color: #667eea;
+    font-weight: bold;
+    font-size: 16px;
+    min-width: 24px;
+    display: inline-block;
 }
 
 /* 输入区域 */
@@ -271,15 +372,26 @@
     animation: typing 1.4s infinite;
 }
 
-.typing-dot:nth-child(2) { animation-delay: 0.2s; }
-.typing-dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes typing {
-    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
-    30% { transform: translateY(-10px); opacity: 1; }
+.typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
 }
 
-/* 响应式 */
+.typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing {
+    0%, 60%, 100% {
+        transform: translateY(0);
+        opacity: 0.5;
+    }
+    30% {
+        transform: translateY(-10px);
+        opacity: 1;
+    }
+}
+
+/* 响应式布局 */
 @media (max-width: 768px) {
     .main-layout {
         flex-direction: column;
@@ -291,5 +403,15 @@
 
     .message-content {
         max-width: 85%;
+    }
+
+    .chat-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .session-info {
+        flex-wrap: wrap;
     }
 }

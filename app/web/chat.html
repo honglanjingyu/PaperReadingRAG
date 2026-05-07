@@ -37,13 +37,23 @@
             <div class="chat-container">
                 <div class="chat-header">
                     <h2>💬 智能问答</h2>
+                    <!-- 会话信息栏 - 只保留新建会话 -->
+                    <div class="session-info" id="sessionInfo">
+                        <span class="session-badge" id="sessionBadge" title="会话ID">
+                            📝 新会话
+                        </span>
+                        <button class="new-session-btn" id="newSessionBtn" title="新建会话">
+                            ✨ 新建会话
+                        </button>
+                    </div>
                 </div>
 
                 <div class="messages-container" id="messagesContainer">
                     <div class="message assistant">
                         <div class="message-avatar">🤖</div>
                         <div class="message-content">
-                            您好！我是RAG智能问答助手。请上传文档后，向我提问任何关于文档内容的问题。
+                            <div class="message-text">您好！我是RAG智能问答助手。请上传文档后，向我提问任何关于文档内容的问题。</div>
+                            <div class="message-meta"></div>
                         </div>
                     </div>
                 </div>
@@ -86,6 +96,11 @@
                     <div class="config-item">
                         <span class="config-label">启用Query改写</span>
                         <input type="checkbox" id="enableQueryRewrite" checked>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">启用记忆</span>
+                        <input type="checkbox" id="enableMemory" checked>
+                        <span class="config-hint">(保持对话上下文)</span>
                     </div>
                 </div>
             </div>

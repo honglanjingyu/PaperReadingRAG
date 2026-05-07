@@ -5,7 +5,7 @@
 
 from typing import List, Dict, Optional, Any
 import logging
-from .session_memory import SessionMemory, get_memory_manager
+from .redis_session_memory import RedisSessionMemory, get_memory_manager
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +16,7 @@ class MemoryInjector:
     负责将对话历史注入到Prompt构造流程中
     """
 
-    # 对话历史格式化模板
-    HISTORY_TEMPLATE = """## 对话历史
-{history}
-
-## 当前问题
-{question}
-
-请基于对话历史和文档内容回答当前问题。如果当前问题涉及历史对话中的内容，请结合上下文理解。"""
-
-    def __init__(self, memory_manager: SessionMemory = None):
+    def __init__(self, memory_manager: RedisSessionMemory = None):
         """
         初始化记忆注入器
 
@@ -38,8 +29,7 @@ class MemoryInjector:
             self,
             session_id: str,
             max_turns: int = 10,
-            max_tokens: int = 2000,
-            include_timestamps: bool = False
+            max_tokens: int = 2000
     ) -> str:
         """
         格式化对话历史为文本
@@ -48,28 +38,15 @@ class MemoryInjector:
             session_id: 会话ID
             max_turns: 最大轮次
             max_tokens: 最大token数
-            include_timestamps: 是否包含时间戳
 
         Returns:
             格式化的历史文本
         """
-        history = self.memory_manager.get_conversation_history(
+        return self.memory_manager.get_history_text(
             session_id=session_id,
             max_turns=max_turns,
             max_tokens=max_tokens
         )
-
-        if not history:
-            return ""
-
-        # 格式化历史记录
-        formatted_lines = []
-        for msg in history:
-            role = "用户" if msg["role"] == "user" else "助手"
-            content = msg["content"]
-            formatted_lines.append(f"{role}: {content}")
-
-        return "\n".join(formatted_lines)
 
     def build_messages_with_history(
             self,
@@ -144,18 +121,26 @@ class MemoryInjector:
         if history_text:
             # 使用带历史的模板
             if template_name == "conversation":
-                template = base_template
-                prompt = template.format(
+                prompt = base_template.format(
                     context=context,
                     history=history_text,
                     question=question
                 )
             else:
                 # 在详细模板中添加历史
-                prompt = f"""## 文档内容
+                history_template = """## 对话历史
+{history}
+
+## 文档内容
 {context}
 
-{self.HISTORY_TEMPLATE.format(history=history_text, question=question)}"""
+## 当前问题
+{question}"""
+                prompt = history_template.format(
+                    history=history_text,
+                    context=context,
+                    question=question
+                )
         else:
             # 没有历史时使用原模板
             if template_name == "conversation":
