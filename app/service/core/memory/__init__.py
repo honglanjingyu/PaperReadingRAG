@@ -1,18 +1,17 @@
-# app/service/core/memory/__init__.py
+# 修改后
 """
-记忆模块 - 支持Redis持久化存储
+记忆模块 - 支持 Redis 持久化存储
 """
 
-from .redis_session_memory import RedisSessionMemory, get_memory_manager, MemoryEntry
+# 默认使用 Redis
+from .redis_session_memory import RedisSessionMemory, get_memory_manager
+SessionMemory = RedisSessionMemory
+
 from .conversation_history import ConversationHistory
 from .memory_injector import MemoryInjector
 
-# 为了向后兼容，将 RedisSessionMemory 也导出为 SessionMemory
-SessionMemory = RedisSessionMemory
-
 __all__ = [
-    'RedisSessionMemory',
-    'SessionMemory',  # 向后兼容别名
+    'SessionMemory',
     'get_memory_manager',
     'MemoryEntry',
     'ConversationHistory',

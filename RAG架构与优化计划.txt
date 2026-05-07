@@ -7,7 +7,6 @@
 权限问题
 
 优化:
-redis记忆
 redis缓存
 评估系统 检索层Hit@K MRR   输出层Faithfulness、Answer Relevancy、Context Recall 和 ContextPrecision 用户点赞与点踩 面经
 幻觉  面经

@@ -1,9 +1,9 @@
 # app/api/routes/chat.py
 """
-智能问答路由 - 支持会话记忆
+智能问答路由 - 支持会话记忆和 URL 参数传递 session_id
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from typing import Dict, Any, Optional, List
 import json
@@ -13,6 +13,155 @@ from app.api.config import settings
 from app.api.dependencies import get_chat_service
 
 router = APIRouter()
+
+
+@router.get("/chat/session/create")
+async def create_new_session(user_id: str = "default") -> Dict[str, Any]:
+    """
+    创建新会话，返回 session_id
+
+    前端可在页面加载时调用此接口获取新 session_id 并更新 URL
+    """
+    try:
+        chat_service = get_chat_service()
+        if hasattr(chat_service, '_memory_manager') and chat_service._memory_manager:
+            session_id = chat_service._memory_manager.get_or_create_session(user_id=user_id)
+        else:
+            from app.service.core.memory import get_memory_manager
+            memory_manager = get_memory_manager()
+            session_id = memory_manager.get_or_create_session(user_id=user_id)
+
+        return {
+            "success": True,
+            "session_id": session_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建会话失败: {str(e)}")
+
+
+# app/api/routes/chat.py (修改 get_session_info)
+
+@router.get("/chat/session/{session_id}")
+async def get_session_info(
+        session_id: str,
+        user_id: str = "default"
+) -> Dict[str, Any]:
+    """
+    获取会话信息
+
+    Args:
+        session_id: 会话ID
+        user_id: 用户ID
+
+    Returns:
+        会话详细信息
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id不能为空")
+
+    try:
+        from app.service.core.memory import get_memory_manager
+        memory = get_memory_manager()
+
+        info = memory.get_session_info(session_id, user_id)
+
+        if info:
+            return {
+                "success": True,
+                "session_id": session_id,
+                "info": {
+                    "session_id": info.get("session_id"),
+                    "turn_count": info.get("turn_count", 0),
+                    "message_count": info.get("message_count", 0),
+                    "created_at": info.get("created_at"),
+                    "last_accessed": info.get("last_accessed"),
+                    "is_active": info.get("is_active", True)
+                }
+            }
+        else:
+            return {
+                "success": False,
+                "session_id": session_id,
+                "info": None,
+                "message": f"会话 {session_id} 不存在"
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取会话信息失败: {str(e)}")
+
+
+# app/api/routes/chat.py (修改 get_session_history)
+
+@router.get("/chat/session/{session_id}/history")
+async def get_session_history(
+        session_id: str,
+        limit: int = Query(50, ge=1, le=200),
+        user_id: str = "default"
+) -> Dict[str, Any]:
+    """
+    获取会话的完整历史记录
+
+    用于刷新页面后恢复聊天记录
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id不能为空")
+
+    try:
+        from app.service.core.memory import get_memory_manager
+
+        memory = get_memory_manager()
+        history = memory.get_session_history(session_id, user_id, limit=limit)
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "message_count": len(history),
+            "messages": history
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取历史失败: {str(e)}")
+
+@router.get("/chat/session/{session_id}/messages")
+async def get_session_messages(
+    session_id: str,
+    max_turns: int = Query(20, ge=1, le=50),
+    user_id: str = "default"
+) -> Dict[str, Any]:
+    """
+    获取会话消息（用于恢复对话界面）
+
+    Args:
+        session_id: 会话ID
+        max_turns: 最大轮次数
+        user_id: 用户ID
+
+    Returns:
+        会话消息列表
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id不能为空")
+
+    try:
+        from app.service.core.memory import get_memory_manager
+        memory = get_memory_manager()
+
+        # 检查会话是否存在
+        info = memory.get_session_info(session_id, user_id)
+        if not info:
+            return {
+                "success": False,
+                "error": "会话不存在"
+            }
+
+        messages = memory.get_conversation_history(session_id, user_id, max_turns=max_turns)
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "session_info": info,
+            "messages": messages
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取消息失败: {str(e)}")
 
 
 @router.post("/chat/ask")
@@ -220,42 +369,6 @@ async def clear_session(session_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"清除会话失败: {str(e)}")
 
 
-@router.get("/chat/session/{session_id}")
-async def get_session_info(session_id: str) -> Dict[str, Any]:
-    """
-    获取会话信息
-
-    查看指定会话的状态，包括对话轮次、消息数量等
-
-    Args:
-        session_id: 会话ID
-
-    Returns:
-        会话详细信息
-    """
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id不能为空")
-
-    try:
-        chat_service = get_chat_service()
-        info = chat_service.get_session_info(session_id)
-
-        if info:
-            return {
-                "success": True,
-                "session_id": session_id,
-                "info": info
-            }
-        else:
-            return {
-                "success": False,
-                "session_id": session_id,
-                "message": f"会话 {session_id} 不存在"
-            }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取会话信息失败: {str(e)}")
-
-
 @router.get("/chat/sessions")
 async def list_active_sessions() -> Dict[str, Any]:
     """
@@ -274,14 +387,13 @@ async def list_active_sessions() -> Dict[str, Any]:
             "success": True,
             "active_sessions_count": memory_manager.get_active_sessions_count(),
             "total_sessions_count": memory_manager.get_total_sessions_count(),
-            "session_ttl": memory_manager.session_ttl,
-            "max_turns": memory_manager.max_turns
+            "session_ttl": getattr(memory_manager, 'session_ttl', 3600),
+            "max_turns": getattr(memory_manager, 'max_turns', 20)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取会话列表失败: {str(e)}")
 
 
-# 可选：支持多轮对话的快捷接口
 @router.post("/chat/conversation")
 async def conversation(
         question: str,

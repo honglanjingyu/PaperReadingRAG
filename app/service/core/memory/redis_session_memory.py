@@ -42,7 +42,7 @@ class RedisSessionMemory:
     # 默认配置
     DEFAULT_MAX_TURNS = 20  # 最大保留轮次
     DEFAULT_MAX_TOKENS = 4000  # 最大保留token数
-    DEFAULT_SESSION_TTL = 3600  # 会话过期时间（秒）
+    DEFAULT_SESSION_TTL = 604800  # 会话过期时间（秒），默认7天
 
     def __init__(
             self,
@@ -62,7 +62,7 @@ class RedisSessionMemory:
         """
         self.max_turns = max_turns or int(os.getenv("MEMORY_MAX_TURNS", self.DEFAULT_MAX_TURNS))
         self.max_tokens = max_tokens or int(os.getenv("MEMORY_MAX_TOKENS", self.DEFAULT_MAX_TOKENS))
-        self.session_ttl = session_ttl or int(os.getenv("MEMORY_SESSION_TTL", self.DEFAULT_SESSION_TTL))
+        self.session_ttl = session_ttl or int(os.getenv("REDIS_SESSION_TTL", self.DEFAULT_SESSION_TTL))
 
         # 初始化Redis连接
         if redis_client:
@@ -82,7 +82,7 @@ class RedisSessionMemory:
                 self.redis_client.ping()
                 logger.info("Redis连接成功，会话记忆将使用Redis存储")
             except Exception as e:
-                logger.error(f"Redis连接失败: {e}，将使用内存降级")
+                logger.error(f"Redis连接失败: {e}")
                 self.redis_client = None
         else:
             self.redis_client = None
@@ -90,10 +90,12 @@ class RedisSessionMemory:
 
         # 降级模式：内存存储
         self._fallback_storage: Dict[str, List] = {}
+        self._fallback_meta: Dict[str, Dict] = {}
 
         # Redis key前缀
         self._key_prefix = "rag:session:"
         self._meta_prefix = "rag:session:meta:"
+        self._list_prefix = "rag:session:list:"  # 用户会话列表
 
         logger.info(f"RedisSessionMemory初始化: max_turns={self.max_turns}, "
                     f"max_tokens={self.max_tokens}, session_ttl={self.session_ttl}s")
@@ -110,28 +112,43 @@ class RedisSessionMemory:
         """获取会话元数据的Redis key"""
         return f"{self._meta_prefix}{session_id}"
 
-    def get_or_create_session(self, session_id: str = None) -> str:
+    def _get_list_key(self, user_id: str) -> str:
+        """获取用户会话列表的Redis key"""
+        return f"{self._list_prefix}{user_id}"
+
+    def get_or_create_session(self, session_id: str = None, user_id: str = "default") -> str:
         """
         获取或创建会话
 
         Args:
             session_id: 会话ID，如果为空则自动生成
+            user_id: 用户ID
 
         Returns:
             session_id
         """
-        if session_id and self._session_exists(session_id):
+        if session_id and self._session_exists(session_id, user_id):
             # 更新最后访问时间
-            self._update_last_accessed(session_id)
+            self._update_last_accessed(session_id, user_id)
             return session_id
 
         # 创建新会话
         if not session_id:
             session_id = self._generate_session_id()
+        else:
+            # 检查是否已存在（但可能属于其他用户）
+            if self._session_exists(session_id, None):
+                # 会话存在但属于其他用户，创建新ID
+                existing_user = self.redis_client.hget(self._get_meta_key(session_id),
+                                                       "user_id") if self._is_redis_available() else None
+                if existing_user and existing_user != user_id:
+                    logger.warning(f"会话 {session_id} 属于用户 {existing_user}，为 {user_id} 创建新会话")
+                    session_id = self._generate_session_id()
 
         # 初始化会话元数据
         meta = {
             "session_id": session_id,
+            "user_id": user_id,
             "created_at": time.time(),
             "last_accessed": time.time(),
             "turn_count": 0,
@@ -141,6 +158,10 @@ class RedisSessionMemory:
         if self._is_redis_available():
             self.redis_client.hset(self._get_meta_key(session_id), mapping=meta)
             self.redis_client.expire(self._get_meta_key(session_id), self.session_ttl)
+
+            # 添加到用户会话列表
+            self.redis_client.lpush(self._get_list_key(user_id), session_id)
+            self.redis_client.ltrim(self._get_list_key(user_id), 0, 99)  # 最多保留100个会话
         else:
             # 降级模式
             if session_id not in self._fallback_storage:
@@ -152,21 +173,22 @@ class RedisSessionMemory:
 
         return session_id
 
-    def _session_exists(self, session_id: str) -> bool:
+    def _session_exists(self, session_id: str, user_id: str = None) -> bool:
         """检查会话是否存在"""
         if self._is_redis_available():
-            return self.redis_client.exists(self._get_meta_key(session_id)) > 0
+            if not self.redis_client.exists(self._get_meta_key(session_id)):
+                return False
+            if user_id:
+                stored_user = self.redis_client.hget(self._get_meta_key(session_id), "user_id")
+                return stored_user == user_id
+            return True
         else:
             return session_id in self._fallback_meta
 
-    def _update_last_accessed(self, session_id: str):
+    def _update_last_accessed(self, session_id: str, user_id: str = "default"):
         """更新最后访问时间"""
         if self._is_redis_available():
-            self.redis_client.hset(
-                self._get_meta_key(session_id),
-                "last_accessed",
-                time.time()
-            )
+            self.redis_client.hset(self._get_meta_key(session_id), "last_accessed", time.time())
             # 刷新TTL
             self.redis_client.expire(self._get_session_key(session_id), self.session_ttl)
             self.redis_client.expire(self._get_meta_key(session_id), self.session_ttl)
@@ -175,13 +197,8 @@ class RedisSessionMemory:
         """生成唯一会话ID"""
         return hashlib.md5(f"{uuid.uuid4()}_{time.time()}".encode()).hexdigest()[:16]
 
-    def add_message(
-            self,
-            session_id: str,
-            role: str,
-            content: str,
-            timestamp: float = None
-    ) -> bool:
+    def add_message(self, session_id: str, role: str, content: str,
+                    user_id: str = "default", timestamp: float = None) -> bool:
         """
         添加消息到会话记忆
 
@@ -189,12 +206,13 @@ class RedisSessionMemory:
             session_id: 会话ID
             role: 角色 ('user' 或 'assistant')
             content: 消息内容
+            user_id: 用户ID
             timestamp: 时间戳
 
         Returns:
             是否添加成功
         """
-        if not self._session_exists(session_id):
+        if not self._session_exists(session_id, user_id):
             logger.warning(f"会话不存在: {session_id}")
             return False
 
@@ -218,9 +236,11 @@ class RedisSessionMemory:
             if role == 'user':
                 self.redis_client.hincrby(self._get_meta_key(session_id), "turn_count", 1)
             self.redis_client.hincrby(self._get_meta_key(session_id), "message_count", 1)
+            self.redis_client.hset(self._get_meta_key(session_id), "last_accessed", time.time())
 
             # 设置过期时间
             self.redis_client.expire(key, self.session_ttl)
+            self.redis_client.expire(self._get_meta_key(session_id), self.session_ttl)
 
             # 维护大小限制
             self._trim_session_redis(session_id)
@@ -235,6 +255,7 @@ class RedisSessionMemory:
                 if role == 'user':
                     self._fallback_meta[session_id]["turn_count"] += 1
                 self._fallback_meta[session_id]["message_count"] += 1
+                self._fallback_meta[session_id]["last_accessed"] = time.time()
 
             # 维护大小限制
             self._trim_session_fallback(session_id)
@@ -242,28 +263,25 @@ class RedisSessionMemory:
         logger.debug(f"添加消息到会话 {session_id}: {role}")
         return True
 
-    def get_conversation_history(
-            self,
-            session_id: str,
-            max_turns: int = None,
-            max_tokens: int = None
-    ) -> List[Dict[str, str]]:
+    def get_conversation_history(self, session_id: str, user_id: str = "default",
+                                 max_turns: int = None, max_tokens: int = None) -> List[Dict[str, str]]:
         """
         获取对话历史（用于LLM）
 
         Args:
             session_id: 会话ID
+            user_id: 用户ID
             max_turns: 最大轮次
             max_tokens: 最大token数
 
         Returns:
             消息列表，格式: [{"role": "user", "content": "..."}, ...]
         """
-        if not self._session_exists(session_id):
+        if not self._session_exists(session_id, user_id):
             return []
 
         # 更新最后访问时间
-        self._update_last_accessed(session_id)
+        self._update_last_accessed(session_id, user_id)
 
         # 获取消息
         if self._is_redis_available():
@@ -300,28 +318,21 @@ class RedisSessionMemory:
         messages_json = self.redis_client.lrange(key, 0, -1)
         return [json.loads(msg) for msg in messages_json]
 
-    def get_history_text(
-            self,
-            session_id: str,
-            max_turns: int = 10,
-            max_tokens: int = 2000
-    ) -> str:
+    def get_history_text(self, session_id: str, user_id: str = "default",
+                         max_turns: int = 10, max_tokens: int = 2000) -> str:
         """
         获取格式化的历史文本
 
         Args:
             session_id: 会话ID
+            user_id: 用户ID
             max_turns: 最大轮次
             max_tokens: 最大token数
 
         Returns:
             格式化的历史文本
         """
-        history = self.get_conversation_history(
-            session_id=session_id,
-            max_turns=max_turns,
-            max_tokens=max_tokens
-        )
+        history = self.get_conversation_history(session_id, user_id, max_turns, max_tokens)
 
         if not history:
             return ""
@@ -388,32 +399,102 @@ class RedisSessionMemory:
         trimmed = self._trim_by_tokens(self._fallback_storage[session_id], self.max_tokens)
         self._fallback_storage[session_id] = trimmed
 
-    def get_session_info(self, session_id: str) -> Optional[Dict]:
-        """获取会话信息"""
-        if not self._session_exists(session_id):
+    def get_session_history(self, session_id: str, user_id: str = "default",
+                            limit: int = 100, offset: int = 0) -> List[Dict]:
+        """
+        获取会话的完整历史（用于前端恢复）
+
+        Args:
+            session_id: 会话ID
+            user_id: 用户ID
+            limit: 返回消息数量限制
+            offset: 偏移量
+
+        Returns:
+            消息列表，包含id, role, content, created_at等字段
+        """
+        if not self._session_exists(session_id, user_id):
+            return []
+
+        # 获取消息
+        if self._is_redis_available():
+            messages = self._get_messages_redis(session_id)
+        else:
+            messages = self._fallback_storage.get(session_id, [])
+
+        # 应用分页
+        start = offset
+        end = offset + limit if limit > 0 else len(messages)
+        messages = messages[start:end]
+
+        # 转换为前端需要的格式
+        result = []
+        for i, msg in enumerate(messages):
+            result.append({
+                "id": i,
+                "role": msg["role"],
+                "content": msg["content"],
+                "created_at": datetime.fromtimestamp(msg["timestamp"]).isoformat() if "timestamp" in msg else None
+            })
+
+        return result
+
+    def get_session_info(self, session_id: str, user_id: str = "default") -> Optional[Dict]:
+        """
+        获取会话信息
+
+        Args:
+            session_id: 会话ID
+            user_id: 用户ID
+
+        Returns:
+            会话信息字典
+        """
+        if not self._session_exists(session_id, user_id):
             return None
 
         if self._is_redis_available():
             meta = self.redis_client.hgetall(self._get_meta_key(session_id))
+            if not meta:
+                return None
             msg_count = self.redis_client.llen(self._get_session_key(session_id))
+            return {
+                "session_id": session_id,
+                "user_id": meta.get("user_id"),
+                "turn_count": int(meta.get("turn_count", 0)),
+                "message_count": msg_count,
+                "created_at": float(meta.get("created_at", 0)),
+                "last_accessed": float(meta.get("last_accessed", 0)),
+                "is_active": (time.time() - float(meta.get("last_accessed", 0))) < self.session_ttl
+            }
         else:
             meta = self._fallback_meta.get(session_id, {})
             msg_count = len(self._fallback_storage.get(session_id, []))
+            return {
+                "session_id": session_id,
+                "user_id": meta.get("user_id", user_id),
+                "turn_count": meta.get("turn_count", 0),
+                "message_count": msg_count,
+                "created_at": meta.get("created_at", 0),
+                "last_accessed": meta.get("last_accessed", 0),
+                "is_active": (time.time() - meta.get("last_accessed", 0)) < self.session_ttl
+            }
 
-        return {
-            "session_id": session_id,
-            "turn_count": int(meta.get("turn_count", 0)),
-            "message_count": msg_count,
-            "created_at": float(meta.get("created_at", 0)),
-            "last_accessed": float(meta.get("last_accessed", 0)),
-            "is_active": (time.time() - float(meta.get("last_accessed", 0))) < self.session_ttl
-        }
+    def clear_session(self, session_id: str, user_id: str = "default") -> bool:
+        """
+        清除会话记忆
 
-    def clear_session(self, session_id: str) -> bool:
-        """清除会话记忆"""
+        Args:
+            session_id: 会话ID
+            user_id: 用户ID
+
+        Returns:
+            是否清除成功
+        """
         if self._is_redis_available():
             self.redis_client.delete(self._get_session_key(session_id))
             self.redis_client.delete(self._get_meta_key(session_id))
+            self.redis_client.lrem(self._get_list_key(user_id), 1, session_id)
         else:
             self._fallback_storage.pop(session_id, None)
             self._fallback_meta.pop(session_id, None)
@@ -443,15 +524,24 @@ class RedisSessionMemory:
         else:
             return len(self._fallback_meta)
 
+    def list_user_sessions(self, user_id: str = "default", limit: int = 20) -> List[Dict]:
+        """列出用户的所有会话"""
+        sessions = []
+        if self._is_redis_available():
+            session_ids = self.redis_client.lrange(self._get_list_key(user_id), 0, limit - 1)
+            for sid in session_ids:
+                info = self.get_session_info(sid, user_id)
+                if info:
+                    sessions.append(info)
+        else:
+            for sid, meta in self._fallback_meta.items():
+                if meta.get("user_id") == user_id:
+                    sessions.append(self.get_session_info(sid, user_id))
+        return sessions
+
     def _cleanup_if_needed(self):
         """按需清理（Redis有自动过期，无需手动）"""
         pass
-
-    def _fallback_meta(self) -> Dict:
-        """获取降级模式的元数据存储"""
-        if not hasattr(self, '_fallback_meta'):
-            self._fallback_meta = {}
-        return self._fallback_meta
 
 
 # 全局单例
@@ -459,7 +549,7 @@ _redis_memory_manager = None
 
 
 def get_memory_manager() -> RedisSessionMemory:
-    """获取会话记忆管理器单例（自动选择Redis或内存）"""
+    """获取会话记忆管理器单例"""
     global _redis_memory_manager
     if _redis_memory_manager is None:
         _redis_memory_manager = RedisSessionMemory()
