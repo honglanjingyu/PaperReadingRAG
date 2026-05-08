@@ -14,21 +14,14 @@ from app.service.core.rag import (
     generate_answer_stream
 )
 
-# 修复导入：使用 RedisSessionMemory 或 SessionMemory
 try:
     from app.service.core.memory import RedisSessionMemory, MemoryInjector, get_memory_manager
-
     MEMORY_AVAILABLE = True
 except ImportError as e:
-    try:
-        # 尝试向后兼容的导入
-        from app.service.core.memory import SessionMemory, MemoryInjector, get_memory_manager
-
-        RedisSessionMemory = SessionMemory
-        MEMORY_AVAILABLE = True
-    except ImportError as e2:
-        MEMORY_AVAILABLE = False
-        print(f"⚠️ 记忆模块导入失败: {e2}，短期记忆将不可用")
+    # 不要降级到内存版本
+    print(f"❌ 记忆模块导入失败: {e}，请确保 Redis 服务已启动")
+    MEMORY_AVAILABLE = False
+    RedisSessionMemory = None
 
 
 class ChatService:
