@@ -57,16 +57,16 @@ def run_all_tests():
     print("=" * 70)
     test_user_question_vectorization()
 
-    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")  # 修改环境变量名
     similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.3"))
 
     # 检查索引是否存在
     try:
         from app.service.core.vector_store import get_vector_search_service
         search_service = get_vector_search_service()
-        index_exists = search_service.es_store.index_exists(index_name)
+        index_exists = search_service.store.index_exists(index_name)  # 修改为 store
 
-        if not index_exists or search_service.es_store.get_document_count(index_name) == 0:
+        if not index_exists or search_service.store.get_document_count(index_name) == 0:
             print(f"\n⚠ 索引 '{index_name}' 不存在或为空，跳过检索和生成测试")
             return
 

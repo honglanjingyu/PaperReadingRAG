@@ -79,7 +79,7 @@ def vectorize_user_question(
 
 def search_similar_documents(
         question: str,
-        es_index_name: str = None,
+        VECTOR_INDEX_NAME: str = None,
         top_k: int = 5,
         similarity_threshold: float = 0.5,
         model_type: str = None,
@@ -115,19 +115,19 @@ def search_similar_documents(
         print(f"\n[9/12] 相似度搜索 (Top-K={top_k})...")
 
     try:
-        if es_index_name is None:
-            es_index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+        if VECTOR_INDEX_NAME is None:
+            VECTOR_INDEX_NAME = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
 
         search_service = get_vector_search_service()
         results = search_service.similarity_search(
             query_vector=question_vector,
-            index_name=es_index_name,
+            index_name=VECTOR_INDEX_NAME,
             top_k=top_k,
             similarity_threshold=similarity_threshold
         )
 
         if verbose:
-            print(f"  索引名称: {es_index_name}")
+            print(f"  索引名称: {VECTOR_INDEX_NAME}")
             print(f"  召回数量: {len(results)}/{top_k}")
 
         # 关键修复：确保结果按 _score 降序排序
@@ -164,7 +164,7 @@ def search_similar_documents(
             "query_vector": question_vector,
             "vector_dimension": len(question_vector),
             "model_type": model_type,
-            "index_name": es_index_name,
+            "index_name": VECTOR_INDEX_NAME,
             "top_k": top_k,
             "similarity_threshold": similarity_threshold,
             "total_recalled": len(results),
@@ -206,7 +206,7 @@ def _enhanced_search_internal(
         recall_k = 1
 
     if index_name is None:
-        index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+        index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
 
     # ========== [8/12] 用户问题 ==========
     if verbose:
@@ -242,12 +242,12 @@ def _enhanced_search_internal(
     try:
         from app.service.core.vector_store import get_vector_search_service
         search_service = get_vector_search_service()
-        index_exists = search_service.es_store.index_exists(index_name)
+        index_exists = search_service.store.index_exists(index_name)
 
         if not index_exists:
             return {"success": False, "error": f"索引 '{index_name}' 不存在，请先处理文档"}
 
-        doc_count = search_service.es_store.get_document_count(index_name)
+        doc_count = search_service.store.get_document_count(index_name)
         if verbose:
             print(f"  索引名称: {index_name}")
             print(f"  文档块数量: {doc_count}")
@@ -513,7 +513,7 @@ def test_similarity_search(questions: List[str] = None, verbose: bool = True):
     if questions is None:
         questions = TEST_QUESTIONS
 
-    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
     top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
     similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.5"))
 
@@ -532,7 +532,7 @@ def test_similarity_search(questions: List[str] = None, verbose: bool = True):
 
         result = search_similar_documents(
             question=question,
-            es_index_name=index_name,
+            VECTOR_INDEX_NAME=index_name,
             top_k=top_k,
             similarity_threshold=similarity_threshold,
             verbose=verbose and len(questions) == 1
@@ -560,7 +560,7 @@ def test_enhanced_retrieval(questions: List[str] = None):
     print("测试增强检索功能")
     print("=" * 70)
 
-    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
     top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
 
     for i, question in enumerate(questions, 1):
@@ -608,7 +608,7 @@ def compare_search_methods(questions: List[str] = None):
     print("传统检索 vs 增强检索 对比")
     print("=" * 70)
 
-    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
     top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
 
     comparison_results = []

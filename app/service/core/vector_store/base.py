@@ -7,8 +7,7 @@ from enum import Enum
 
 
 class VectorStoreType(Enum):
-    """向量存储类型"""
-    ELASTICSEARCH = "elasticsearch"
+    """向量存储类型 - 固定为 Milvus"""
     MILVUS = "milvus"
 
 

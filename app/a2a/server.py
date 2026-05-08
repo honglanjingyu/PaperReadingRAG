@@ -80,7 +80,7 @@ class A2AService:
             # 执行增强检索
             retrieval_result = enhanced_search_with_hybrid_and_rerank(
                 question=request.query,
-                index_name=os.getenv("ES_INDEX_NAME", "rag_documents"),
+                index_name=os.getenv("VECTOR_INDEX_NAME", "rag_documents"),
                 recall_k=request.recall_k,
                 top_k=request.top_k,
                 keyword_weight=float(os.getenv("HYBRID_KEYWORD_WEIGHT", "0.4")),

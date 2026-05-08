@@ -1,23 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="基础A2A">
-      <change afterPath="$PROJECT_DIR$/app/service/core/cache/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/cache/cache_manager.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/embedding/cached_embedding.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/llm/cached_llm.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/rag/cached_search.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/retrieval/cached_bm25_retriever.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/demo_cache.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/缓存优化记录数据.txt" afterDir="false" />
+    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="Redis缓存向量嵌入、搜索结果缓存、BM25 缓存">
       <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/RAG架构与优化计划.txt" beforeDir="false" afterPath="$PROJECT_DIR$/RAG架构与优化计划.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/services/document_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/services/document_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/embedding_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/embedding_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/a2a/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/a2a/server.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/routes/health.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/routes/health.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/rag/generation.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/generation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/rag/nlp/model.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/rag/nlp/search_v2.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/rag/processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/processor.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/service/core/rag/search.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/search.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/rag/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/service/core/retrieval/hybrid_retriever.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/retrieval/hybrid_retriever.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/stop_api.py" beforeDir="false" afterPath="$PROJECT_DIR$/stop_api.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/retrieval/reranker.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/retrieval/reranker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/base.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/es_vector_store.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/factory.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/factory.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/vector_search_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/vector_search_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/vector_storage_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/vector_storage_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -190,7 +192,7 @@
       <workItem from="1778237328822" duration="143000" />
       <workItem from="1778243872184" duration="1609000" />
       <workItem from="1778245972398" duration="317000" />
-      <workItem from="1778247753997" duration="4451000" />
+      <workItem from="1778247753997" duration="6005000" />
     </task>
     <task id="LOCAL-00001" summary="First Commit">
       <option name="closed" value="true" />
@@ -392,7 +394,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778201712406</updated>
     </task>
-    <option name="localTasksCounter" value="26" />
+    <task id="LOCAL-00026" summary="Redis缓存向量嵌入、搜索结果缓存、BM25 缓存">
+      <option name="closed" value="true" />
+      <created>1778252401312</created>
+      <option name="number" value="00026" />
+      <option name="presentableId" value="LOCAL-00026" />
+      <option name="project" value="LOCAL" />
+      <updated>1778252401312</updated>
+    </task>
+    <option name="localTasksCounter" value="27" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -430,7 +440,8 @@
     <MESSAGE value="内存存储短时记忆" />
     <MESSAGE value="Redis实现会话持久化" />
     <MESSAGE value="基础A2A" />
-    <option name="LAST_COMMIT_MESSAGE" value="基础A2A" />
+    <MESSAGE value="Redis缓存向量嵌入、搜索结果缓存、BM25 缓存" />
+    <option name="LAST_COMMIT_MESSAGE" value="Redis缓存向量嵌入、搜索结果缓存、BM25 缓存" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/PaperReadingRAG$utils.coverage" NAME="utils 覆盖结果" MODIFIED="1777730598073" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/pdfparse_demo/deepdoc/parser" />
@@ -443,7 +454,7 @@
     <SUITE FILE_PATH="coverage/PaperReadingRAG$rerank_test.coverage" NAME="rerank_test 覆盖结果" MODIFIED="1777706882591" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG2_.coverage" NAME="RAG2-向量存储 覆盖结果" MODIFIED="1777639463730" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG4.coverage" NAME="RAG4 覆盖结果" MODIFIED="1777942866986" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$run_api.coverage" NAME="run_api 覆盖结果" MODIFIED="1778249828124" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$run_api.coverage" NAME="run_api 覆盖结果" MODIFIED="1778253268339" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$vector_test.coverage" NAME="vector_test 覆盖结果" MODIFIED="1777769328809" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG1.coverage" NAME="RAG1 覆盖结果" MODIFIED="1777642924854" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$vector_storage_service.coverage" NAME="vector_storage_service 覆盖结果" MODIFIED="1777633493351" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/service/core/vector_store" />
@@ -454,7 +465,7 @@
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG2.coverage" NAME="RAG2 覆盖结果" MODIFIED="1777643461163" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$remote_pdf_parser.coverage" NAME="remote_pdf_parser 覆盖结果" MODIFIED="1777854337981" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/service/core/deepdoc/parser" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$elasticsearch_test.coverage" NAME="elasticsearch_test 覆盖结果" MODIFIED="1777630382564" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$stop_api.coverage" NAME="stop_api 覆盖结果" MODIFIED="1778249820185" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$stop_api.coverage" NAME="stop_api 覆盖结果" MODIFIED="1778253237967" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$delete_index.coverage" NAME="delete_index 覆盖结果" MODIFIED="1777770637217" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG3_.coverage" NAME="RAG3-增强搜索 覆盖结果" MODIFIED="1777702304481" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$milvus_test.coverage" NAME="milvus_test 覆盖结果" MODIFIED="1777770054509" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

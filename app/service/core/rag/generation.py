@@ -120,7 +120,7 @@ def test_llm_generation(questions: List[str] = None, stream: bool = False, use_e
     import os
 
     # 读取配置
-    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
     recall_top_k = int(os.getenv("SIMILARITY_TOP_K", "10"))
     rerank_top_k = int(os.getenv("RERANK_TOP_K", "5"))
     similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.3"))
@@ -174,7 +174,7 @@ def test_llm_generation(questions: List[str] = None, stream: bool = False, use_e
 
             search_result = search_similar_documents(
                 question=question,
-                es_index_name=index_name,
+                VECTOR_INDEX_NAME=index_name,
                 top_k=rerank_top_k,
                 similarity_threshold=similarity_threshold,
                 verbose=False
@@ -231,7 +231,7 @@ def test_llm_generation_with_rewritten_only(questions: List[str] = None, stream:
     import os
 
     # 读取配置
-    index_name = os.getenv("ES_INDEX_NAME", "rag_documents")
+    index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
     recall_top_k = int(os.getenv("SIMILARITY_TOP_K", "10"))
     rerank_top_k = int(os.getenv("RERANK_TOP_K", "5"))
     similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.3"))

@@ -290,11 +290,6 @@ class Reranker:
                 # 优先查找 vector 字段（Milvus）
                 if 'vector' in doc and isinstance(doc['vector'], list):
                     doc_vector = doc['vector']
-                # 然后查找 q_{dim}_vec 格式的字段（ES）
-                for key, value in doc.items():
-                    if key.endswith('_vec') and isinstance(value, list):
-                        doc_vector = value
-                        break
 
                 if doc_vector and len(doc_vector) == len(query_vector):
                     sim = np.dot(query_vector, doc_vector) / (

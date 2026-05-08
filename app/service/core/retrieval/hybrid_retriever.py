@@ -279,38 +279,13 @@ class HybridRetriever:
             return []
 
     def _get_all_documents(self, index_name: str, limit: int = 2000) -> List[Dict]:
-        """获取索引中的所有文档"""
-        try:
-            store_type = self._get_store_type()
-
-            if store_type == 'milvus':
-                return self._get_all_documents_milvus(index_name, limit)
-            elif store_type == 'elasticsearch':
-                return self._get_all_documents_elasticsearch(index_name, limit)
-            else:
-                logger.warning(f"未知的存储类型: {store_type}")
-                return []
-
-        except Exception as e:
-            logger.error(f"获取所有文档失败: {e}")
-            return []
-
-    def _get_store_type(self) -> str:
-        """获取当前存储类型"""
-        try:
-            from app.service.core.vector_store import get_store_type
-            return get_store_type()
-        except:
-            if hasattr(self.vector_store, 'es'):
-                return 'elasticsearch'
-            elif hasattr(self.vector_store, '_connected'):
-                return 'milvus'
-            return 'unknown'
-
-    def _get_all_documents_milvus(self, index_name: str, limit: int = 2000) -> List[Dict]:
-        """从 Milvus 获取所有文档"""
+        """获取索引中的所有文档 - Milvus 专用"""
         try:
             from pymilvus import Collection
+
+            if not self.vector_store.index_exists(index_name):
+                logger.warning(f"集合不存在: {index_name}")
+                return []
 
             collection = Collection(index_name)
             collection.flush()
@@ -354,30 +329,55 @@ class HybridRetriever:
             logger.error(f"从 Milvus 获取文档失败: {e}")
             return []
 
-    def _get_all_documents_elasticsearch(self, index_name: str, limit: int = 2000) -> List[Dict]:
-        """从 Elasticsearch 获取所有文档"""
+    def _get_all_documents(self, index_name: str, limit: int = 2000) -> List[Dict]:
+        """获取索引中的所有文档 - Milvus 专用"""
         try:
-            body = {
-                "size": limit,
-                "query": {"match_all": {}},
-                "_source": ["id", "content", "content_with_weight", "docnm", "docnm_kwd", "doc_id", "kb_id"]
-            }
+            from pymilvus import Collection
 
-            response = self.vector_store.es.search(index=index_name, body=body)
-            hits = response["hits"]["hits"]
+            if not self.vector_store.index_exists(index_name):
+                logger.warning(f"集合不存在: {index_name}")
+                return []
+
+            collection = Collection(index_name)
+            collection.flush()
+            total = min(collection.num_entities, limit)
+
+            if total == 0:
+                return []
+
+            output_fields = [
+                "id", "content", "content_with_weight", "docnm",
+                "docnm_kwd", "doc_id", "kb_id", "token_count", "chunk_index"
+            ]
+
+            results = collection.query(
+                expr="",
+                output_fields=output_fields,
+                offset=0,
+                limit=total
+            )
 
             all_docs = []
-            for hit in hits:
-                doc = hit["_source"]
-                doc["_id"] = hit["_id"]
-                doc["id"] = doc.get("id", hit["_id"])
+            for result in results:
+                doc = {
+                    "_id": result.get("id", ""),
+                    "id": result.get("id", ""),
+                    "content": result.get("content", ""),
+                    "content_with_weight": result.get("content_with_weight", ""),
+                    "docnm": result.get("docnm", ""),
+                    "docnm_kwd": result.get("docnm_kwd", ""),
+                    "doc_id": result.get("doc_id", ""),
+                    "kb_id": result.get("kb_id", ""),
+                    "token_count": result.get("token_count", 0),
+                    "chunk_index": result.get("chunk_index", 0),
+                }
                 all_docs.append(doc)
 
-            logger.info(f"从 Elasticsearch 获取 {len(all_docs)} 个文档")
+            logger.info(f"从 Milvus 获取 {len(all_docs)} 个文档")
             return all_docs
 
         except Exception as e:
-            logger.error(f"从 Elasticsearch 获取文档失败: {e}")
+            logger.error(f"从 Milvus 获取文档失败: {e}")
             return []
 
     def _fuse_results(

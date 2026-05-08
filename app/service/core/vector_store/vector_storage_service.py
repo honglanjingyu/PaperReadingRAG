@@ -17,7 +17,7 @@ class VectorStorageService:
 
     def __init__(self):
         self.store = get_vector_store()
-        self.es_store = self.store  # 保持向后兼容
+        # 移除 es_store 引用
 
     def store_vector_chunks(
             self,
@@ -77,11 +77,8 @@ class VectorStorageService:
                 "create_timestamp_flt": create_timestamp,
                 "token_count": getattr(chunk, 'token_count', 0),
                 "chunk_index": getattr(chunk, 'chunk_index', i),
-                f"q_{vector_dim}_vec": chunk.vector  # ES 格式
+                "vector": chunk.vector  # Milvus 使用 vector 字段
             }
-
-            # Milvus 也支持 vector 字段
-            doc["vector"] = chunk.vector
 
             # 添加元数据
             if hasattr(chunk, 'metadata') and chunk.metadata:

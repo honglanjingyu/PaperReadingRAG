@@ -33,9 +33,9 @@ from app.service.core.embedding import (
     EmbeddingManager, EmbeddingType, get_embedding_manager, get_embedding_service,
 )
 
-# 导入向量存储模块
+# 导入向量存储模块 - 修复：移除 ESVectorStore 导入
 from app.service.core.vector_store import (
-    ESVectorStore, VectorStorageService, get_vector_storage_service, get_vector_search_service,
+    VectorStorageService, get_vector_storage_service, get_vector_search_service,
 )
 
 
@@ -132,7 +132,7 @@ def process_document(
 
         try:
             storage_service = get_vector_storage_service()
-            index = index_name or os.getenv("ES_INDEX_NAME", "rag_documents")
+            index = index_name or os.getenv("VECTOR_INDEX_NAME", "rag_documents")
             inserted = storage_service.store_vector_chunks(vector_chunks, index, parsed.file_name)
 
             if verbose:

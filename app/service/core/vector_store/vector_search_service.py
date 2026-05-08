@@ -14,7 +14,7 @@ class VectorSearchService:
 
     def __init__(self):
         self.store = get_vector_store()
-        self.es_store = self.store  # 保持向后兼容
+        # 移除 es_store 引用
 
     def similarity_search(
             self,
@@ -47,7 +47,7 @@ class VectorSearchService:
                 similarity_threshold=similarity_threshold
             )
 
-            # 关键修复：确保结果按 _score 降序排序
+            # 确保结果按 _score 降序排序
             results.sort(key=lambda x: x.get("_score", 0), reverse=True)
 
             logger.info(f"相似度搜索完成: 召回 {len(results)} 个文档块")

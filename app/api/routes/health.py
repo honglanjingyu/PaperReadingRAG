@@ -24,7 +24,7 @@ async def get_config() -> Dict[str, Any]:
     """获取系统配置信息"""
     return {
         "embedding_type": os.getenv("EMBEDDING_TYPE", "remote"),
-        "vector_store_type": os.getenv("VECTOR_STORE_TYPE", "elasticsearch"),
+        "vector_store_type": "milvus",  # 固定为 milvus
         "index_name": os.getenv("VECTOR_INDEX_NAME", "rag_documents"),
         "llm_model": os.getenv("LLM_MODEL", "qwen-turbo"),
         "rerank_enabled": os.getenv("ENABLE_RERANK", "true").lower() == "true",
