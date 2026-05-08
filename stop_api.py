@@ -26,5 +26,5 @@ def stop_service(port=8000):
         print(f"停止失败: {e}")
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8001
     stop_service(port)
