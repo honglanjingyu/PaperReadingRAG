@@ -1,4 +1,5 @@
 # app/service/core/rag/search.py
+
 """
 RAG 搜索模块
 包含：用户问题向量化 -> 相似度搜索 -> 增强检索
@@ -12,12 +13,16 @@ load_dotenv()
 
 from app.service.core.embedding import VectorizationService, get_embedding_manager
 from app.service.core.vector_store import get_vector_search_service
+from .cached_search import CachedSearchService
+
+# 创建全局缓存实例
+_cached_search = CachedSearchService()
 
 
 def vectorize_user_question(
-    question: str,
-    model_type: str = None,
-    verbose: bool = True
+        question: str,
+        model_type: str = None,
+        verbose: bool = True
 ) -> dict:
     """
     用户问题向量化
@@ -70,6 +75,7 @@ def vectorize_user_question(
         if verbose:
             print(f"  问题向量化失败: {e}")
         return {"success": False, "question": question, "error": str(e)}
+
 
 def search_similar_documents(
         question: str,
@@ -171,11 +177,11 @@ def search_similar_documents(
         return {"success": False, "question": question, "error": str(e)}
 
 
-def enhanced_search_with_hybrid_and_rerank(
+def _enhanced_search_internal(
         question: str,
         index_name: str = None,
-        top_k: int = 5,  # 最终返回数量
-        recall_k: int = 10,  # 召回数量
+        top_k: int = 5,
+        recall_k: int = 10,
         keyword_weight: float = 0.3,
         vector_weight: float = 0.7,
         enable_rerank: bool = True,
@@ -185,13 +191,7 @@ def enhanced_search_with_hybrid_and_rerank(
         verbose: bool = True
 ) -> dict:
     """
-    增强检索：用户问题向量化 -> Query改写 -> 相似度搜索 -> 重排序
-
-    处理顺序：
-    [8/12] 用户问题
-    [9/12] Query改写
-    [10/12] 相似度搜索（使用改写后的问题）
-    [11/12] 重排序（使用改写后的问题）
+    增强检索内部实现（不包含缓存）
     """
     # ========== 健壮性检查 ==========
     if top_k > recall_k:
@@ -270,21 +270,19 @@ def enhanced_search_with_hybrid_and_rerank(
         from app.service.core.retrieval import HybridRetriever
         hybrid_retriever = HybridRetriever(use_jieba=True)
 
-        # ✅ 关键修复：使用改写后的问题进行相似度搜索，并传递 verbose 参数
         hybrid_results = hybrid_retriever.hybrid_search(
-            query=rewritten_query,  # 使用改写后的问题
+            query=rewritten_query,
             index_name=index_name,
-            top_k=recall_k,  # 召回数量
+            top_k=recall_k,
             keyword_weight=keyword_weight,
             vector_weight=vector_weight,
             similarity_threshold=similarity_threshold,
-            verbose=verbose  # 传递 verbose 参数
+            verbose=verbose
         )
 
         if verbose:
             print(f"\n  混合检索总召回: {len(hybrid_results)} 个块")
 
-        # 确保混合检索结果已排序
         hybrid_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
 
     except Exception as e:
@@ -292,7 +290,6 @@ def enhanced_search_with_hybrid_and_rerank(
             print(f"  混合检索失败: {e}，回退到向量检索")
         from app.service.core.embedding import get_embedding_manager
         embedding_manager = get_embedding_manager()
-        # ✅ 使用改写后的问题生成向量
         query_vector = embedding_manager.generate_embedding(rewritten_query)
         if query_vector:
             from app.service.core.vector_store import get_vector_search_service
@@ -323,9 +320,8 @@ def enhanced_search_with_hybrid_and_rerank(
             from app.service.core.retrieval import Reranker
             reranker = Reranker(api_type=rerank_type)
 
-            # ✅ 关键修复：使用改写后的问题进行重排序
             final_results = reranker.rerank(
-                query=rewritten_query,  # 使用改写后的问题
+                query=rewritten_query,
                 documents=hybrid_results,
                 top_k=top_k
             )
@@ -344,7 +340,6 @@ def enhanced_search_with_hybrid_and_rerank(
                     else:
                         print(f"  实际使用: {source}")
 
-            # 确保重排序结果按分数降序排列
             if final_results:
                 final_results.sort(key=lambda x: x.get('rerank_score', x.get('final_score', 0)), reverse=True)
                 final_results = final_results[:top_k]
@@ -395,8 +390,8 @@ def enhanced_search_with_hybrid_and_rerank(
 
     return {
         "success": True,
-        "question": question,  # 原始问题
-        "rewritten_query": rewritten_query if enable_query_rewrite else None,  # 改写后的问题
+        "question": question,
+        "rewritten_query": rewritten_query if enable_query_rewrite else None,
         "index_name": index_name,
         "top_k": top_k,
         "recall_k": recall_k,
@@ -410,6 +405,81 @@ def enhanced_search_with_hybrid_and_rerank(
         "total_returned": len(formatted_results),
         "results": formatted_results
     }
+
+
+def enhanced_search_with_hybrid_and_rerank(
+        question: str,
+        index_name: str = None,
+        top_k: int = 5,
+        recall_k: int = 10,
+        keyword_weight: float = 0.3,
+        vector_weight: float = 0.7,
+        enable_rerank: bool = True,
+        enable_query_rewrite: bool = True,
+        similarity_threshold: float = 0.3,
+        rerank_type: str = "auto",
+        verbose: bool = True,
+        use_cache: bool = True
+) -> dict:
+    """
+    增强检索：用户问题向量化 -> Query改写 -> 相似度搜索 -> 重排序
+
+    支持缓存功能，相同问题重复查询时直接返回缓存结果
+
+    处理顺序：
+    [8/12] 用户问题
+    [9/12] Query改写
+    [10/12] 相似度搜索（使用改写后的问题）
+    [11/12] 重排序（使用改写后的问题）
+
+    Args:
+        question: 用户问题
+        index_name: 索引名称
+        top_k: 最终返回数量
+        recall_k: 召回数量
+        keyword_weight: 关键词检索权重
+        vector_weight: 向量检索权重
+        enable_rerank: 是否启用重排序
+        enable_query_rewrite: 是否启用查询改写
+        similarity_threshold: 相似度阈值
+        rerank_type: 重排序类型 ('auto', 'remote', 'local', 'vector')
+        verbose: 是否打印详细信息
+        use_cache: 是否使用缓存（默认 True）
+
+    Returns:
+        包含检索结果的字典
+    """
+    # 如果禁用缓存，直接调用内部实现
+    if not use_cache:
+        return _enhanced_search_internal(
+            question=question,
+            index_name=index_name,
+            top_k=top_k,
+            recall_k=recall_k,
+            keyword_weight=keyword_weight,
+            vector_weight=vector_weight,
+            enable_rerank=enable_rerank,
+            enable_query_rewrite=enable_query_rewrite,
+            similarity_threshold=similarity_threshold,
+            rerank_type=rerank_type,
+            verbose=verbose
+        )
+
+    # 使用缓存包装
+    return _cached_search.search_with_cache(
+        question=question,
+        search_func=_enhanced_search_internal,
+        top_k=top_k,
+        recall_k=recall_k,
+        similarity_threshold=similarity_threshold,
+        enable_rerank=enable_rerank,
+        enable_query_rewrite=enable_query_rewrite,
+        index_name=index_name,
+        keyword_weight=keyword_weight,
+        vector_weight=vector_weight,
+        rerank_type=rerank_type,
+        verbose=verbose
+    )
 
 
 def test_user_question_vectorization(questions: List[str] = None):
@@ -447,7 +517,6 @@ def test_similarity_search(questions: List[str] = None, verbose: bool = True):
     top_k = int(os.getenv("SIMILARITY_TOP_K", "5"))
     similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.5"))
 
-    # 只在 verbose 为 True 时打印配置
     if verbose:
         print(f"\n配置信息:")
         print(f"  索引名称: {index_name}")
@@ -466,7 +535,7 @@ def test_similarity_search(questions: List[str] = None, verbose: bool = True):
             es_index_name=index_name,
             top_k=top_k,
             similarity_threshold=similarity_threshold,
-            verbose=verbose and len(questions) == 1  # 只有一个问题时才打印详细结果
+            verbose=verbose and len(questions) == 1
         )
 
         if result.get("success"):
@@ -562,7 +631,8 @@ def compare_search_methods(questions: List[str] = None):
                 top_k=top_k,
                 similarity_threshold=0.3
             )
-            traditional_avg_score = sum(r.get('_score', 0) for r in traditional_results) / len(traditional_results) if traditional_results else 0
+            traditional_avg_score = sum(r.get('_score', 0) for r in traditional_results) / len(
+                traditional_results) if traditional_results else 0
             traditional_count = len(traditional_results)
         else:
             traditional_avg_score = 0
@@ -602,7 +672,9 @@ def compare_search_methods(questions: List[str] = None):
     avg_traditional_score = sum(r["traditional"]["avg_score"] for r in comparison_results) / len(comparison_results)
     avg_enhanced_score = sum(r["enhanced"]["avg_score"] for r in comparison_results) / len(comparison_results)
 
-    print(f"\n平均召回数量: 传统={avg_traditional_count:.1f} | 增强={avg_enhanced_count:.1f} | 提升={avg_enhanced_count - avg_traditional_count:.1f}")
-    print(f"平均相似度: 传统={avg_traditional_score:.4f} | 增强={avg_enhanced_score:.4f} | 提升={avg_enhanced_score - avg_traditional_score:.4f}")
+    print(
+        f"\n平均召回数量: 传统={avg_traditional_count:.1f} | 增强={avg_enhanced_count:.1f} | 提升={avg_enhanced_count - avg_traditional_count:.1f}")
+    print(
+        f"平均相似度: 传统={avg_traditional_score:.4f} | 增强={avg_enhanced_score:.4f} | 提升={avg_enhanced_score - avg_traditional_score:.4f}")
 
     return comparison_results

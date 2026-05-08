@@ -5,7 +5,7 @@ import os
 import signal
 import sys
 
-def stop_service(port=8000):
+def stop_service(port=8001):
     """停止占用端口的服务"""
     try:
         # Windows

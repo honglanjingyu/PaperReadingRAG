@@ -8,6 +8,7 @@ import logging
 from .base_embedding import BaseEmbeddingModel
 from .remote_embedding import RemoteEmbeddingModel
 from .local_embedding import LocalEmbeddingModel
+from .cached_embedding import CachedEmbeddingModel
 
 logger = logging.getLogger(__name__)
 
@@ -54,15 +55,27 @@ class EmbeddingManager:
 
         logger.info(f"模型已注册: {model_type.value}")
 
-    def get_remote_model(self, **kwargs) -> RemoteEmbeddingModel:
+    def get_remote_model(self, **kwargs) -> CachedEmbeddingModel:
+        """获取远程 Embedding 模型（带缓存）"""
         if EmbeddingType.REMOTE not in self._models:
-            model = RemoteEmbeddingModel(**kwargs)
+            use_cache = os.getenv("ENABLE_EMBEDDING_CACHE", "true").lower() == "true"
+
+            if use_cache:
+                model = CachedEmbeddingModel(model_type='remote', **kwargs)
+            else:
+                model = RemoteEmbeddingModel(**kwargs)
             self._models[EmbeddingType.REMOTE] = model
         return self._models[EmbeddingType.REMOTE]
 
-    def get_local_model(self, **kwargs) -> LocalEmbeddingModel:
+    def get_local_model(self, **kwargs) -> CachedEmbeddingModel:
+        """获取本地 Embedding 模型（带缓存）"""
         if EmbeddingType.LOCAL not in self._models:
-            model = LocalEmbeddingModel(**kwargs)
+            use_cache = os.getenv("ENABLE_EMBEDDING_CACHE", "true").lower() == "true"
+
+            if use_cache:
+                model = CachedEmbeddingModel(model_type='local', **kwargs)
+            else:
+                model = LocalEmbeddingModel(**kwargs)
             self._models[EmbeddingType.LOCAL] = model
         return self._models[EmbeddingType.LOCAL]
 
@@ -108,16 +121,26 @@ class EmbeddingManager:
         return f"q_{dim}_vec"
 
     def switch_to_remote(self, **kwargs):
+        """切换到远程模型"""
         if EmbeddingType.REMOTE in self._models:
-            new_model = RemoteEmbeddingModel(**{**kwargs})
+            use_cache = os.getenv("ENABLE_EMBEDDING_CACHE", "true").lower() == "true"
+            if use_cache:
+                new_model = CachedEmbeddingModel(model_type='remote', **kwargs)
+            else:
+                new_model = RemoteEmbeddingModel(**kwargs)
             self._models[EmbeddingType.REMOTE] = new_model
 
         self.set_active_model(EmbeddingType.REMOTE)
         logger.info("已切换到远程Embedding模型")
 
     def switch_to_local(self, **kwargs):
+        """切换到本地模型"""
         if EmbeddingType.LOCAL in self._models:
-            new_model = LocalEmbeddingModel(**{**kwargs})
+            use_cache = os.getenv("ENABLE_EMBEDDING_CACHE", "true").lower() == "true"
+            if use_cache:
+                new_model = CachedEmbeddingModel(model_type='local', **kwargs)
+            else:
+                new_model = LocalEmbeddingModel(**kwargs)
             self._models[EmbeddingType.LOCAL] = new_model
 
         self.set_active_model(EmbeddingType.LOCAL)
@@ -140,3 +163,6 @@ def get_embedding_manager() -> EmbeddingManager:
     if _embedding_manager is None:
         _embedding_manager = EmbeddingManager()
     return _embedding_manager
+
+
+__all__ = ['EmbeddingManager', 'EmbeddingType', 'get_embedding_manager']

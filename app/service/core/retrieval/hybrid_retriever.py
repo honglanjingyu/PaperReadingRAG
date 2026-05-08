@@ -5,6 +5,16 @@ import os
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 
+from .bm25_retriever import BM25Variant, create_bm25_retriever
+from .cached_bm25_retriever import CachedBM25Retriever
+
+# BM25 变体映射
+BM25_VARIANT_MAP = {
+    "okapi": BM25Variant.OKAPI,
+    "plus": BM25Variant.PLUS,
+    "l": BM25Variant.L
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +41,6 @@ class HybridRetriever:
         """
         from app.service.core.vector_store import get_vector_store
         from app.service.core.embedding import get_embedding_manager
-        from .bm25_retriever import create_bm25_retriever
 
         self.vector_store = vector_store or get_vector_store()
         self.embedding_manager = embedding_manager or get_embedding_manager()
@@ -43,8 +52,15 @@ class HybridRetriever:
             use_synonyms=use_synonyms
         )
 
+        # 初始化缓存的 BM25 检索器
+        variant_enum = BM25_VARIANT_MAP.get(bm25_variant, BM25Variant.PLUS)
+        self.cached_bm25 = CachedBM25Retriever(
+            variant=variant_enum,
+            use_jieba=use_jieba,
+            use_synonyms=use_synonyms
+        )
+
         # 从环境变量读取混合检索权重
-        # 权重优先级：参数 > 环境变量 > 默认值
         self._load_weights_from_env()
 
     def _load_weights_from_env(self):
@@ -130,7 +146,7 @@ class HybridRetriever:
         # 1. 向量检索
         vector_results = self._vector_search(query, index_name, top_k * 2, verbose=verbose)
 
-        # 2. BM25 关键词检索（支持 OR 语法和同义词）
+        # 2. BM25 关键词检索（使用缓存版本）
         keyword_results = self._bm25_search(query, index_name, top_k * 2, verbose=verbose)
 
         # 3. 融合结果
@@ -208,7 +224,7 @@ class HybridRetriever:
             return []
 
     def _bm25_search(self, query: str, index_name: str, top_k: int, verbose: bool = False) -> List[Dict]:
-        """执行 BM25 关键词检索 - 确保分数正确"""
+        """执行 BM25 关键词检索（使用缓存版本）"""
         try:
             if not self.vector_store.index_exists(index_name):
                 if verbose:
@@ -224,6 +240,7 @@ class HybridRetriever:
             if verbose:
                 print(f"  BM25检索: 索引中共有 {doc_count} 个文档")
 
+            # 获取所有文档
             all_documents = self._get_all_documents(index_name)
 
             if not all_documents:
@@ -231,18 +248,18 @@ class HybridRetriever:
                     print("  BM25检索: 无法获取文档")
                 return []
 
-            bm25_results = self.bm25_retriever.search(
+            # 使用缓存的 BM25 进行搜索
+            bm25_results = self.cached_bm25.search(
                 query=query,
+                index_name=index_name,
                 documents=all_documents,
                 top_k=top_k,
-                content_field="content_with_weight",
-                use_or_semantics=True
+                content_field="content_with_weight"
             )
 
             if verbose and bm25_results:
                 print(f"\n  BM25关键词检索召回: {len(bm25_results)} 个块")
                 for i, r in enumerate(bm25_results[:3], 1):
-                    # 显示归一化后的分数
                     raw_score = r.get('keyword_score_raw', 0)
                     norm_score = r.get('keyword_score', 0)
                     content = r.get('content_with_weight', r.get('content', ''))
@@ -250,7 +267,7 @@ class HybridRetriever:
 
             for r in bm25_results:
                 r['_search_type'] = 'bm25'
-                r['vector_score'] = 0.0  # 确保是浮点数
+                r['vector_score'] = 0.0
 
             return bm25_results
 
@@ -370,7 +387,7 @@ class HybridRetriever:
             vector_weight: float,
             keyword_weight: float
     ) -> List[Dict]:
-        """融合向量检索和 BM25 关键词检索的结果 - 修复版"""
+        """融合向量检索和 BM25 关键词检索的结果"""
         if not vector_results and not keyword_results:
             return []
 
@@ -381,7 +398,7 @@ class HybridRetriever:
 
         result_map = {}
 
-        # 归一化向量分数 - 使用所有向量结果的分数范围
+        # 归一化向量分数
         all_vector_scores = [r.get('vector_score', r.get('_score', 0)) for r in vector_results if
                              r.get('_score', 0) > 0]
         if all_vector_scores:
@@ -399,7 +416,6 @@ class HybridRetriever:
 
             raw_vec_score = r.get('vector_score', r.get('_score', 0))
             if vec_range > 0 and raw_vec_score > 0:
-                # 归一化到 [0.1, 0.9] 区间
                 vec_score = 0.1 + (raw_vec_score - min_vec) / vec_range * 0.8
                 vec_score = max(0.05, min(0.95, vec_score))
             else:
@@ -414,17 +430,14 @@ class HybridRetriever:
                 '_search_types': ['vector']
             }
 
-        # 处理 BM25 结果（使用已有的归一化分数）
-        # BM25 结果中的 keyword_score 已经是归一化的
+        # 处理 BM25 结果
         for r in keyword_results:
             doc_id = r.get('_id', r.get('id', ''))
             if not doc_id:
                 continue
 
-            # 获取 BM25 归一化分数，如果没有则计算
             kw_score = r.get('keyword_score', 0)
             if kw_score == 0 and 'keyword_score_raw' in r:
-                # 如果没有归一化分数，进行简单归一化
                 kw_score = min(0.95, r['keyword_score_raw'] / 10.0) if r['keyword_score_raw'] > 0 else 0.05
                 kw_score = max(0.05, kw_score)
 
@@ -441,17 +454,16 @@ class HybridRetriever:
                     '_search_types': ['bm25']
                 }
 
-        # 计算融合分数（加权和）
+        # 计算融合分数
         for doc_id, item in result_map.items():
             vector_score = item.get('vector_score', 0.0)
             keyword_score = item.get('keyword_score', 0.0)
 
-            # 加权融合
             if vector_score > 0.05 and keyword_score > 0.05:
                 item['final_score'] = (vector_score * vector_weight +
                                        keyword_score * keyword_weight)
             elif vector_score > 0.05:
-                item['final_score'] = vector_score * 0.8  # 降低纯向量分数的影响
+                item['final_score'] = vector_score * 0.8
             elif keyword_score > 0.05:
                 item['final_score'] = keyword_score * 0.8
             else:
@@ -471,5 +483,6 @@ class HybridRetriever:
         results.sort(key=lambda x: x.get('final_score', 0), reverse=True)
 
         return results
+
 
 __all__ = ['HybridRetriever']
