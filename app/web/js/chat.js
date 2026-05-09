@@ -3,7 +3,7 @@
 
 import { elements, initElements, state, updateState } from './chat/config.js';
 import { loadSavedSession, newSession, saveSessionId, createAndSetNewSession } from './chat/session.js';
-import { sendMessageStream } from './chat/stream.js';  // 只导入流式版本
+import { sendMessageStream } from './chat/stream.js';
 import { removeAllThinkingIndicators } from './chat/thinking.js';
 import { addMessage } from './chat/messages.js';
 import { showRetrievingStatus } from './chat/retrieval.js';
@@ -107,6 +107,24 @@ function initEventListeners() {
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', async () => {
+    // 检查登录状态
+    if (!isLoggedIn()) {
+        window.location.href = '/login.html';
+        return;
+    }
+
+    // 验证 token
+    try {
+        const isValid = await verifyToken();
+        if (!isValid) {
+            logout();
+            return;
+        }
+    } catch (error) {
+        logout();
+        return;
+    }
+
     console.log('DOMContentLoaded 事件触发');
 
     // 先初始化 DOM 元素

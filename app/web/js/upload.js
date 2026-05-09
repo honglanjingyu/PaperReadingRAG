@@ -25,10 +25,19 @@ async function uploadFile(file) {
     showToast(`正在上传 ${file.name}...`, 'success');
 
     try {
+        // 添加认证头
+        const headers = getAuthHeaders();
+
         const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
+            headers: headers,
             body: formData
         });
+
+        if (response.status === 401) {
+            logout();
+            return;
+        }
 
         const data = await response.json();
 
@@ -57,7 +66,16 @@ function startStatusPolling(processId, filename) {
 
     statusInterval = setInterval(async () => {
         try {
-            const response = await fetch(`${API_BASE}/upload/status/${processId}`);
+            const headers = getAuthHeaders();
+            const response = await fetch(`${API_BASE}/upload/status/${processId}`, {
+                headers: headers
+            });
+
+            if (response.status === 401) {
+                logout();
+                return;
+            }
+
             const data = await response.json();
 
             progressFill.style.width = `${data.progress}%`;
@@ -84,7 +102,16 @@ function startStatusPolling(processId, filename) {
 // 加载文件列表
 async function loadFileList() {
     try {
-        const response = await fetch(`${API_BASE}/upload/list`);
+        const headers = getAuthHeaders();
+        const response = await fetch(`${API_BASE}/upload/list`, {
+            headers: headers
+        });
+
+        if (response.status === 401) {
+            logout();
+            return;
+        }
+
         const data = await response.json();
 
         if (!data.success || data.total === 0) {
@@ -122,9 +149,17 @@ async function deleteDocument(filename) {
     if (!confirm(`确定要删除 ${filename} 吗？`)) return;
 
     try {
+        const headers = getAuthHeaders();
         const response = await fetch(`${API_BASE}/upload/${encodeURIComponent(filename)}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: headers
         });
+
+        if (response.status === 401) {
+            logout();
+            return;
+        }
+
         const data = await response.json();
 
         if (data.success) {
@@ -164,7 +199,25 @@ function initEventListeners() {
 }
 
 // 页面初始化
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // 检查登录状态
+    if (!isLoggedIn()) {
+        window.location.href = '/login.html';
+        return;
+    }
+
+    // 验证 token
+    try {
+        const isValid = await verifyToken();
+        if (!isValid) {
+            logout();
+            return;
+        }
+    } catch (error) {
+        logout();
+        return;
+    }
+
     initEventListeners();
     loadFileList();
 });

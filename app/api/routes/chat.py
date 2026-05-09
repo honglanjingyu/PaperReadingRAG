@@ -3,7 +3,7 @@
 智能问答路由 - 支持会话记忆和 URL 参数传递 session_id
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Header
 from fastapi.responses import StreamingResponse
 from typing import Dict, Any, Optional, List
 import json
@@ -14,26 +14,44 @@ from app.api.models import ChatRequest, GenerateRequest
 from app.api.config import settings
 from app.api.dependencies import get_chat_service
 from app.service.core.rag import enhanced_search_with_hybrid_and_rerank
+from app.auth.jwt_utils import get_user_id_from_token
+from app.db.database import get_db_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# app/api/routes/chat.py
 @router.get("/chat/session/create")
-async def create_new_session(user_id: str = "default") -> Dict[str, Any]:
+async def create_new_session(
+        authorization: Optional[str] = Header(None),
+        user_id: str = "default"
+) -> Dict[str, Any]:
     """
     创建新会话，返回 session_id
-
-    前端可在页面加载时调用此接口获取新 session_id 并更新 URL
     """
     try:
+        # 获取登录用户ID
+        token_user_id = None
+        if authorization:
+            token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+            token_user_id = get_user_id_from_token(token)
+
         chat_service = get_chat_service()
         if hasattr(chat_service, '_memory_manager') and chat_service._memory_manager:
-            session_id = chat_service._memory_manager.get_or_create_session(user_id=user_id)
+            # 使用登录用户ID或默认值
+            effective_user_id = str(token_user_id) if token_user_id else user_id
+            session_id = chat_service._memory_manager.get_or_create_session(user_id=effective_user_id)
         else:
             from app.service.core.memory import get_memory_manager
             memory_manager = get_memory_manager()
-            session_id = memory_manager.get_or_create_session(user_id=user_id)
+            effective_user_id = str(token_user_id) if token_user_id else user_id
+            session_id = memory_manager.get_or_create_session(user_id=effective_user_id)
+
+        # 如果用户已登录，关联会话到数据库
+        if token_user_id:
+            db = get_db_manager()
+            db.associate_session(token_user_id, session_id)
 
         return {
             "success": True,
@@ -42,24 +60,25 @@ async def create_new_session(user_id: str = "default") -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"创建会话失败: {str(e)}")
 
-
+# 修改 get_session_info 接口
 @router.get("/chat/session/{session_id}")
 async def get_session_info(
         session_id: str,
+        authorization: Optional[str] = Header(None),
         user_id: str = "default"
 ) -> Dict[str, Any]:
-    """
-    获取会话信息
-
-    Args:
-        session_id: 会话ID
-        user_id: 用户ID
-
-    Returns:
-        会话详细信息
-    """
+    """获取会话信息 - 验证权限"""
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id不能为空")
+
+    # 验证权限（仅当提供 token 时）
+    if authorization:
+        token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+        token_user_id = get_user_id_from_token(token)
+        if token_user_id:
+            db = get_db_manager()
+            if not db.verify_session_access(token_user_id, session_id):
+                raise HTTPException(status_code=403, detail="无权访问此会话")
 
     try:
         from app.service.core.memory import get_memory_manager
@@ -90,24 +109,28 @@ async def get_session_info(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取会话信息失败: {str(e)}")
 
-
 @router.get("/chat/session/{session_id}/history")
 async def get_session_history(
         session_id: str,
         limit: int = Query(50, ge=1, le=200),
+        authorization: Optional[str] = Header(None),
         user_id: str = "default"
 ) -> Dict[str, Any]:
-    """
-    获取会话的完整历史记录
-
-    用于刷新页面后恢复聊天记录
-    """
+    """获取会话的完整历史记录"""
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id不能为空")
 
+    # 验证权限（仅当提供 token 时）
+    if authorization:
+        token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+        token_user_id = get_user_id_from_token(token)
+        if token_user_id:
+            db = get_db_manager()
+            if not db.verify_session_access(token_user_id, session_id):
+                raise HTTPException(status_code=403, detail="无权访问此会话")
+
     try:
         from app.service.core.memory import get_memory_manager
-
         memory = get_memory_manager()
         history = memory.get_session_history(session_id, user_id, limit=limit)
 
@@ -165,17 +188,23 @@ async def get_session_messages(
         raise HTTPException(status_code=500, detail=f"获取消息失败: {str(e)}")
 
 
+# app/api/routes/chat.py
 @router.post("/chat/ask")
-async def ask_question(request: ChatRequest) -> Dict[str, Any]:
+async def ask_question(
+        request: ChatRequest,
+        authorization: Optional[str] = Header(None)
+) -> Dict[str, Any]:
     """
     问答接口 - 完整流程，支持会话记忆
-
-    流程：用户问题向量化 -> 相似度搜索 -> 增强搜索 -> 上下文构造 -> 推理生成
-
-    使用session_id可以保持对话记忆：
-    - 首次请求不传session_id，系统自动生成并返回
-    - 后续请求传入返回的session_id即可保持上下文
     """
+    # 验证会话权限（如果提供了 session_id）
+    if request.session_id and authorization:
+        token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+        token_user_id = get_user_id_from_token(token)
+        if token_user_id:
+            db = get_db_manager()
+            if not db.verify_session_access(token_user_id, request.session_id):
+                raise HTTPException(status_code=403, detail="无权访问此会话")
     # 使用配置或请求中的值
     top_k = request.top_k or settings.rerank_top_k
     recall_k = request.recall_k or settings.similarity_top_k

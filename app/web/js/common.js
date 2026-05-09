@@ -82,6 +82,71 @@ async function updateSystemStatus() {
     }
 }
 
+// ========== 认证相关函数 ==========
+
+// 获取认证 Token
+function getAuthToken() {
+    return localStorage.getItem('rag_token');
+}
+
+// 获取认证请求头
+function getAuthHeaders() {
+    const token = getAuthToken();
+    if (token && token !== 'null' && token !== 'undefined') {
+        return { 'Authorization': `Bearer ${token}` };
+    }
+    return {};
+}
+
+// 检查是否已登录
+function isLoggedIn() {
+    const token = getAuthToken();
+    return token && token !== 'null' && token !== 'undefined';
+}
+
+// 退出登录
+function logout() {
+    localStorage.removeItem('rag_token');
+    localStorage.removeItem('rag_user_id');
+    localStorage.removeItem('rag_username');
+    window.location.href = '/login.html';
+}
+
+// 带认证的 fetch 封装
+async function authFetch(url, options = {}) {
+    const headers = {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+        ...options.headers
+    };
+
+    const response = await fetch(url, { ...options, headers });
+
+    if (response.status === 401) {
+        logout();
+        throw new Error('登录已过期，请重新登录');
+    }
+
+    return response;
+}
+
+// 验证 Token 有效性
+async function verifyToken() {
+    const token = getAuthToken();
+    if (!token) return false;
+
+    try {
+        const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+        return data.success === true;
+    } catch (error) {
+        return false;
+    }
+}
+
 // 页面加载时更新状态
 document.addEventListener('DOMContentLoaded', () => {
     updateSystemStatus();

@@ -19,14 +19,28 @@ import { displayRetrievalResults, showRetrievingStatus } from './retrieval.js';
 import { saveSessionId } from './session.js';
 import { showToast } from './utils.js';
 
+// 获取认证头
+function getAuthHeaders() {
+    const token = localStorage.getItem('rag_token');
+    if (token && token !== 'null' && token !== 'undefined') {
+        return { 'Authorization': `Bearer ${token}` };
+    }
+    return {};
+}
+
 // 非流式模式
 export async function sendMessageNormal(question) {
     const thinkingId = addThinkingMessage();
 
     try {
+        const headers = {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        };
+
         const response = await fetch(`${API_BASE}/chat/ask`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({
                 question: question,
                 session_id: state.currentSessionId,
@@ -38,6 +52,11 @@ export async function sendMessageNormal(question) {
                 template_name: 'detailed'
             })
         });
+
+        if (response.status === 401) {
+            logout();
+            return;
+        }
 
         const data = await response.json();
 
@@ -77,9 +96,14 @@ export async function sendMessageStream(question) {
     let newSessionId = null;
 
     try {
+        const headers = {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        };
+
         const response = await fetch(`${API_BASE}/chat/ask/stream`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({
                 question: question,
                 session_id: state.currentSessionId,
@@ -93,6 +117,11 @@ export async function sendMessageStream(question) {
                 template_name: 'detailed'
             })
         });
+
+        if (response.status === 401) {
+            logout();
+            return;
+        }
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
