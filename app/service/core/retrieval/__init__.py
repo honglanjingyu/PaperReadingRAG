@@ -4,9 +4,12 @@
 from .hybrid_retriever import HybridRetriever
 from .query_rewriter import QueryRewriter
 from .reranker import Reranker
+from .es_bm25_retriever import ESBM25Retriever, get_es_bm25_retriever
 
 __all__ = [
     'HybridRetriever',
     'QueryRewriter',
-    'Reranker'
+    'Reranker',
+    'ESBM25Retriever',
+    'get_es_bm25_retriever'
 ]

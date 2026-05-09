@@ -2,24 +2,16 @@
 
 import logging
 import os
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import numpy as np
 
-from .bm25_retriever import BM25Variant, create_bm25_retriever
-from .cached_bm25_retriever import CachedBM25Retriever
-
-# BM25 变体映射
-BM25_VARIANT_MAP = {
-    "okapi": BM25Variant.OKAPI,
-    "plus": BM25Variant.PLUS,
-    "l": BM25Variant.L
-}
+from .es_bm25_retriever import ESBM25Retriever, get_es_bm25_retriever
 
 logger = logging.getLogger(__name__)
 
 
 class HybridRetriever:
-    """混合检索器 - 融合 BM25 关键词检索和向量检索"""
+    """混合检索器 - 融合 ES BM25 关键词检索和向量检索"""
 
     def __init__(
             self,
@@ -27,7 +19,7 @@ class HybridRetriever:
             embedding_manager=None,
             use_jieba: bool = True,
             use_synonyms: bool = True,
-            bm25_variant: str = "plus"
+            use_es_bm25: bool = True
     ):
         """
         初始化混合检索器
@@ -37,31 +29,37 @@ class HybridRetriever:
             embedding_manager: EmbeddingManager 实例
             use_jieba: 是否使用 jieba 分词
             use_synonyms: 是否使用同义词扩展
-            bm25_variant: BM25 变体 ("okapi", "plus", "l")
+            use_es_bm25: 是否使用 ES BM25（默认 True）
         """
         from app.service.core.vector_store import get_vector_store
         from app.service.core.embedding import get_embedding_manager
 
         self.vector_store = vector_store or get_vector_store()
         self.embedding_manager = embedding_manager or get_embedding_manager()
+        self.use_jieba = use_jieba
+        self.use_synonyms = use_synonyms
 
-        # 初始化 BM25 检索器（支持同义词和 OR 语法）
-        self.bm25_retriever = create_bm25_retriever(
-            variant=bm25_variant,
-            use_jieba=use_jieba,
-            use_synonyms=use_synonyms
-        )
+        # 初始化 ES BM25 检索器
+        self.use_es_bm25 = use_es_bm25 and self._check_es_available()
 
-        # 初始化缓存的 BM25 检索器
-        variant_enum = BM25_VARIANT_MAP.get(bm25_variant, BM25Variant.PLUS)
-        self.cached_bm25 = CachedBM25Retriever(
-            variant=variant_enum,
-            use_jieba=use_jieba,
-            use_synonyms=use_synonyms
-        )
+        if self.use_es_bm25:
+            logger.info("使用 Elasticsearch BM25 检索器")
+            self.es_bm25 = get_es_bm25_retriever()
+        else:
+            logger.warning("ES BM25 不可用，请确保 Elasticsearch 服务已启动")
+            self.es_bm25 = None
 
         # 从环境变量读取混合检索权重
         self._load_weights_from_env()
+
+    def _check_es_available(self) -> bool:
+        """检查 ES 是否可用"""
+        try:
+            es_retriever = get_es_bm25_retriever()
+            return es_retriever.is_available()
+        except Exception as e:
+            logger.warning(f"ES BM25 不可用: {e}")
+            return False
 
     def _load_weights_from_env(self):
         """从环境变量加载混合检索权重"""
@@ -93,13 +91,7 @@ class HybridRetriever:
         logger.info(f"混合检索权重: 向量={self.vector_weight}, 关键词={self.keyword_weight}")
 
     def set_weights(self, vector_weight: float, keyword_weight: float):
-        """
-        手动设置混合检索权重
-
-        Args:
-            vector_weight: 向量检索权重
-            keyword_weight: 关键词检索权重
-        """
+        """手动设置混合检索权重"""
         self.vector_weight = vector_weight
         self.keyword_weight = keyword_weight
         logger.info(f"混合检索权重已更新: 向量={self.vector_weight}, 关键词={self.keyword_weight}")
@@ -139,6 +131,9 @@ class HybridRetriever:
         if not query:
             return []
 
+        import time
+        start_time = time.time()
+
         # 使用传入的权重或环境变量配置的权重
         kw_weight = keyword_weight if keyword_weight is not None else self.keyword_weight
         vec_weight = vector_weight if vector_weight is not None else self.vector_weight
@@ -146,8 +141,10 @@ class HybridRetriever:
         # 1. 向量检索
         vector_results = self._vector_search(query, index_name, top_k * 2, verbose=verbose)
 
-        # 2. BM25 关键词检索（使用缓存版本）
+        # 2. BM25 关键词检索（使用 ES BM25）
         keyword_results = self._bm25_search(query, index_name, top_k * 2, verbose=verbose)
+
+        search_time = (time.time() - start_time) * 1000
 
         # 3. 融合结果
         if not vector_results and not keyword_results:
@@ -168,22 +165,8 @@ class HybridRetriever:
         # 过滤低于阈值的结果
         filtered = [r for r in results if r.get('final_score', 0) >= similarity_threshold]
 
-        # 打印详细结果
-        if verbose and filtered:
-            print("\n" + "-" * 70)
-            print("混合检索结果详情:")
-            print("-" * 70)
-            for i, res in enumerate(filtered[:top_k], 1):
-                score = res.get('final_score', 0)
-                content = res.get('content_with_weight', res.get('content', ''))
-                doc_name = res.get('docnm', res.get('docnm_kwd', ''))
-
-                print(f"\n  [排名 {i}] 综合分数: {score:.4f}")
-                print(f"  向量分数: {res.get('vector_score', 0):.4f}")
-                print(f"  关键词分数(BM25): {res.get('keyword_score', 0):.4f}")
-                print(f"  文档: {doc_name}")
-                content_preview = content[:200].replace('\n', ' ')
-                print(f"  内容预览: {content_preview}...")
+        if verbose:
+            print(f"\n混合检索完成: 耗时 {search_time:.2f}ms, 召回 {len(filtered)} 个结果")
 
         return filtered[:top_k]
 
@@ -205,10 +188,6 @@ class HybridRetriever:
 
             if verbose and results:
                 print(f"\n  向量检索召回: {len(results)} 个块")
-                for i, r in enumerate(results[:3], 1):
-                    score = r.get('_score', 0)
-                    content = r.get('content_with_weight', r.get('content', ''))
-                    print(f"    [{i}] 分数: {score:.4f} - {content[:80]}...")
 
             for r in results:
                 r['_search_type'] = 'vector'
@@ -224,7 +203,14 @@ class HybridRetriever:
             return []
 
     def _bm25_search(self, query: str, index_name: str, top_k: int, verbose: bool = False) -> List[Dict]:
-        """执行 BM25 关键词检索（使用缓存版本）"""
+        """
+        执行 ES BM25 关键词检索
+        """
+        if not self.use_es_bm25 or not self.es_bm25 or not self.es_bm25.is_available():
+            if verbose:
+                print("  ES BM25 不可用，请确保 Elasticsearch 服务已启动")
+            return []
+
         try:
             if not self.vector_store.index_exists(index_name):
                 if verbose:
@@ -238,146 +224,32 @@ class HybridRetriever:
                 return []
 
             if verbose:
-                print(f"  BM25检索: 索引中共有 {doc_count} 个文档")
+                print(f"  ES BM25 检索: 索引中共有 {doc_count} 个文档")
 
-            # 获取所有文档
-            all_documents = self._get_all_documents(index_name)
-
-            if not all_documents:
-                if verbose:
-                    print("  BM25检索: 无法获取文档")
-                return []
-
-            # 使用缓存的 BM25 进行搜索
-            bm25_results = self.cached_bm25.search(
+            # 使用 ES BM25 搜索
+            results = self.es_bm25.search(
                 query=query,
                 index_name=index_name,
-                documents=all_documents,
                 top_k=top_k,
-                content_field="content_with_weight"
+                min_score=0.05
             )
 
-            if verbose and bm25_results:
-                print(f"\n  BM25关键词检索召回: {len(bm25_results)} 个块")
-                for i, r in enumerate(bm25_results[:3], 1):
-                    raw_score = r.get('keyword_score_raw', 0)
-                    norm_score = r.get('keyword_score', 0)
-                    content = r.get('content_with_weight', r.get('content', ''))
-                    print(f"    [{i}] 原始分数: {raw_score:.4f}, 归一化: {norm_score:.4f} - {content[:80]}...")
+            if verbose and results:
+                print(f"\n  ES BM25 检索召回: {len(results)} 个块")
+                for i, r in enumerate(results[:3], 1):
+                    print(f"    [{i}] BM25 分数: {r.get('_score', 0):.4f}")
 
-            for r in bm25_results:
+            for r in results:
                 r['_search_type'] = 'bm25'
+                r['keyword_score'] = r.get('_score', 0)
+                r['keyword_score_raw'] = r.get('_score', 0)
                 r['vector_score'] = 0.0
 
-            return bm25_results
+            return results
 
         except Exception as e:
             if verbose:
-                print(f"  BM25检索失败: {e}")
-            import traceback
-            traceback.print_exc()
-            return []
-
-    def _get_all_documents(self, index_name: str, limit: int = 2000) -> List[Dict]:
-        """获取索引中的所有文档 - Milvus 专用"""
-        try:
-            from pymilvus import Collection
-
-            if not self.vector_store.index_exists(index_name):
-                logger.warning(f"集合不存在: {index_name}")
-                return []
-
-            collection = Collection(index_name)
-            collection.flush()
-            total = min(collection.num_entities, limit)
-
-            if total == 0:
-                return []
-
-            output_fields = [
-                "id", "content", "content_with_weight", "docnm",
-                "docnm_kwd", "doc_id", "kb_id", "token_count", "chunk_index"
-            ]
-
-            results = collection.query(
-                expr="",
-                output_fields=output_fields,
-                offset=0,
-                limit=total
-            )
-
-            all_docs = []
-            for result in results:
-                doc = {
-                    "_id": result.get("id", ""),
-                    "id": result.get("id", ""),
-                    "content": result.get("content", ""),
-                    "content_with_weight": result.get("content_with_weight", ""),
-                    "docnm": result.get("docnm", ""),
-                    "docnm_kwd": result.get("docnm_kwd", ""),
-                    "doc_id": result.get("doc_id", ""),
-                    "kb_id": result.get("kb_id", ""),
-                    "token_count": result.get("token_count", 0),
-                    "chunk_index": result.get("chunk_index", 0),
-                }
-                all_docs.append(doc)
-
-            logger.info(f"从 Milvus 获取 {len(all_docs)} 个文档")
-            return all_docs
-
-        except Exception as e:
-            logger.error(f"从 Milvus 获取文档失败: {e}")
-            return []
-
-    def _get_all_documents(self, index_name: str, limit: int = 2000) -> List[Dict]:
-        """获取索引中的所有文档 - Milvus 专用"""
-        try:
-            from pymilvus import Collection
-
-            if not self.vector_store.index_exists(index_name):
-                logger.warning(f"集合不存在: {index_name}")
-                return []
-
-            collection = Collection(index_name)
-            collection.flush()
-            total = min(collection.num_entities, limit)
-
-            if total == 0:
-                return []
-
-            output_fields = [
-                "id", "content", "content_with_weight", "docnm",
-                "docnm_kwd", "doc_id", "kb_id", "token_count", "chunk_index"
-            ]
-
-            results = collection.query(
-                expr="",
-                output_fields=output_fields,
-                offset=0,
-                limit=total
-            )
-
-            all_docs = []
-            for result in results:
-                doc = {
-                    "_id": result.get("id", ""),
-                    "id": result.get("id", ""),
-                    "content": result.get("content", ""),
-                    "content_with_weight": result.get("content_with_weight", ""),
-                    "docnm": result.get("docnm", ""),
-                    "docnm_kwd": result.get("docnm_kwd", ""),
-                    "doc_id": result.get("doc_id", ""),
-                    "kb_id": result.get("kb_id", ""),
-                    "token_count": result.get("token_count", 0),
-                    "chunk_index": result.get("chunk_index", 0),
-                }
-                all_docs.append(doc)
-
-            logger.info(f"从 Milvus 获取 {len(all_docs)} 个文档")
-            return all_docs
-
-        except Exception as e:
-            logger.error(f"从 Milvus 获取文档失败: {e}")
+                print(f"  ES BM25 检索失败: {e}")
             return []
 
     def _fuse_results(
@@ -438,7 +310,11 @@ class HybridRetriever:
 
             kw_score = r.get('keyword_score', 0)
             if kw_score == 0 and 'keyword_score_raw' in r:
-                kw_score = min(0.95, r['keyword_score_raw'] / 10.0) if r['keyword_score_raw'] > 0 else 0.05
+                raw_score = r.get('keyword_score_raw', 0)
+                if raw_score > 0:
+                    kw_score = min(0.95, raw_score / 10.0)
+                else:
+                    kw_score = 0.05
                 kw_score = max(0.05, kw_score)
 
             if doc_id in result_map:
