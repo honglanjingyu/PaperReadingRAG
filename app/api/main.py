@@ -51,7 +51,7 @@ def configure_static_routes(app: FastAPI):
 
         @app.get("/")
         async def root():
-            return FileResponse(str(web_dir / "upload.html"))
+            return FileResponse(str(web_dir / "chat.html"))
 
         @app.get("/upload")
         async def upload_page():

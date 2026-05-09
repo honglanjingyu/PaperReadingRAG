@@ -1,9 +1,4 @@
-# run_api.py
-"""
-RAG系统FastAPI入口文件
-启动文件: python run_api.py
-访问地址: http://localhost:8001
-"""
+# paperreadingrag/run_api.py (确保正确集成)
 
 import uvicorn
 import signal
@@ -11,19 +6,16 @@ import sys
 import logging
 from dotenv import load_dotenv
 
-from app.a2a.server import integrate_a2a_to_app
-from app.a2a.server import run_a2a_server as run_standalone_a2a
-
 # 加载环境变量
 load_dotenv()
 
-# 设置根日志器级别为 WARNING，减少控制台输出
+# 设置根日志器级别
 logging.basicConfig(level=logging.WARNING)
 
+# 导入app
+from app.api.main import app
+from app.a2a.server import integrate_a2a_to_app
 
-# ============================================================
-# 信号处理 - 解决PyCharm停止问题
-# ============================================================
 
 def signal_handler(signum, frame):
     """处理中断信号"""
@@ -35,10 +27,6 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-
-# ============================================================
-# 启动入口
-# ============================================================
 
 def main():
     import argparse
@@ -56,10 +44,12 @@ def main():
         print("PaperReadingRAG - A2A 服务模式")
         print("=" * 60)
         print(f"A2A 地址: http://{args.host}:{args.a2a_port}")
+        print(f"Agent Discovery: http://{args.host}:{args.a2a_port}/.well-known/agent.json")
         print("=" * 60)
 
         import asyncio
-        asyncio.run(run_standalone_a2a(args.host, args.a2a_port))
+        from app.a2a.server import run_a2a_server
+        asyncio.run(run_a2a_server(args.host, args.a2a_port))
         return
 
     # 正常启动 API 服务（包含 A2A 路由）
@@ -69,11 +59,10 @@ def main():
     print(f"API 地址: http://{args.host}:{args.port}")
     print(f"API 文档: http://{args.host}:{args.port}/docs")
     print(f"A2A 地址: http://{args.host}:{args.port}/a2a")
+    print(f"Agent Discovery: http://{args.host}:{args.port}/.well-known/agent.json")
     print("=" * 60)
 
-    from app.api.main import app
-
-    # 集成 A2A 路由
+    # 集成 A2A 路由（包含发现端点）
     integrate_a2a_to_app(app)
 
     uvicorn.run(

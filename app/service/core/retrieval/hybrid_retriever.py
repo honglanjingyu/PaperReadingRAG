@@ -202,6 +202,8 @@ class HybridRetriever:
                 print(f"  向量检索失败: {e}")
             return []
 
+    # app/service/core/retrieval/hybrid_retriever.py
+
     def _bm25_search(self, query: str, index_name: str, top_k: int, verbose: bool = False) -> List[Dict]:
         """
         执行 ES BM25 关键词检索
@@ -212,6 +214,7 @@ class HybridRetriever:
             return []
 
         try:
+            # 检查 Milvus 索引是否存在
             if not self.vector_store.index_exists(index_name):
                 if verbose:
                     print(f"  索引不存在: {index_name}")
@@ -226,7 +229,7 @@ class HybridRetriever:
             if verbose:
                 print(f"  ES BM25 检索: 索引中共有 {doc_count} 个文档")
 
-            # 使用 ES BM25 搜索
+            # ✅ 使用 ES BM25 搜索（内部会自动创建索引）
             results = self.es_bm25.search(
                 query=query,
                 index_name=index_name,

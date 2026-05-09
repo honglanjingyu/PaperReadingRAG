@@ -344,6 +344,8 @@ class ESBM25Retriever:
         logger.info(f"ES BM25 索引完成: {success_count} 条文档 -> {es_index}")
         return success_count
 
+    # app/service/core/retrieval/es_bm25_retriever.py
+
     def search(
             self,
             query: str,
@@ -373,8 +375,11 @@ class ESBM25Retriever:
             logger.error("ES 客户端未初始化")
             return []
 
+        # ✅ 自动创建索引（如果不存在）
         if not self._client.indices.exists(index=es_index):
-            logger.warning(f"ES BM25 索引不存在: {es_index}")
+            logger.info(f"ES BM25 索引不存在，自动创建: {es_index}")
+            self.create_bm25_index(index_name)
+            # 创建后可能还没有数据，直接返回空结果
             return []
 
         # 查询预处理
