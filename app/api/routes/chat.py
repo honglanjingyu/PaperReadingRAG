@@ -7,11 +7,15 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from typing import Dict, Any, Optional, List
 import json
+import asyncio
+import logging
 
 from app.api.models import ChatRequest, GenerateRequest
 from app.api.config import settings
 from app.api.dependencies import get_chat_service
+from app.service.core.rag import enhanced_search_with_hybrid_and_rerank
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -38,8 +42,6 @@ async def create_new_session(user_id: str = "default") -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"创建会话失败: {str(e)}")
 
-
-# app/api/routes/chat.py (修改 get_session_info)
 
 @router.get("/chat/session/{session_id}")
 async def get_session_info(
@@ -89,8 +91,6 @@ async def get_session_info(
         raise HTTPException(status_code=500, detail=f"获取会话信息失败: {str(e)}")
 
 
-# app/api/routes/chat.py (修改 get_session_history)
-
 @router.get("/chat/session/{session_id}/history")
 async def get_session_history(
         session_id: str,
@@ -120,11 +120,12 @@ async def get_session_history(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取历史失败: {str(e)}")
 
+
 @router.get("/chat/session/{session_id}/messages")
 async def get_session_messages(
-    session_id: str,
-    max_turns: int = Query(20, ge=1, le=50),
-    user_id: str = "default"
+        session_id: str,
+        max_turns: int = Query(20, ge=1, le=50),
+        user_id: str = "default"
 ) -> Dict[str, Any]:
     """
     获取会话消息（用于恢复对话界面）
@@ -174,22 +175,6 @@ async def ask_question(request: ChatRequest) -> Dict[str, Any]:
     使用session_id可以保持对话记忆：
     - 首次请求不传session_id，系统自动生成并返回
     - 后续请求传入返回的session_id即可保持上下文
-
-    Args:
-        request: 聊天请求参数
-            - question: 用户问题
-            - session_id: 会话ID（可选，用于保持对话记忆）
-            - history: 对话历史（可选，传统方式）
-            - top_k: 返回结果数量
-            - recall_k: 召回数量
-            - similarity_threshold: 相似度阈值
-            - enable_rerank: 是否启用重排序
-            - enable_query_rewrite: 是否启用查询改写
-            - template_name: Prompt模板名称
-            - enable_memory: 是否启用短期记忆
-
-    Returns:
-        包含答案和会话信息的响应
     """
     # 使用配置或请求中的值
     top_k = request.top_k or settings.rerank_top_k
@@ -232,15 +217,12 @@ async def ask_question_stream(request: ChatRequest):
     流式问答接口 - 支持会话记忆
 
     实时流式返回答案，适合聊天界面使用
-
-    Args:
-        request: 聊天请求参数（同上）
-
-    Returns:
-        Server-Sent Events (SSE) 流式响应
     """
     top_k = request.top_k or settings.rerank_top_k
     recall_k = request.recall_k or settings.similarity_top_k
+    similarity_threshold = request.similarity_threshold or settings.similarity_threshold
+    enable_rerank = request.enable_rerank if request.enable_rerank is not None else settings.enable_rerank
+    enable_query_rewrite = request.enable_query_rewrite if request.enable_query_rewrite is not None else settings.enable_query_rewrite
 
     if recall_k < top_k:
         recall_k = top_k
@@ -249,29 +231,86 @@ async def ask_question_stream(request: ChatRequest):
         try:
             chat_service = get_chat_service()
 
-            # 先发送开始标记
+            # 发送开始标记
             yield json.dumps({"type": "start", "content": "", "session_id": request.session_id}) + "\n"
 
-            # 收集完整答案用于更新记忆
             full_answer = ""
             session_id = request.session_id
 
-            # 流式生成答案
-            async for chunk in chat_service.ask_stream(
-                    question=request.question,
-                    session_id=session_id,
-                    history=request.history,
-                    top_k=top_k,
-                    recall_k=recall_k,
-                    template_name=request.template_name,
-                    index_name=settings.index_name,
-                    enable_memory=request.enable_memory
-            ):
-                if chunk:
-                    full_answer += chunk
-                    yield json.dumps({"type": "answer", "content": chunk}) + "\n"
+            # 1. 先执行检索
+            loop = asyncio.get_event_loop()
 
-            # 发送结束标记，包含session_id（如果是新创建的）
+            retrieval_result = await loop.run_in_executor(
+                chat_service._executor,
+                lambda: enhanced_search_with_hybrid_and_rerank(
+                    question=request.question,
+                    index_name=settings.index_name,
+                    recall_k=recall_k,
+                    top_k=top_k,
+                    keyword_weight=settings.keyword_weight,
+                    vector_weight=settings.vector_weight,
+                    enable_rerank=enable_rerank,
+                    enable_query_rewrite=enable_query_rewrite,
+                    similarity_threshold=similarity_threshold,
+                    rerank_type=settings.rerank_type,
+                    verbose=False
+                )
+            )
+
+            # 2. 发送检索结果到前端
+            if retrieval_result.get("success") and retrieval_result.get("results"):
+                results = retrieval_result.get("results", [])
+                formatted_results = []
+                for r in results[:top_k]:
+                    formatted_results.append({
+                        "content": r.get("content", ""),
+                        "score": r.get("score", 0),
+                        "document_name": r.get("document_name", "")
+                    })
+
+                yield json.dumps({
+                    "type": "retrieval_results",
+                    "results": formatted_results,
+                    "retrieval_info": {
+                        "total_recalled": retrieval_result.get("total_recalled", 0),
+                        "total_returned": len(formatted_results),
+                        "enable_rerank": enable_rerank,
+                        "enable_query_rewrite": enable_query_rewrite
+                    }
+                }) + "\n"
+
+                # 如果没有检索结果，直接结束
+                if not results:
+                    yield json.dumps({
+                        "type": "end",
+                        "content": "",
+                        "session_id": session_id,
+                        "no_results": True
+                    }) + "\n"
+                    return
+
+                # 3. 流式生成答案
+                rewritten_query = retrieval_result.get("rewritten_query", request.question)
+
+                async for chunk in chat_service.ask_stream_with_results(
+                        question=rewritten_query,
+                        session_id=session_id,
+                        history=request.history,
+                        results=results,
+                        template_name=request.template_name,
+                        enable_memory=request.enable_memory
+                ):
+                    if chunk:
+                        full_answer += chunk
+                        yield json.dumps({"type": "answer", "content": chunk}) + "\n"
+            else:
+                # 检索失败
+                yield json.dumps({
+                    "type": "error",
+                    "content": retrieval_result.get("error", "检索失败")
+                }) + "\n"
+
+            # 发送结束标记
             yield json.dumps({
                 "type": "end",
                 "content": "",
@@ -280,6 +319,7 @@ async def ask_question_stream(request: ChatRequest):
             }) + "\n"
 
         except Exception as e:
+            logger.error(f"流式问答失败: {e}")
             yield json.dumps({"type": "error", "content": str(e)}) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
@@ -339,12 +379,6 @@ async def clear_session(session_id: str) -> Dict[str, Any]:
     清除会话记忆
 
     删除指定会话的所有对话历史，释放内存
-
-    Args:
-        session_id: 要清除的会话ID
-
-    Returns:
-        操作结果
     """
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id不能为空")
@@ -377,9 +411,6 @@ async def list_active_sessions() -> Dict[str, Any]:
     获取当前系统中所有活跃会话的统计信息
     """
     try:
-        chat_service = get_chat_service()
-
-        # 获取记忆管理器
         from app.service.core.memory import get_memory_manager
         memory_manager = get_memory_manager()
 
@@ -404,19 +435,10 @@ async def conversation(
     简化的对话接口
 
     只需传入问题和可选的session_id，其他参数使用默认值
-
-    Args:
-        question: 用户问题
-        session_id: 会话ID（可选）
-        enable_memory: 是否启用记忆
-
-    Returns:
-        答案和会话信息
     """
     try:
         chat_service = get_chat_service()
 
-        # 使用默认配置
         result = await chat_service.ask(
             question=question,
             session_id=session_id,

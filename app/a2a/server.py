@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.service.core.rag import (
     enhanced_search_with_hybrid_and_rerank,
-    generate_answer,
+    generate_answer,  # 使用非流式版本
 )
 from app.service.core.memory import get_memory_manager
 
@@ -69,7 +69,7 @@ class A2AService:
         logger.info(f"A2A 服务初始化: {self.agent_name}")
 
     async def process_rag_request(self, request: A2ARAGRequest) -> A2ARAGResponse:
-        """处理 RAG 请求"""
+        """处理 RAG 请求（非流式）"""
         logger.info(f"A2A: 收到 RAG 请求: query='{request.query[:50]}...'")
 
         try:

@@ -1,7 +1,7 @@
 /* app/web/js/chat/stream.js */
 // 流式和非流式请求模块
 
-import { elements, state, updateState, API_BASE } from './config.js';
+import { elements, state, API_BASE } from './config.js';
 import {
     addMessage,
     createAssistantMessageContainer,
@@ -119,6 +119,16 @@ export async function sendMessageStream(question) {
                             if (data.session_id && data.session_id !== 'default') {
                                 newSessionId = data.session_id;
                             }
+                        } else if (data.type === 'retrieval_results') {
+                            // 显示检索结果
+                            if (elements.retrievalResults && data.results) {
+                                displayRetrievalResults(data.results, data.retrieval_info);
+
+                                // 如果没有检索结果，显示提示
+                                if (!data.results || data.results.length === 0) {
+                                    elements.retrievalResults.innerHTML = '<div style="text-align: center; color: #999; padding: 32px;">未找到相关文档</div>';
+                                }
+                            }
                         } else if (data.type === 'answer') {
                             const chunk = data.content;
                             if (chunk) {
@@ -153,7 +163,11 @@ export async function sendMessageStream(question) {
                                 stopThinkingAnimation();
                                 const thinkingDiv = document.getElementById(thinkingId);
                                 if (thinkingDiv) thinkingDiv.style.display = 'none';
-                                addMessage('assistant', '未收到响应，请稍后重试。');
+                                if (data.no_results) {
+                                    addMessage('assistant', '未找到与问题相关的文档内容，请尝试其他问题或上传更多相关文档。');
+                                } else {
+                                    addMessage('assistant', '未收到响应，请稍后重试。');
+                                }
                             }
                         } else if (data.type === 'error') {
                             const errorMsg = data.content || '未知错误';
@@ -164,6 +178,9 @@ export async function sendMessageStream(question) {
                                 const thinkingDiv = document.getElementById(thinkingId);
                                 if (thinkingDiv) thinkingDiv.style.display = 'none';
                                 addMessage('assistant', `错误: ${errorMsg}`);
+                            }
+                            if (elements.retrievalResults) {
+                                elements.retrievalResults.innerHTML = '<div style="text-align: center; color: #999; padding: 32px;">检索失败</div>';
                             }
                         }
                     } catch (e) {
@@ -177,7 +194,6 @@ export async function sendMessageStream(question) {
             stopThinkingAnimation();
             const thinkingDiv = document.getElementById(thinkingId);
             if (thinkingDiv) thinkingDiv.style.display = 'none';
-            addMessage('assistant', '未收到响应，请稍后重试。');
         }
 
     } catch (error) {
@@ -186,5 +202,8 @@ export async function sendMessageStream(question) {
         const thinkingDiv = document.getElementById(thinkingId);
         if (thinkingDiv) thinkingDiv.style.display = 'none';
         addMessage('assistant', `网络错误: ${error.message}`);
+        if (elements.retrievalResults) {
+            elements.retrievalResults.innerHTML = '<div style="text-align: center; color: #999; padding: 32px;">检索失败</div>';
+        }
     }
 }

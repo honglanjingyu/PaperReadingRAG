@@ -1,15 +1,15 @@
 // app/web/js/chat.js
-// 聊天页面主入口 - 支持 URL session 参数
+// 聊天页面主入口 - 仅支持流式输出
 
 import { elements, initElements, state, updateState } from './chat/config.js';
 import { loadSavedSession, newSession, saveSessionId, createAndSetNewSession } from './chat/session.js';
-import { sendMessageNormal, sendMessageStream } from './chat/stream.js';
+import { sendMessageStream } from './chat/stream.js';  // 只导入流式版本
 import { removeAllThinkingIndicators } from './chat/thinking.js';
 import { addMessage } from './chat/messages.js';
 import { showRetrievingStatus } from './chat/retrieval.js';
 import { showToast } from './chat/utils.js';
 
-// 发送消息 - 主入口（确保 session_id 存在）
+// 发送消息 - 统一使用流式
 async function sendMessage() {
     const question = elements.chatInput ? elements.chatInput.value.trim() : '';
 
@@ -39,11 +39,7 @@ async function sendMessage() {
     showRetrievingStatus();
 
     try {
-        if (state.useStreamMode) {
-            await sendMessageStream(question);
-        } else {
-            await sendMessageNormal(question);
-        }
+        await sendMessageStream(question);
     } catch (error) {
         console.error('发送消息失败:', error);
         removeAllThinkingIndicators();
@@ -108,12 +104,6 @@ function initEventListeners() {
         elements.newSessionBtn.addEventListener('click', newSession);
     }
 }
-
-// 切换流式/非流式模式
-window.setStreamMode = function(enabled) {
-    updateState({ useStreamMode: enabled });
-    console.log(`流式模式: ${enabled ? '开启' : '关闭'}`);
-};
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', async () => {

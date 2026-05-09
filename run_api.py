@@ -2,11 +2,10 @@
 """
 RAG系统FastAPI入口文件
 启动文件: python run_api.py
-访问地址: http://localhost:8000
+访问地址: http://localhost:8001
 """
 
 import uvicorn
-import os
 import signal
 import sys
 import logging

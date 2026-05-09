@@ -4,7 +4,7 @@
 // API基础路径
 export const API_BASE = '/api';
 
-// 本地存储key - 确保与其他地方一致
+// 本地存储key
 export const STORAGE_KEY_SESSION = 'rag_current_session_id';
 
 // DOM 元素引用
@@ -23,10 +23,9 @@ export const elements = {
     newSessionBtn: null
 };
 
-// 全局状态
+// 全局状态 - 移除 useStreamMode，始终为 true
 export const state = {
     isProcessing: false,
-    useStreamMode: true,
     thinkingAnimationInterval: null,
     currentSessionId: null
 };

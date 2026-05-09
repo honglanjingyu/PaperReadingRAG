@@ -1,4 +1,4 @@
-# app/api/services/chat_service.py (修复导入部分)
+# app/api/services/chat_service.py
 """
 聊天服务 - 支持会话记忆
 """
@@ -18,7 +18,6 @@ try:
     from app.service.core.memory import RedisSessionMemory, MemoryInjector, get_memory_manager
     MEMORY_AVAILABLE = True
 except ImportError as e:
-    # 不要降级到内存版本
     print(f"❌ 记忆模块导入失败: {e}，请确保 Redis 服务已启动")
     MEMORY_AVAILABLE = False
     RedisSessionMemory = None
@@ -223,6 +222,52 @@ class ChatService:
         # 更新记忆
         if enable_memory and self._memory_manager and actual_session_id and actual_session_id != "default" and full_answer:
             self._memory_manager.add_message(actual_session_id, "user", question)
+            self._memory_manager.add_message(actual_session_id, "assistant", full_answer)
+
+    async def ask_stream_with_results(
+            self,
+            question: str,
+            session_id: str = None,
+            history: Optional[List[Dict[str, str]]] = None,
+            results: List[Dict[str, Any]] = None,
+            template_name: str = "detailed",
+            enable_memory: bool = True
+    ):
+        """流式问答处理 - 使用已有的检索结果"""
+
+        # 获取或创建会话
+        actual_session_id = None
+        if enable_memory and self._memory_manager:
+            actual_session_id = self._get_or_create_session(session_id)
+        else:
+            actual_session_id = session_id or "default"
+
+        if not results:
+            yield "未找到相关文档"
+            return
+
+        # 流式生成答案
+        full_answer = ""
+
+        def sync_generate():
+            nonlocal full_answer
+            for chunk in generate_answer_stream(
+                    question=question,
+                    results=results,
+                    history=history,
+                    template_name=template_name,
+                    verbose=False
+            ):
+                if chunk and chunk.strip():
+                    full_answer += chunk
+                    yield chunk
+
+        for chunk in sync_generate():
+            yield chunk
+
+        # 更新记忆
+        if enable_memory and self._memory_manager and actual_session_id and actual_session_id != "default" and full_answer:
+            self._memory_manager.add_message(actual_session_id, "user", question.split('改写:')[-1].strip() if '改写:' in question else question)
             self._memory_manager.add_message(actual_session_id, "assistant", full_answer)
 
     async def search_only(
