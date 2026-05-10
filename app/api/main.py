@@ -8,11 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+import logging
 
 from app.api.routes import health, upload, chat
 from app.api.config import settings
-from app.api.services import init_logging
 from app.api.auth_routes import router as auth_router
+
+# 不在这里初始化日志，让 uvicorn 处理
+# 只设置基本的 logging 配置避免警告
+logging.basicConfig(level=logging.WARNING, force=True)
 
 
 def create_app() -> FastAPI:
@@ -40,9 +44,6 @@ def create_app() -> FastAPI:
     return app
 
 
-# app/api/main.py
-# 在 configure_static_routes 函数中确保 CSS 目录被正确挂载
-
 def configure_static_routes(app: FastAPI):
     """配置静态文件路由"""
     web_dir = Path(__file__).parent.parent / "web"
@@ -51,7 +52,7 @@ def configure_static_routes(app: FastAPI):
         # 挂载静态文件目录
         app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
 
-        # 挂载 CSS 目录（直接从 web/css 提供）
+        # 挂载 CSS 目录
         css_dir = web_dir / "css"
         if css_dir.exists():
             app.mount("/css", StaticFiles(directory=str(css_dir)), name="css")

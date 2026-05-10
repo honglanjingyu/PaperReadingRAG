@@ -1,4 +1,4 @@
-<!-- app/web/chat.html -->
+<!-- app/web/chat.html - 修改后的版本 -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -13,6 +13,19 @@
         <!-- 左侧边栏导航 -->
         <div class="sidebar-nav">
             <div class="logo">📚 RAG智能问答系统</div>
+
+            <!-- 用户信息区域 -->
+            <div class="sidebar-user" id="sidebarUser">
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <span id="userNameDisplay">加载中...</span>
+                </div>
+                <button class="btn-logout" id="logoutBtn" title="退出登录">
+                    <i class="fas fa-sign-out-alt"></i>
+                    退出
+                </button>
+            </div>
+
             <div class="nav-menu">
                 <a href="/upload" class="nav-item">
                     <span class="nav-icon">📤</span>
@@ -37,7 +50,6 @@
             <div class="chat-container">
                 <div class="chat-header">
                     <h2>💬 智能问答</h2>
-                    <!-- 会话信息栏 - 只保留新建会话 -->
                     <div class="session-info" id="sessionInfo">
                         <span class="session-badge" id="sessionBadge" title="会话ID">
                             📝 新会话
@@ -106,6 +118,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Font Awesome 6 (用于图标) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <script src="/static/js/common.js"></script>
     <script type="module" src="/static/js/chat.js"></script>

@@ -1,5 +1,4 @@
-# paperreadingrag/run_api.py (确保正确集成)
-
+# run_api.py
 import uvicorn
 import signal
 import sys
@@ -9,8 +8,14 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
-# 设置根日志器级别
+# 设置根日志器 - 只保留 uvicorn 日志
 logging.basicConfig(level=logging.WARNING)
+
+# 抑制第三方库的详细日志
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("elasticsearch").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # 导入app
 from app.api.main import app
@@ -70,7 +75,8 @@ def main():
         host=args.host,
         port=args.port,
         reload=args.reload,
-        log_level="info"
+        log_level="info",
+        access_log=True,  # 启用访问日志
     )
 
 

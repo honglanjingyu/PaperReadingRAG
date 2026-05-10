@@ -1,12 +1,12 @@
 # app/auth/jwt_utils.py
-"""JWT 工具"""
-
 import jwt
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from loguru import logger
 
 from app.db.config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRE_HOURS
+
+logger = logging.getLogger(__name__)
 
 
 def create_token(user_id: int, username: str) -> str:

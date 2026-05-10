@@ -1,8 +1,11 @@
 # app/db/config.py
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from loguru import logger
+
+logger = logging.getLogger(__name__)
+
 
 # 加载环境变量
 def load_config():
@@ -26,7 +29,7 @@ POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "rag_db")  # 使用 rag_db
+POSTGRES_DB = os.getenv("POSTGRES_DB", "rag_db")
 
 DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 

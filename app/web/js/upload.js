@@ -200,21 +200,45 @@ function initEventListeners() {
 
 // 页面初始化
 document.addEventListener('DOMContentLoaded', async () => {
+    // 显示用户名
+    if (typeof displayCurrentUser === 'function') {
+        displayCurrentUser();
+    }
+
+    // 绑定退出登录按钮
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            if (typeof handleLogout === 'function') {
+                handleLogout();
+            } else if (typeof logout === 'function') {
+                logout();
+            }
+        });
+    }
+
     // 检查登录状态
-    if (!isLoggedIn()) {
+    if (typeof isLoggedIn !== 'function' || !isLoggedIn()) {
         window.location.href = '/login.html';
         return;
     }
 
     // 验证 token
     try {
-        const isValid = await verifyToken();
-        if (!isValid) {
-            logout();
-            return;
+        if (typeof verifyToken === 'function') {
+            const isValid = await verifyToken();
+            if (!isValid) {
+                if (typeof logout === 'function') {
+                    logout();
+                } else {
+                    window.location.href = '/login.html';
+                }
+                return;
+            }
         }
     } catch (error) {
-        logout();
+        console.error('Token 验证失败:', error);
+        window.location.href = '/login.html';
         return;
     }
 

@@ -4,11 +4,12 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
 from typing import Optional
-from loguru import logger
+import logging
 
 from app.db.database import get_db_manager
 from app.auth.jwt_utils import create_token, decode_token, get_user_id_from_token
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 

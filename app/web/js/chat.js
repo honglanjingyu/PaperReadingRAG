@@ -105,30 +105,50 @@ function initEventListeners() {
     }
 }
 
+// app/web/js/chat.js - 修改页面加载验证部分
+
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', async () => {
-    // 检查登录状态
-    if (!isLoggedIn()) {
+    console.log('DOMContentLoaded 事件触发');
+
+    // 首先显示用户名
+    displayCurrentUser();
+
+    // 检查登录状态 - 增强版
+    const token = localStorage.getItem('rag_token');
+    if (!token || token === 'null' || token === 'undefined') {
+        console.log('未找到 token，跳转到登录页');
         window.location.href = '/login.html';
         return;
     }
 
-    // 验证 token
+    // 验证 token 有效性
     try {
+        console.log('验证 token 有效性...');
         const isValid = await verifyToken();
         if (!isValid) {
+            console.log('Token 无效，跳转到登录页');
             logout();
             return;
         }
+        console.log('Token 验证通过');
     } catch (error) {
+        console.error('验证失败:', error);
         logout();
         return;
     }
 
-    console.log('DOMContentLoaded 事件触发');
+    // 确保用户名显示
+    displayCurrentUser();
 
-    // 先初始化 DOM 元素
+    // 初始化 DOM 元素
     initElements();
+
+    // 绑定退出登录按钮事件
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
 
     // 检查 DOM 元素是否存在
     console.log('检查 DOM 元素:');

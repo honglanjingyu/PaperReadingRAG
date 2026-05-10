@@ -153,3 +153,101 @@ document.addEventListener('DOMContentLoaded', () => {
     // 每30秒更新一次状态
     setInterval(updateSystemStatus, 30000);
 });
+
+/* app/web/js/common.js - 添加以下函数 */
+
+// ========== 用户信息显示 ==========
+
+// 显示当前登录用户名
+function displayCurrentUser() {
+    const username = localStorage.getItem('rag_username');
+    const userNameSpan = document.getElementById('userNameDisplay');
+    
+    if (userNameSpan) {
+        if (username && username !== 'null' && username !== 'undefined') {
+            userNameSpan.textContent = username;
+        } else {
+            userNameSpan.textContent = '用户';
+        }
+    }
+}
+
+// 退出登录
+function handleLogout() {
+    if (confirm('确定要退出登录吗？')) {
+        // 清除本地存储
+        localStorage.removeItem('rag_token');
+        localStorage.removeItem('rag_user_id');
+        localStorage.removeItem('rag_username');
+        localStorage.removeItem('rag_current_session_id');
+        
+        // 清除会话相关缓存
+        if (window.sessionStorage) {
+            window.sessionStorage.clear();
+        }
+        
+        // 跳转到登录页
+        window.location.href = '/login.html';
+    }
+}
+
+// 修改 isLoggedIn 函数，增加有效性检查
+function isLoggedIn() {
+    const token = getAuthToken();
+    if (!token || token === 'null' || token === 'undefined') return false;
+    
+    // 检查 token 格式（简单验证）
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return false;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// 修改 verifyToken 函数，增加更详细的日志
+async function verifyToken() {
+    const token = getAuthToken();
+    if (!token) return false;
+
+    try {
+        const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) return false;
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // 确保用户名已存储
+            if (data.username && !localStorage.getItem('rag_username')) {
+                localStorage.setItem('rag_username', data.username);
+            }
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Token 验证失败:', error);
+        return false;
+    }
+}
+
+// 页面加载时显示用户名（在所有页面中调用）
+document.addEventListener('DOMContentLoaded', () => {
+    updateSystemStatus();
+    displayCurrentUser();  // 添加这一行
+    
+    // 绑定退出登录按钮（如果存在）
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
+    
+    setInterval(updateSystemStatus, 30000);
+});

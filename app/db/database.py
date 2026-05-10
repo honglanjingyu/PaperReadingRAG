@@ -4,11 +4,12 @@
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session, sessionmaker
 from datetime import datetime
-from loguru import logger
+import logging
 
 from .models import Base, User, UserSession, get_engine
 from .config import DATABASE_URL
 
+logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     """数据库管理器 - 单例模式"""

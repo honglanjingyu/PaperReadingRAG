@@ -2,23 +2,21 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="A2A的.well-known自动发现机制">
-      <change afterPath="$PROJECT_DIR$/app/api/auth_routes.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/auth/jwt_utils.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/db/config.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/db/database.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/db/models.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/web/css/login.css" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/web/login.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/RAG架构与优化计划.txt" beforeDir="false" afterPath="$PROJECT_DIR$/RAG架构与优化计划.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/a2a_test.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/auth_routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/auth_routes.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/api/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/routes/chat.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/routes/chat.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/services/logging_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/services/logging_config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/auth/jwt_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/auth/jwt_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/database.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/database.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/web/chat.html" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/chat.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/web/css/common.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/css/common.css" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/web/js/chat.js" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/js/chat.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/web/js/chat/stream.js" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/js/chat/stream.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/web/js/common.js" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/js/common.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/web/js/upload.js" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/js/upload.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/web/upload.html" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/upload.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo_fix_a2a.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_api.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_api.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -205,6 +203,7 @@
       <workItem from="1778306608279" duration="331000" />
       <workItem from="1778321314829" duration="1018000" />
       <workItem from="1778333837855" duration="1984000" />
+      <workItem from="1778370643379" duration="1012000" />
     </task>
     <task id="LOCAL-00001" summary="First Commit">
       <option name="closed" value="true" />

@@ -7,12 +7,27 @@
     <title>文档上传 - RAG智能问答系统</title>
     <link rel="stylesheet" href="/static/css/common.css">
     <link rel="stylesheet" href="/static/css/upload.css">
+    <!-- Font Awesome 6 (用于图标) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
         <!-- 左侧边栏导航 -->
         <div class="sidebar-nav">
             <div class="logo">📚 RAG智能问答系统</div>
+
+            <!-- 用户信息区域 -->
+            <div class="sidebar-user" id="sidebarUser">
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <span id="userNameDisplay">加载中...</span>
+                </div>
+                <button class="btn-logout" id="logoutBtn" title="退出登录">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>退出</span>
+                </button>
+            </div>
+
             <div class="nav-menu">
                 <a href="/upload" class="nav-item active">
                     <span class="nav-icon">📤</span>

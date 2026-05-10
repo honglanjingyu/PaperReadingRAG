@@ -249,3 +249,62 @@ body {
         height: auto;
     }
 }
+
+/* app/web/css/common.css - 添加以下样式 */
+
+/* 侧边栏用户信息区域 - 添加这些样式 */
+.sidebar-user {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    margin: 0 12px 20px 12px;
+    background: #f0f0ff;
+    border-radius: 12px;
+    border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.user-info i {
+    font-size: 1.2rem;
+    color: #667eea;
+}
+
+.user-info span {
+    font-size: 0.85rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #333;
+}
+
+.btn-logout {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+
+.btn-logout i {
+    font-size: 0.9rem;
+}
+
+.btn-logout:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
