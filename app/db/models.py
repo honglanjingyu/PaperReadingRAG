@@ -1,13 +1,21 @@
-# app/db/models.py
-"""数据库模型 - 用户认证表"""
+# app/db/models.py - 更新版本
+"""数据库模型 - 用户认证表（支持用户等级）"""
 
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Boolean, Integer, create_engine
+from sqlalchemy import Column, String, DateTime, Boolean, Integer, create_engine, Enum as SQLEnum
 from sqlalchemy.ext.declarative import declarative_base
 import hashlib
 import secrets
+import enum
 
 Base = declarative_base()
+
+
+class UserRole(str, enum.Enum):
+    """用户等级枚举"""
+    NORMAL = "normal"  # 普通用户
+    ADMIN = "admin"  # 管理员
+    OWNER = "owner"  # 所有者
 
 
 def hash_password(password: str, salt: str = None) -> tuple:
@@ -24,6 +32,22 @@ def verify_password(password: str, salt: str, password_hash: str) -> bool:
     return new_hash == password_hash
 
 
+def determine_user_role(username: str) -> UserRole:
+    """根据用户名确定用户等级"""
+    username_lower = username.lower()
+
+    # 所有者用户: root* 或 system*
+    if username_lower.startswith('root') or username_lower.startswith('system'):
+        return UserRole.OWNER
+
+    # 管理员用户: admin*
+    if username_lower.startswith('admin'):
+        return UserRole.ADMIN
+
+    # 普通用户
+    return UserRole.NORMAL
+
+
 class User(Base):
     """用户表"""
     __tablename__ = "users"
@@ -32,6 +56,7 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=False, index=True)
     password_salt = Column(String(64), nullable=False)
     password_hash = Column(String(128), nullable=False)
+    role = Column(SQLEnum(UserRole), default=UserRole.NORMAL, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     is_active = Column(Boolean, default=True)
@@ -43,6 +68,26 @@ class User(Base):
     def verify_password(self, password: str) -> bool:
         """验证密码"""
         return verify_password(password, self.password_salt, self.password_hash)
+
+    def set_role_from_username(self):
+        """根据用户名设置用户等级"""
+        self.role = determine_user_role(self.username)
+
+    def can_access_level(self, doc_level: str) -> bool:
+        """检查用户是否有权访问指定等级的文档"""
+        level_priority = {
+            UserRole.NORMAL: 1,
+            UserRole.ADMIN: 2,
+            UserRole.OWNER: 3,
+        }
+
+        user_priority = level_priority.get(self.role, 1)
+        doc_priority = level_priority.get(
+            UserRole(doc_level) if isinstance(doc_level, str) else doc_level,
+            1
+        )
+
+        return user_priority >= doc_priority
 
 
 class UserSession(Base):

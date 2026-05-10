@@ -139,7 +139,8 @@ def _enhanced_search_internal(
         enable_query_rewrite: bool = True,
         similarity_threshold: float = 0.3,
         rerank_type: str = "auto",
-        verbose: bool = False
+        verbose: bool = False,
+        user_level: str = None
 ) -> dict:
     """
     增强检索内部实现（不包含缓存）
@@ -196,7 +197,8 @@ def _enhanced_search_internal(
             keyword_weight=keyword_weight,
             vector_weight=vector_weight,
             similarity_threshold=similarity_threshold,
-            verbose=False
+            verbose=False,
+            user_level=user_level
         )
 
         hybrid_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
@@ -212,7 +214,8 @@ def _enhanced_search_internal(
                 query_vector=query_vector,
                 index_name=index_name,
                 top_k=recall_k,
-                similarity_threshold=similarity_threshold
+                similarity_threshold=similarity_threshold,
+                user_level=user_level
             )
         else:
             hybrid_results = []
@@ -294,29 +297,11 @@ def enhanced_search_with_hybrid_and_rerank(
         similarity_threshold: float = 0.3,
         rerank_type: str = "auto",
         verbose: bool = False,
-        use_cache: bool = True
+        use_cache: bool = True,
+        user_level: str = None  # 新增参数
 ) -> dict:
-    """
-    增强检索：用户问题向量化 -> Query改写 -> 相似度搜索 -> 重排序
+    """增强检索（支持用户等级过滤）"""
 
-    Args:
-        question: 用户问题
-        index_name: 索引名称
-        top_k: 最终返回数量
-        recall_k: 召回数量
-        keyword_weight: 关键词检索权重
-        vector_weight: 向量检索权重
-        enable_rerank: 是否启用重排序
-        enable_query_rewrite: 是否启用查询改写
-        similarity_threshold: 相似度阈值
-        rerank_type: 重排序类型 ('auto', 'remote', 'local', 'vector')
-        verbose: 是否打印详细信息
-        use_cache: 是否使用缓存（默认 True）
-
-    Returns:
-        包含检索结果的字典
-    """
-    # 如果禁用缓存，直接调用内部实现
     if not use_cache:
         return _enhanced_search_internal(
             question=question,
@@ -329,10 +314,10 @@ def enhanced_search_with_hybrid_and_rerank(
             enable_query_rewrite=enable_query_rewrite,
             similarity_threshold=similarity_threshold,
             rerank_type=rerank_type,
-            verbose=verbose
+            verbose=verbose,
+            user_level=user_level  # 传递用户等级
         )
 
-    # 使用缓存包装
     return _cached_search.search_with_cache(
         question=question,
         search_func=_enhanced_search_internal,
@@ -345,7 +330,8 @@ def enhanced_search_with_hybrid_and_rerank(
         keyword_weight=keyword_weight,
         vector_weight=vector_weight,
         rerank_type=rerank_type,
-        verbose=verbose
+        verbose=verbose,
+        user_level=user_level  # 传递用户等级
     )
 
 __all__ = [

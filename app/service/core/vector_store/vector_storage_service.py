@@ -24,7 +24,8 @@ class VectorStorageService:
             vector_chunks: List,
             index_name: str,
             file_name: str,
-            kb_id: str = None
+            kb_id: str = None,
+            user_level: str = "normal"  # 新增参数
     ) -> int:
         """存储 VectorChunk 对象到向量数据库"""
         if not vector_chunks:
@@ -35,35 +36,28 @@ class VectorStorageService:
             logger.error("向量存储未初始化")
             return 0
 
-        # 过滤出有向量的块
         chunks_with_vector = []
         for c in vector_chunks:
             if hasattr(c, 'vector') and c.vector:
                 chunks_with_vector.append(c)
-            elif hasattr(c, 'vector') and not c.vector:
-                logger.warning(f"块 {getattr(c, 'id', 'unknown')} 没有向量数据")
 
         if not chunks_with_vector:
             logger.warning("分块中没有向量数据")
             return 0
 
-        # 获取向量维度
         vector_dim = len(chunks_with_vector[0].vector)
         logger.info(f"准备存储 {len(chunks_with_vector)} 个块，向量维度: {vector_dim}")
 
-        # 确保索引存在
         try:
             self.store.create_index(index_name, vector_dim)
         except Exception as e:
             logger.error(f"创建索引失败: {e}")
             return 0
 
-        # 获取当前时间戳
         now = datetime.datetime.now()
         create_timestamp = now.timestamp()
         doc_id_base = xxhash.xxh64(file_name.encode("utf-8")).hexdigest()
 
-        # 构建文档
         documents = []
         for i, chunk in enumerate(chunks_with_vector):
             doc = {
@@ -77,10 +71,10 @@ class VectorStorageService:
                 "create_timestamp_flt": create_timestamp,
                 "token_count": getattr(chunk, 'token_count', 0),
                 "chunk_index": getattr(chunk, 'chunk_index', i),
-                "vector": chunk.vector  # Milvus 使用 vector 字段
+                "user_level": getattr(chunk, 'user_level', user_level),  # 添加等级
+                "vector": chunk.vector
             }
 
-            # 添加元数据
             if hasattr(chunk, 'metadata') and chunk.metadata:
                 for key, value in chunk.metadata.items():
                     if key not in doc:
@@ -88,10 +82,9 @@ class VectorStorageService:
 
             documents.append(doc)
 
-        # 批量插入
         try:
             inserted = self.store.insert(documents, index_name)
-            logger.info(f"存储完成: {inserted}/{len(chunks_with_vector)} 条")
+            logger.info(f"存储完成: {inserted}/{len(chunks_with_vector)} 条 (user_level={user_level})")
             return inserted
         except Exception as e:
             logger.error(f"存储失败: {e}")

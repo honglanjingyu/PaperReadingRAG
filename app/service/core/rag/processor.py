@@ -9,6 +9,7 @@ import sys
 import hashlib
 from typing import List, Optional, Dict
 from dotenv import load_dotenv
+from app.service.core.deepdoc.parser.remote_pdf_parser import save_chunked_report, RemotePDFParser,is_remote_parse_enabled
 
 load_dotenv()
 
@@ -39,6 +40,9 @@ from app.service.core.vector_store import (
 )
 
 
+# app/service/core/rag/processor.py
+# 替换原有的 process_document 函数
+
 def process_document(
         file_path: str,
         chunk_size: int = 256,
@@ -48,18 +52,16 @@ def process_document(
         from_page: int = 0,
         to_page: int = None,
         index_name: str = None,
-        verbose: bool = False
+        verbose: bool = False,
+        user_level: str = "normal"  # 新增参数：文档所属用户等级
 ) -> List[VectorChunk]:
     """
     完整的文档处理流程
-
-    优化：减少重复输出，合并统计信息
     """
     if verbose:
         print("=" * 70)
         print(f"处理文档: {os.path.basename(file_path)}")
 
-    # ========== RAG1 完整流程 ==========
     parser = DocumentParser()
     parsed = parser.parse(
         file_path,
@@ -74,15 +76,14 @@ def process_document(
             print("错误: 未能提取文本内容")
         return []
 
-    # 合并统计输出
     if verbose:
         print(f"\n处理结果:")
         print(f"  文件名: {parsed.file_name}")
         print(f"  文件类型: {parsed.file_type}")
         print(f"  总页数: {parsed.total_pages}")
         print(f"  清洗后文本长度: {len(parsed.cleaned_text)} 字符")
+        print(f"  用户等级: {user_level}")
 
-    # ========== RAG2 功能：智能分块 ==========
     if verbose:
         print("\n智能分块...")
 
@@ -92,7 +93,8 @@ def process_document(
         metadata={
             'source': parsed.file_name,
             'file_type': parsed.file_type,
-            'total_pages': parsed.total_pages
+            'total_pages': parsed.total_pages,
+            'user_level': user_level  # 添加等级到元数据
         },
         strategy='recursive'
     )
@@ -100,20 +102,15 @@ def process_document(
     if verbose:
         stats = get_chunk_statistics(chunks)
         print(f"  生成 {stats['total_chunks']} 个块")
-        print(f"  Token统计: 最小={stats['min_token_count']}, "
-              f"最大={stats['max_token_count']}, "
-              f"平均={stats['avg_token_count']:.1f}")
 
-    # ========== RAG2 功能：向量化 ==========
     vector_chunks = []
     if enable_vectorization and chunks:
         if verbose:
             print("\n向量化处理...")
 
         try:
-            # 直接创建 VectorChunk 并向量化，避免重复转换
-            vector_chunks = create_and_vectorize_chunks(
-                chunks, model_type, verbose
+            vector_chunks = create_and_vectorize_chunks_with_level(
+                chunks, model_type, user_level, verbose
             )
 
             if verbose and vector_chunks:
@@ -125,7 +122,6 @@ def process_document(
                 print(f"  向量化失败: {e}")
             vector_chunks = []
 
-    # ========== RAG2 功能：向量存储 ==========
     if enable_storage and vector_chunks:
         if verbose:
             print("\n存储到向量数据库...")
@@ -133,7 +129,7 @@ def process_document(
         try:
             storage_service = get_vector_storage_service()
             index = index_name or os.getenv("VECTOR_INDEX_NAME", "rag_documents")
-            inserted = storage_service.store_vector_chunks(vector_chunks, index, parsed.file_name)
+            inserted = storage_service.store_vector_chunks(vector_chunks, index, parsed.file_name, user_level)
 
             if verbose:
                 print(f"  完成: {inserted}/{len(vector_chunks)} 条")
@@ -142,11 +138,39 @@ def process_document(
             if verbose:
                 print(f"  存储失败: {e}")
 
+    # ========== 新增：保存分块报告 ==========
+    try:
+        # 检查是否使用了远程解析
+        use_remote = is_remote_parse_enabled()
+
+        if use_remote:
+            if verbose:
+                print("\n保存分块报告...")
+
+            # 获取远程解析器实例以获取原始 Markdown 内容
+            remote_parser = RemotePDFParser()
+            last_result = remote_parser.get_last_parse_result()
+
+            # 保存带分块结果的报告
+            report_path = save_chunked_report(
+                file_name=parsed.file_name,
+                chunks=vector_chunks if vector_chunks else chunks,
+                sections=last_result.get("sections"),
+                tables=last_result.get("tables"),
+                markdown_content=last_result.get("markdown_content")
+            )
+
+            if verbose and report_path:
+                print(f"  ✓ 报告已保存: {report_path}")
+    except Exception as e:
+        if verbose:
+            print(f"  ⚠️ 保存分块报告失败: {e}")
+
     return vector_chunks if vector_chunks else chunks
 
 
-def create_and_vectorize_chunks(chunks, model_type: str = None, verbose: bool = False) -> List[VectorChunk]:
-    """创建 VectorChunk 并向量化 - 合并操作避免重复"""
+def create_and_vectorize_chunks_with_level(chunks, model_type: str = None, user_level: str = "normal", verbose: bool = False) -> List[VectorChunk]:
+    """创建 VectorChunk 并向量化，同时设置用户等级"""
     import hashlib
 
     vector_chunks = []
@@ -158,13 +182,14 @@ def create_and_vectorize_chunks(chunks, model_type: str = None, verbose: bool = 
             metadata={
                 **chunk.metadata,
                 'chunk_index': i,
-                'token_count': chunk.token_count
+                'token_count': chunk.token_count,
+                'user_level': user_level
             },
             token_count=chunk.token_count,
-            chunk_index=i
+            chunk_index=i,
+            user_level=user_level  # 设置文档等级
         ))
 
-    # 向量化
     vec_service = VectorizationService(model_type)
     return vec_service.vectorize_chunks(vector_chunks)
 
@@ -178,14 +203,47 @@ def parse_only(
 ) -> ParsedDocument:
     """仅执行 RAG1 流程：数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗"""
     parser = DocumentParser()
-    return parser.parse(
+    parsed = parser.parse(
         file_path,
         from_page=from_page,
         to_page=to_page or 100000,
         enable_cleaning=enable_cleaning,
         verbose=verbose
     )
+    all_text = parsed.cleaned_text or ""
 
+    # 添加表格内容
+    for page in parsed.pages:
+        for table in page.tables:
+            if table.data:
+                table_text = _table_to_text(table.data)
+                if table_text:
+                    all_text += "\n\n" + table_text
+
+    parsed.cleaned_text = all_text
+    return parsed
+
+
+def _table_to_text(table_data: List[List[str]]) -> str:
+    """将表格数据转换为可检索的文本格式"""
+    if not table_data or len(table_data) == 0:
+        return ""
+
+    lines = []
+
+    # 方式1：Markdown 表格格式（适合阅读和检索）
+    # 表头
+    header = "| " + " | ".join(str(cell) if cell else "" for cell in table_data[0]) + " |"
+    lines.append(header)
+    # 分隔线
+    separator = "| " + " | ".join(["---"] * len(table_data[0])) + " |"
+    lines.append(separator)
+    # 数据行
+    for row in table_data[1:]:
+        line = "| " + " | ".join(str(cell) if cell else "" for cell in row) + " |"
+        lines.append(line)
+
+    return "\n".join(lines)
 
 def chunk_document(
     file_path: str,

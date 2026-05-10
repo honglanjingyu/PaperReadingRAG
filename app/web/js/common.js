@@ -238,10 +238,84 @@ async function verifyToken() {
     }
 }
 
+
+// 获取当前用户等级
+async function getUserRole() {
+    const token = getAuthToken();
+    if (!token) return null;
+
+    try {
+        const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            return data.role || null;
+        }
+        return null;
+    } catch (error) {
+        console.error('获取用户等级失败:', error);
+        return null;
+    }
+}
+
+// app/web/js/common.js - 替换 displayUserRole 函数
+
+// 显示用户等级（带图标，与 upload.js 保持一致）
+async function displayUserRole() {
+    const roleSpan = document.getElementById('userRoleBadge');
+    if (!roleSpan) return;
+
+    try {
+        const token = localStorage.getItem('rag_token');
+        if (!token) {
+            roleSpan.textContent = '👤 普通用户';
+            roleSpan.className = 'user-role-badge normal';
+            return;
+        }
+
+        const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const role = data.role || 'normal';
+
+            if (role === 'admin') {
+                roleSpan.innerHTML = '👑 管理员';
+                roleSpan.className = 'user-role-badge admin';
+            } else if (role === 'owner') {
+                roleSpan.innerHTML = '⭐ 所有者';
+                roleSpan.className = 'user-role-badge owner';
+            } else {
+                roleSpan.innerHTML = '👤 普通用户';
+                roleSpan.className = 'user-role-badge normal';
+            }
+        } else {
+            roleSpan.innerHTML = '👤 普通用户';
+            roleSpan.className = 'user-role-badge normal';
+        }
+    } catch (error) {
+        console.error('获取用户等级失败:', error);
+        roleSpan.innerHTML = '👤 普通用户';
+        roleSpan.className = 'user-role-badge normal';
+    }
+}
 // 页面加载时显示用户名（在所有页面中调用）
 document.addEventListener('DOMContentLoaded', () => {
     updateSystemStatus();
-    displayCurrentUser();  // 添加这一行
+    displayCurrentUser();
+    displayUserRole();
     
     // 绑定退出登录按钮（如果存在）
     const logoutBtn = document.getElementById('logoutBtn');

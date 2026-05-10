@@ -50,6 +50,99 @@ body {
     border-bottom: 2px solid #f0f0f0;
 }
 
+/* 侧边栏用户信息区域 - 修改为上下结构 */
+.sidebar-user {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+    margin: 0 12px 20px 12px;
+    background: #f0f0ff;
+    border-radius: 12px;
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    gap: 12px;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.user-info i {
+    font-size: 1.2rem;
+    color: #667eea;
+    flex-shrink: 0;
+}
+
+.user-info span {
+    font-size: 0.85rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #333;
+}
+
+/* 用户名 - 允许适当缩短但保留完整显示 */
+#userNameDisplay {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 用户等级徽章 */
+.user-role-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+    width: fit-content;
+}
+
+.user-role-badge.normal {
+    background: #e8f4e8;
+    color: #28a745;
+}
+
+.user-role-badge.admin {
+    background: #e3f2fd;
+    color: #2196f3;
+}
+
+.user-role-badge.owner {
+    background: #fff3e0;
+    color: #ff9800;
+}
+
+/* 退出按钮 - 独立一行，宽度自适应 */
+.btn-logout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: transparent;
+    border: 1px solid #ddd;
+    color: #666;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+    width: 100%;
+}
+
+.btn-logout i {
+    font-size: 0.9rem;
+}
+
+.btn-logout:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: #dc2626;
+    color: #dc2626;
+}
+
 /* 导航菜单 */
 .nav-menu {
     display: flex;
@@ -227,6 +320,13 @@ body {
     background: #a8a8a8;
 }
 
+/* 用户详情区域 */
+.user-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
     .container {
@@ -248,63 +348,4 @@ body {
     .main-content {
         height: auto;
     }
-}
-
-/* app/web/css/common.css - 添加以下样式 */
-
-/* 侧边栏用户信息区域 - 添加这些样式 */
-.sidebar-user {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    margin: 0 12px 20px 12px;
-    background: #f0f0ff;
-    border-radius: 12px;
-    border: 1px solid rgba(102, 126, 234, 0.2);
-}
-
-.user-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex: 1;
-    overflow: hidden;
-}
-
-.user-info i {
-    font-size: 1.2rem;
-    color: #667eea;
-}
-
-.user-info span {
-    font-size: 0.85rem;
-    font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #333;
-}
-
-.btn-logout {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: none;
-    color: #666;
-    cursor: pointer;
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 0.8rem;
-    transition: all 0.2s;
-}
-
-.btn-logout i {
-    font-size: 0.9rem;
-}
-
-.btn-logout:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: #dc2626;
 }

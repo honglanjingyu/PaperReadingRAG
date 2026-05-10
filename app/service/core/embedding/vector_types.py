@@ -1,7 +1,5 @@
-# app/service/core/embedding/vector_types.py
-"""
-向量相关数据结构
-"""
+# app/service/core/embedding/vector_types.py - 更新
+"""向量相关数据结构（支持用户等级）"""
 
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
@@ -17,6 +15,7 @@ class VectorChunk:
     metadata: Dict[str, Any] = field(default_factory=dict)
     token_count: int = 0
     chunk_index: int = 0
+    user_level: str = "normal"  # 文档所属用户等级：normal, admin, owner
 
     def to_dict(self) -> Dict:
         return {
@@ -26,7 +25,8 @@ class VectorChunk:
             'vector_dim': len(self.vector),
             'metadata': self.metadata,
             'token_count': self.token_count,
-            'chunk_index': self.chunk_index
+            'chunk_index': self.chunk_index,
+            'user_level': self.user_level
         }
 
     def to_es_document(self, kb_id: str = None, doc_name: str = None) -> Dict:
@@ -36,7 +36,8 @@ class VectorChunk:
             "content_with_weight": self.content,
             "metadata": self.metadata,
             "token_count": self.token_count,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat(),
+            "user_level": self.user_level  # 添加用户等级字段
         }
 
         if self.vector:

@@ -111,42 +111,27 @@ class HybridRetriever:
             keyword_weight: float = None,
             vector_weight: float = None,
             similarity_threshold: float = 0.3,
-            verbose: bool = False
+            verbose: bool = False,
+            user_level: str = None  # 新增参数
     ) -> List[Dict[str, Any]]:
-        """
-        混合检索：同时进行向量检索和 BM25 关键词检索，融合结果
-
-        Args:
-            query: 查询文本（支持 OR 语法）
-            index_name: 索引名称
-            top_k: 返回数量
-            keyword_weight: 关键词检索权重（不传则使用环境变量配置）
-            vector_weight: 向量检索权重（不传则使用环境变量配置）
-            similarity_threshold: 相似度阈值
-            verbose: 是否打印详细信息
-
-        Returns:
-            融合后的检索结果列表
-        """
+        """混合检索：同时进行向量检索和 BM25 关键词检索，融合结果（支持用户等级过滤）"""
         if not query:
             return []
 
         import time
         start_time = time.time()
 
-        # 使用传入的权重或环境变量配置的权重
         kw_weight = keyword_weight if keyword_weight is not None else self.keyword_weight
         vec_weight = vector_weight if vector_weight is not None else self.vector_weight
 
-        # 1. 向量检索
-        vector_results = self._vector_search(query, index_name, top_k * 2, verbose=verbose)
+        # 1. 向量检索（带等级过滤）
+        vector_results = self._vector_search(query, index_name, top_k * 2, verbose=verbose, user_level=user_level)
 
-        # 2. BM25 关键词检索（使用 ES BM25）
-        keyword_results = self._bm25_search(query, index_name, top_k * 2, verbose=verbose)
+        # 2. BM25 关键词检索（带等级过滤）
+        keyword_results = self._bm25_search(query, index_name, top_k * 2, verbose=verbose, user_level=user_level)
 
         search_time = (time.time() - start_time) * 1000
 
-        # 3. 融合结果
         if not vector_results and not keyword_results:
             return []
         elif not vector_results:
@@ -159,10 +144,8 @@ class HybridRetriever:
                 vec_weight, kw_weight
             )
 
-        # 按最终分数排序
         results.sort(key=lambda x: x.get('final_score', 0), reverse=True)
 
-        # 过滤低于阈值的结果
         filtered = [r for r in results if r.get('final_score', 0) >= similarity_threshold]
 
         if verbose:
@@ -170,8 +153,9 @@ class HybridRetriever:
 
         return filtered[:top_k]
 
-    def _vector_search(self, query: str, index_name: str, top_k: int, verbose: bool = False) -> List[Dict]:
-        """执行向量检索"""
+    def _vector_search(self, query: str, index_name: str, top_k: int, verbose: bool = False, user_level: str = None) -> \
+    List[Dict]:
+        """执行向量检索（带等级过滤）"""
         try:
             query_vector = self.embedding_manager.generate_embedding(query)
             if not query_vector:
@@ -183,7 +167,8 @@ class HybridRetriever:
                 query_vector=query_vector,
                 index_name=index_name,
                 top_k=top_k,
-                similarity_threshold=0.1
+                similarity_threshold=0.1,
+                user_level=user_level  # 传递等级
             )
 
             if verbose and results:
@@ -202,19 +187,15 @@ class HybridRetriever:
                 print(f"  向量检索失败: {e}")
             return []
 
-    # app/service/core/retrieval/hybrid_retriever.py
-
-    def _bm25_search(self, query: str, index_name: str, top_k: int, verbose: bool = False) -> List[Dict]:
-        """
-        执行 ES BM25 关键词检索
-        """
+    def _bm25_search(self, query: str, index_name: str, top_k: int, verbose: bool = False, user_level: str = None) -> \
+    List[Dict]:
+        """执行 ES BM25 关键词检索（带等级过滤）"""
         if not self.use_es_bm25 or not self.es_bm25 or not self.es_bm25.is_available():
             if verbose:
                 print("  ES BM25 不可用，请确保 Elasticsearch 服务已启动")
             return []
 
         try:
-            # 检查 Milvus 索引是否存在
             if not self.vector_store.index_exists(index_name):
                 if verbose:
                     print(f"  索引不存在: {index_name}")
@@ -229,18 +210,16 @@ class HybridRetriever:
             if verbose:
                 print(f"  ES BM25 检索: 索引中共有 {doc_count} 个文档")
 
-            # ✅ 使用 ES BM25 搜索（内部会自动创建索引）
             results = self.es_bm25.search(
                 query=query,
                 index_name=index_name,
                 top_k=top_k,
-                min_score=0.05
+                min_score=0.05,
+                user_level=user_level  # 传递等级
             )
 
             if verbose and results:
                 print(f"\n  ES BM25 检索召回: {len(results)} 个块")
-                for i, r in enumerate(results[:3], 1):
-                    print(f"    [{i}] BM25 分数: {r.get('_score', 0):.4f}")
 
             for r in results:
                 r['_search_type'] = 'bm25'

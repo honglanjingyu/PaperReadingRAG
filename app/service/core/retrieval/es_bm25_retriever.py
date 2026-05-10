@@ -156,6 +156,7 @@ class ESBM25Retriever:
 
         # 定义 mapping
         properties = {
+            "user_level": {"type": "keyword"},
             "doc_id": {"type": "keyword"},
             "chunk_id": {"type": "keyword"},
             "content": {
@@ -257,11 +258,14 @@ class ESBM25Retriever:
                         rules.append(reverse_rule)
         return rules[:100]  # 限制数量
 
+    # app/service/core/retrieval/es_bm25_retriever.py
+
     def index_documents(
             self,
             documents: List[Dict[str, Any]],
             index_name: str,
-            batch_size: int = 100
+            batch_size: int = 100,
+            user_level: str = "normal"  # 新增参数
     ) -> int:
         """
         批量索引文档到 ES
@@ -270,6 +274,7 @@ class ESBM25Retriever:
             documents: 文档列表
             index_name: 索引名称
             batch_size: 批量大小
+            user_level: 用户等级（默认值）
 
         Returns:
             索引的文档数量
@@ -290,26 +295,28 @@ class ESBM25Retriever:
                 vector_dim = len(doc["vector"])
                 break
 
-        # 确保索引存在
+        # 确保索引存在（已在 create_bm25_index 中添加了 user_level 字段）
         self.create_bm25_index(index_name, vector_dim)
 
         success_count = 0
 
-        # 批量索引
         for i in range(0, len(documents), batch_size):
             batch = documents[i:i + batch_size]
 
             try:
-                # 使用 bulk API
                 from elasticsearch.helpers import bulk
 
                 actions = []
                 for doc in batch:
+                    # 获取 user_level
+                    doc_user_level = doc.get("user_level", user_level)
+
                     # 构建 ES 文档
                     es_doc = {
                         "_index": es_index,
                         "_id": doc.get("id", doc.get("_id", "")),
                         "_source": {
+                            "user_level": doc_user_level,  # 添加 user_level 字段
                             "doc_id": doc.get("doc_id", doc.get("id", "")),
                             "chunk_id": doc.get("chunk_id", doc.get("id", "")),
                             "content": doc.get("content", ""),
@@ -341,10 +348,8 @@ class ESBM25Retriever:
             except Exception as e:
                 logger.error(f"批量索引错误: {e}")
 
-        logger.info(f"ES BM25 索引完成: {success_count} 条文档 -> {es_index}")
+        logger.info(f"ES BM25 索引完成: {success_count} 条文档 -> {es_index} (user_level={user_level})")
         return success_count
-
-    # app/service/core/retrieval/es_bm25_retriever.py
 
     def search(
             self,
@@ -353,33 +358,19 @@ class ESBM25Retriever:
             top_k: int = 10,
             filter_condition: Optional[Dict] = None,
             highlight: bool = True,
-            min_score: float = 0.1
+            min_score: float = 0.1,
+            user_level: str = None  # 新增参数
     ) -> List[Dict[str, Any]]:
-        """
-        ES BM25 搜索
-
-        Args:
-            query: 查询文本
-            index_name: 索引名称
-            top_k: 返回数量
-            filter_condition: 过滤条件
-            highlight: 是否高亮
-            min_score: 最低分数阈值
-
-        Returns:
-            搜索结果列表
-        """
+        """ES BM25 搜索（支持用户等级过滤）"""
         es_index = self._get_index_name(index_name)
 
         if not self._client:
             logger.error("ES 客户端未初始化")
             return []
 
-        # ✅ 自动创建索引（如果不存在）
         if not self._client.indices.exists(index=es_index):
             logger.info(f"ES BM25 索引不存在，自动创建: {es_index}")
             self.create_bm25_index(index_name)
-            # 创建后可能还没有数据，直接返回空结果
             return []
 
         # 查询预处理
@@ -400,6 +391,14 @@ class ESBM25Retriever:
 
         # 添加过滤条件
         filter_queries = []
+
+        # 用户等级过滤
+        if user_level:
+            level_priority = {"normal": 1, "admin": 2, "owner": 3}
+            current_priority = level_priority.get(user_level, 1)
+            allowed_levels = [level for level, priority in level_priority.items() if priority <= current_priority]
+            filter_queries.append({"terms": {"user_level": allowed_levels}})
+
         if filter_condition:
             for field, value in filter_condition.items():
                 if isinstance(value, list):
@@ -419,7 +418,6 @@ class ESBM25Retriever:
             "min_score": min_score
         }
 
-        # 添加高亮
         if highlight:
             search_body["highlight"] = {
                 "fields": {
@@ -450,11 +448,11 @@ class ESBM25Retriever:
                     "kb_id": source.get("kb_id", ""),
                     "chunk_index": source.get("chunk_index", 0),
                     "token_count": source.get("token_count", 0),
+                    "user_level": source.get("user_level", "normal"),
                     "bm25_score": hit.get("_score", 0),
                     "_search_type": "es_bm25"
                 }
 
-                # 添加高亮
                 if "highlight" in hit:
                     result["highlights"] = hit["highlight"]
 
@@ -466,6 +464,8 @@ class ESBM25Retriever:
         except Exception as e:
             logger.error(f"ES BM25 搜索失败: {e}")
             return []
+
+
 
     def _preprocess_query(self, query: str) -> str:
         """

@@ -21,41 +21,45 @@ class ContextConstructor:
         self.include_scores = include_scores
 
     def format_documents(
-        self,
-        results: List[Dict[str, Any]],
-        include_scores: bool = None
+            self,
+            results: List[Dict[str, Any]],
+            include_scores: bool = None
     ) -> str:
-        """
-        将检索结果格式化为上下文字符串
-
-        Args:
-            results: 检索结果列表，格式如 [{"rank": 1, "content": "...", "score": 0.85}, ...]
-            include_scores: 是否包含分数信息
-
-        Returns:
-            格式化后的上下文字符串
-        """
+        """将检索结果格式化为上下文字符串，使用真实文件名"""
         if not results:
             return "（未找到相关文档内容）"
 
         include = include_scores if include_scores is not None else self.include_scores
         formatted_parts = []
 
-        for i, result in enumerate(results, 1):
+        for result in results:
             content = result.get("content", result.get("content_with_weight", ""))
             if not content:
                 continue
 
+            # ========== 关键修改：获取真实文件名 ==========
+            doc_name = (
+                    result.get("document_name") or
+                    result.get("docnm") or
+                    result.get("docnm_kwd") or
+                    "未知文档"
+            )
+
+            # 清理文件名（去除路径）
+            if doc_name and '/' in doc_name:
+                doc_name = doc_name.split('/')[-1]
+            if doc_name and '\\' in doc_name:
+                doc_name = doc_name.split('\\')[-1]
+
             # 截断过长的单个文档
-            if len(content) > self.max_context_length // len(results):
-                content = content[:self.max_context_length // len(results)] + "..."
+            if len(content) > self.max_context_length // max(len(results), 1):
+                content = content[:self.max_context_length // max(len(results), 1)] + "..."
 
             if include:
                 score = result.get("score", result.get("similarity", result.get("_score", 0)))
-                doc_name = result.get("document_name", result.get("docnm", "未知文档"))
-                formatted_parts.append(f"[文档{i}] (来源: {doc_name}, 相关度: {score:.3f})\n{content}\n")
+                formatted_parts.append(f"[{doc_name}] (相关度: {score:.3f})\n{content}\n")
             else:
-                formatted_parts.append(f"[文档{i}]\n{content}\n")
+                formatted_parts.append(f"[{doc_name}]\n{content}\n")
 
         # 确保总长度不超过限制
         context = "\n".join(formatted_parts)

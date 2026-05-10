@@ -188,16 +188,35 @@ async def get_session_messages(
         raise HTTPException(status_code=500, detail=f"获取消息失败: {str(e)}")
 
 
-# app/api/routes/chat.py
+# app/api/routes/chat.py - 修改搜索部分
+
+def _get_user_level_from_token(authorization: str) -> Optional[str]:
+    """从 token 获取用户等级"""
+    if not authorization:
+        return None
+
+    token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+    user_id = get_user_id_from_token(token)
+
+    if user_id:
+        db = get_db_manager()
+        user = db.get_user_by_id(user_id)
+        if user:
+            return user.role.value
+    return None
+
+
 @router.post("/chat/ask")
 async def ask_question(
         request: ChatRequest,
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
-    """
-    问答接口 - 完整流程，支持会话记忆
-    """
-    # 验证会话权限（如果提供了 session_id）
+    """问答接口 - 完整流程，支持会话记忆和用户等级"""
+
+    # 获取用户等级
+    user_level = _get_user_level_from_token(authorization)
+
+    # 验证会话权限
     if request.session_id and authorization:
         token = authorization[7:] if authorization.startswith("Bearer ") else authorization
         token_user_id = get_user_id_from_token(token)
@@ -205,14 +224,13 @@ async def ask_question(
             db = get_db_manager()
             if not db.verify_session_access(token_user_id, request.session_id):
                 raise HTTPException(status_code=403, detail="无权访问此会话")
-    # 使用配置或请求中的值
+
     top_k = request.top_k or settings.rerank_top_k
     recall_k = request.recall_k or settings.similarity_top_k
     similarity_threshold = request.similarity_threshold or settings.similarity_threshold
     enable_rerank = request.enable_rerank if request.enable_rerank is not None else settings.enable_rerank
     enable_query_rewrite = request.enable_query_rewrite if request.enable_query_rewrite is not None else settings.enable_query_rewrite
 
-    # 确保 recall_k >= top_k
     if recall_k < top_k:
         recall_k = top_k
 
@@ -232,7 +250,8 @@ async def ask_question(
             vector_weight=settings.vector_weight,
             rerank_type=settings.rerank_type,
             index_name=settings.index_name,
-            enable_memory=request.enable_memory
+            enable_memory=request.enable_memory,
+            user_level=user_level  # 传递用户等级
         )
         return result
 
@@ -241,12 +260,22 @@ async def ask_question(
 
 
 @router.post("/chat/ask/stream")
-async def ask_question_stream(request: ChatRequest):
+async def ask_question_stream(request: ChatRequest,authorization: Optional[str] = Header(None)):
     """
     流式问答接口 - 支持会话记忆
 
     实时流式返回答案，适合聊天界面使用
     """
+    user_level = None
+    if authorization:
+        token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+        user_id = get_user_id_from_token(token)
+        if user_id:
+            db = get_db_manager()
+            user = db.get_user_by_id(user_id)
+            if user:
+                user_level = user.role.value
+
     top_k = request.top_k or settings.rerank_top_k
     recall_k = request.recall_k or settings.similarity_top_k
     similarity_threshold = request.similarity_threshold or settings.similarity_threshold
@@ -282,7 +311,8 @@ async def ask_question_stream(request: ChatRequest):
                     enable_query_rewrite=enable_query_rewrite,
                     similarity_threshold=similarity_threshold,
                     rerank_type=settings.rerank_type,
-                    verbose=False
+                    verbose=False,
+                    user_level=user_level
                 )
             )
 

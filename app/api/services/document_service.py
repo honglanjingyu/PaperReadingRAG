@@ -7,6 +7,7 @@ import logging
 from app.api.config import processing_status
 from app.service.core.rag import process_document, get_processing_stats
 from app.service.core.embedding import VectorChunk
+from app.service.core.cache import get_document_cache
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +23,14 @@ class DocumentService:
             enable_vectorization: bool,
             enable_storage: bool,
             from_page: int,
-            to_page: int
+            to_page: int,
+            user_level: str = "normal"
     ) -> List[VectorChunk]:
-        """后台处理文档任务"""
+        """后台处理文档任务（处理完成后更新缓存）"""
         try:
             processing_status[process_id]["message"] = "正在解析文档..."
             processing_status[process_id]["progress"] = 20
 
-            # 处理文档
             result = process_document(
                 file_path=file_path,
                 chunk_size=chunk_size,
@@ -37,8 +38,15 @@ class DocumentService:
                 enable_storage=enable_storage,
                 from_page=from_page,
                 to_page=to_page,
-                verbose=False
+                verbose=False,
+                user_level=user_level
             )
+
+            # 处理完成后，更新文档等级缓存
+            filename = processing_status[process_id]["filename"]
+            doc_cache = get_document_cache()
+            doc_cache.set_document_level(filename, user_level)
+            logger.info(f"文档 {filename} 等级已缓存: {user_level}")
 
             processing_status[process_id]["progress"] = 100
             processing_status[process_id]["status"] = "completed"
@@ -48,7 +56,6 @@ class DocumentService:
                 "vectorized_count": len([c for c in result if hasattr(c, 'vector') and c.vector]) if result else 0
             }
 
-            # 文档处理完成后，使相关缓存失效
             index_name = processing_status[process_id].get("index_name", "rag_documents")
             self.invalidate_cache_for_document(processing_status[process_id]["filename"], index_name)
 

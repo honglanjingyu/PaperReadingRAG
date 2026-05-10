@@ -41,7 +41,7 @@ from .loader import DataLoader
 from .layout_recognizer import LayoutRecognizer
 from .cross_page_connector import CrossPageConnector
 from .document_parser import DocumentParser
-
+from .parser.remote_pdf_parser import RemotePDFParser, parse_pdf_remote, is_remote_parse_enabled, save_chunked_report
 
 # 便捷函数
 def parse_document(file_path: str, enable_cleaning: bool = True, verbose: bool = False, **kwargs) -> ParsedDocument:
@@ -101,4 +101,9 @@ __all__ = [
     'parse_document',
     'parse_document_to_text',
     'clean_text',
+
+    'RemotePDFParser',
+    'parse_pdf_remote',
+    'is_remote_parse_enabled',
+    'save_chunked_report',
 ]

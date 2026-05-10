@@ -93,6 +93,7 @@ class MilvusVectorStore:
 
         # 定义字段
         fields = [
+            FieldSchema(name="user_level", dtype=DataType.VARCHAR, max_length=20),
             FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=200, is_primary=True),
             FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
             FieldSchema(name="content_with_weight", dtype=DataType.VARCHAR, max_length=65535),
@@ -121,24 +122,30 @@ class MilvusVectorStore:
         logger.info(f"集合创建成功: {index_name} (维度:{vector_dim})")
         return True
 
-    def insert(self, documents: List[Dict[str, Any]], index_name: str) -> int:
-        """批量插入文档"""
+    # app/service/core/vector_store/milvus_vector_store.py
+    # 修改 insert 方法
+
+    def insert(self, documents: List[Dict[str, Any]], index_name: str, user_level: str = "normal") -> int:
+        """批量插入文档（添加用户等级）"""
         self._ensure_connected()
 
         if not documents:
             return 0
 
+        # 为每个文档添加 user_level
+        for doc in documents:
+            if "user_level" not in doc:
+                doc["user_level"] = user_level
+
         # 确保集合存在
         vector_dim = None
         for doc in documents:
-            # 查找向量字段
             if "vector" in doc and isinstance(doc["vector"], list):
                 vector_dim = len(doc["vector"])
                 break
             for key in doc:
                 if key.endswith("_vec") and isinstance(doc[key], list):
                     vector_dim = len(doc[key])
-                    # 统一使用 vector 字段
                     doc["vector"] = doc.pop(key)
                     break
 
@@ -150,7 +157,8 @@ class MilvusVectorStore:
 
         import xxhash
 
-        # 准备插入数据 - 每个字段对应一个列表
+        # 准备插入数据
+        user_levels = []  # 新增
         ids = []
         contents = []
         contents_weight = []
@@ -164,26 +172,24 @@ class MilvusVectorStore:
         vectors = []
 
         for doc in documents:
-            # 获取或生成 ID（必须是字符串）
             doc_id = doc.get("id", "")
             if not doc_id:
                 content = doc.get("content", "") or doc.get("content_with_weight", "")
                 doc_id = xxhash.xxh64(content.encode("utf-8")).hexdigest()
 
-            # 确保 ID 是字符串且不超过长度
             doc_id = str(doc_id)[:200]
 
-            # 获取向量
             vector = doc.get("vector", [])
             if not vector:
-                # 如果没有向量，跳过这个文档
                 logger.warning(f"文档 {doc_id} 没有向量数据，跳过")
                 continue
 
-            # 确保向量是浮点数列表
             vector = [float(v) for v in vector]
 
-            # 添加到各个列表
+            # 获取 user_level
+            level = doc.get("user_level", user_level)
+            user_levels.append(self._truncate_string(level, 20))
+
             ids.append(doc_id)
             contents.append(self._truncate_string(doc.get("content", ""), 65535))
             contents_weight.append(self._truncate_string(doc.get("content_with_weight", ""), 65535))
@@ -196,7 +202,6 @@ class MilvusVectorStore:
             timestamps.append(float(doc.get("create_timestamp_flt", 0.0)))
             vectors.append(vector)
 
-        # 如果没有有效的向量数据，返回 0
         if not ids:
             logger.warning("没有有效的向量数据")
             return 0
@@ -204,8 +209,10 @@ class MilvusVectorStore:
         try:
             collection = Collection(index_name)
 
-            # 使用列表格式插入（每个字段是一个列表）
+            # ⚠️ 关键：插入顺序必须与 fields 定义顺序一致
+            # fields 顺序: user_level, id, content, content_with_weight, docnm, docnm_kwd, doc_id, kb_id, token_count, chunk_index, create_timestamp_flt, vector
             collection.insert([
+                user_levels,  # user_level
                 ids,  # id
                 contents,  # content
                 contents_weight,  # content_with_weight
@@ -225,12 +232,6 @@ class MilvusVectorStore:
             return inserted
         except Exception as e:
             logger.error(f"Milvus 插入失败: {e}")
-            # 打印调试信息
-            logger.error(f"数据大小: ids={len(ids)}, vectors={len(vectors)}")
-            if ids:
-                logger.error(f"ID 示例: {ids[0]}, 类型: {type(ids[0])}")
-            if vectors:
-                logger.error(f"Vector 示例长度: {len(vectors[0])}")
             return 0
 
     def _truncate_string(self, s: str, max_length: int) -> str:
@@ -289,8 +290,9 @@ class MilvusVectorStore:
             return False
 
     def search(self, query_vector: List[float], index_name: str, top_k: int = 5,
-               filter_condition: Optional[Dict] = None, similarity_threshold: float = 0.5) -> List[Dict]:
-        """向量相似度搜索"""
+               filter_condition: Optional[Dict] = None, similarity_threshold: float = 0.5,
+               user_level: str = None) -> List[Dict]:
+        """向量相似度搜索（支持用户等级过滤）"""
         self._ensure_connected()
 
         try:
@@ -304,22 +306,35 @@ class MilvusVectorStore:
             # 确保查询向量是浮点数列表
             query_vector = [float(v) for v in query_vector]
 
-            # 关键修复1：检查向量维度是否匹配
-            vector_dim = len(query_vector)
-            logger.info(f"搜索: 查询向量维度={vector_dim}, top_k={top_k}, 阈值={similarity_threshold}")
+            # 构建过滤表达式
+            expr_parts = []
 
-            # 关键修复2：不是归一化，而是使用正确的搜索参数
-            # Milvus 的 COSINE 相似度：返回的是 (1 - cosine_distance) 范围 0-2
-            # 不需要预先归一化，Milvus 内部会处理
+            # 添加用户等级过滤
+            if user_level:
+                level_priority = {"normal": 1, "admin": 2, "owner": 3}
+                current_priority = level_priority.get(user_level, 1)
 
-            # 构建搜索参数 - 使用更宽松的参数
+                # 允许访问等级 <= 当前用户等级的文档
+                allowed_levels = [level for level, priority in level_priority.items() if priority <= current_priority]
+                levels_str = ", ".join([f"'{level}'" for level in allowed_levels])
+                expr_parts.append(f"user_level in [{levels_str}]")
+
+            # 添加其他过滤条件
+            if filter_condition:
+                for field, value in filter_condition.items():
+                    if isinstance(value, list):
+                        values_str = ", ".join([f"'{v}'" for v in value])
+                        expr_parts.append(f"{field} in [{values_str}]")
+                    else:
+                        expr_parts.append(f"{field} == '{value}'")
+
+            expr = " and ".join(expr_parts) if expr_parts else None
+
+            # 搜索参数
             search_params = {
                 "metric_type": "COSINE",
-                "params": {"nprobe": 20}  # 增加 nprobe 值提高召回率
+                "params": {"nprobe": 20}
             }
-
-            # 构建过滤表达式
-            expr = self._build_filter_expr(filter_condition) if filter_condition else None
 
             # 执行搜索
             results = collection.search(
@@ -331,27 +346,20 @@ class MilvusVectorStore:
                 output_fields=[
                     "id", "content", "content_with_weight", "docnm",
                     "docnm_kwd", "doc_id", "kb_id", "token_count",
-                    "chunk_index", "create_timestamp_flt"
+                    "chunk_index", "create_timestamp_flt", "user_level"
                 ]
             )
 
-            # 格式化结果 - COSINE 返回的分数范围是 0-2，需要转换
-            # 转换公式: cosine_similarity = 1 - distance (对于 COSINE metric_type)
             formatted_results = []
             for hits in results:
-                logger.info(f"搜索返回 {len(hits)} 个结果")
                 for hit in hits:
-                    # Milvus 返回的 score 是距离，对于 COSINE 是 1 - cosine_similarity
-                    # 所以实际相似度 = 1 - score
                     raw_score = hit.score
-                    similarity = 1.0 - raw_score  # 转换回余弦相似度
-
-                    logger.debug(f"  hit: id={hit.id}, raw_score={raw_score:.4f}, similarity={similarity:.4f}")
+                    similarity = 1.0 - raw_score
 
                     if similarity >= similarity_threshold:
                         doc = {
                             "_id": hit.id,
-                            "_score": similarity,  # 使用转换后的相似度
+                            "_score": similarity,
                             "content": hit.entity.get("content", ""),
                             "content_with_weight": hit.entity.get("content_with_weight", ""),
                             "docnm": hit.entity.get("docnm", ""),
@@ -360,21 +368,18 @@ class MilvusVectorStore:
                             "kb_id": hit.entity.get("kb_id", ""),
                             "token_count": hit.entity.get("token_count", 0),
                             "chunk_index": hit.entity.get("chunk_index", 0),
-                            "create_timestamp_flt": hit.entity.get("create_timestamp_flt", 0)
+                            "create_timestamp_flt": hit.entity.get("create_timestamp_flt", 0),
+                            "user_level": hit.entity.get("user_level", "normal")
                         }
                         formatted_results.append(doc)
 
-            logger.info(f"向量搜索完成: 召回 {len(formatted_results)} 个文档")
+            logger.info(f"向量搜索完成: 召回 {len(formatted_results)} 个文档 (user_level_filter={user_level})")
             return formatted_results
 
         except Exception as e:
             logger.error(f"向量搜索失败: {e}")
             import traceback
             traceback.print_exc()
-            return []
-
-        except Exception as e:
-            logger.error(f"向量搜索失败: {e}")
             return []
 
     def _build_filter_expr(self, condition: Dict[str, Any]) -> str:

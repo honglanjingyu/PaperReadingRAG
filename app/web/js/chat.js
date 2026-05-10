@@ -104,15 +104,16 @@ function initEventListeners() {
         elements.newSessionBtn.addEventListener('click', newSession);
     }
 }
+// app/web/js/chat.js - 修改 DOMContentLoaded 部分
 
-// app/web/js/chat.js - 修改页面加载验证部分
-
-// 页面加载时初始化
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOMContentLoaded 事件触发');
 
     // 首先显示用户名
     displayCurrentUser();
+
+    // 添加这行：显示用户等级
+    await displayUserRole();
 
     // 检查登录状态 - 增强版
     const token = localStorage.getItem('rag_token');

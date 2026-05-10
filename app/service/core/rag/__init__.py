@@ -19,6 +19,8 @@ from .generation import (
 
 from app.service.core.embedding import VectorChunk
 
+# 新增：导出保存报告的函数
+from app.service.core.deepdoc.parser.remote_pdf_parser import save_chunked_report, RemotePDFParser
 
 __all__ = [
     # 处理器
@@ -36,4 +38,7 @@ __all__ = [
     'generate_answer_stream',
     # 类型
     'VectorChunk',
+    # 报告
+    'save_chunked_report',
+    'RemotePDFParser',
 ]

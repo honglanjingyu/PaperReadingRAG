@@ -1,15 +1,16 @@
-# app/db/database.py
-"""数据库管理模块"""
+# app/db/database.py - 更新版本
+"""数据库管理模块（支持用户等级）"""
 
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session, sessionmaker
 from datetime import datetime
 import logging
 
-from .models import Base, User, UserSession, get_engine
+from .models import Base, User, UserSession, UserRole, determine_user_role, get_engine
 from .config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
+
 
 class DatabaseManager:
     """数据库管理器 - 单例模式"""
@@ -50,7 +51,7 @@ class DatabaseManager:
     # ========== 用户管理 ==========
 
     def create_user(self, username: str, password: str) -> Optional[User]:
-        """创建新用户"""
+        """创建新用户（自动根据用户名分配等级）"""
         db = self.get_session()
         try:
             existing = db.query(User).filter(User.username == username).first()
@@ -60,12 +61,13 @@ class DatabaseManager:
 
             user = User(username=username)
             user.set_password(password)
+            user.set_role_from_username()  # 根据用户名自动分配等级
 
             db.add(user)
             db.commit()
             db.refresh(user)
 
-            logger.info(f"用户创建成功: {username}, id={user.id}")
+            logger.info(f"用户创建成功: {username}, id={user.id}, role={user.role.value}")
             return user
 
         except Exception as e:
@@ -92,7 +94,7 @@ class DatabaseManager:
                 logger.warning(f"用户已禁用: {username}")
                 return None
 
-            logger.info(f"用户验证成功: {username}")
+            logger.info(f"用户验证成功: {username}, role={user.role.value}")
             return user
 
         except Exception as e:
@@ -116,6 +118,11 @@ class DatabaseManager:
             return db.query(User).filter(User.username == username).first()
         finally:
             db.close()
+
+    def get_user_role(self, user_id: int) -> Optional[str]:
+        """获取用户等级"""
+        user = self.get_user_by_id(user_id)
+        return user.role.value if user else None
 
     # ========== 会话管理 ==========
 

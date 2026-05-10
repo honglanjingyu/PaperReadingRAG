@@ -161,3 +161,31 @@
 .delete-btn:hover {
     background: #f8d7da;
 }
+
+/* app/web/css/upload.css - 添加等级徽章样式 */
+
+.file-level {
+    margin-top: 4px;
+}
+
+.level-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+}
+
+.level-badge.normal {
+    background: #e8f4e8;
+    color: #28a745;
+}
+
+.level-badge.admin {
+    background: #e3f2fd;
+    color: #2196f3;
+}
+
+.level-badge.owner {
+    background: #fff3e0;
+    color: #ff9800;
+}

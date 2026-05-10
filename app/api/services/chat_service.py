@@ -64,18 +64,18 @@ class ChatService:
             vector_weight: float = 0.6,
             rerank_type: str = "remote",
             index_name: str = "rag_documents",
-            enable_memory: bool = True
+            enable_memory: bool = True,
+            user_level: str = None  # 新增参数
     ) -> Dict[str, Any]:
-        """问答处理 - 支持会话记忆"""
+        """问答处理 - 支持会话记忆和用户等级"""
 
-        # 获取或创建会话
         actual_session_id = None
         if enable_memory and self._memory_manager:
             actual_session_id = self._get_or_create_session(session_id)
         else:
             actual_session_id = session_id or "default"
 
-        # 执行增强检索
+        # 执行增强检索（传递用户等级）
         retrieval_result = enhanced_search_with_hybrid_and_rerank(
             question=question,
             index_name=index_name,
@@ -87,7 +87,8 @@ class ChatService:
             enable_query_rewrite=enable_query_rewrite,
             similarity_threshold=similarity_threshold,
             rerank_type=rerank_type,
-            verbose=False
+            verbose=False,
+            user_level=user_level  # 传递用户等级
         )
 
         if not retrieval_result.get("success"):
@@ -168,7 +169,8 @@ class ChatService:
             recall_k: int = 10,
             template_name: str = "detailed",
             index_name: str = "rag_documents",
-            enable_memory: bool = True
+            enable_memory: bool = True,
+            user_level: str = None
     ):
         """流式问答处理 - 支持会话记忆"""
 
@@ -189,7 +191,8 @@ class ChatService:
                 index_name=index_name,
                 recall_k=recall_k,
                 top_k=top_k,
-                verbose=False
+                verbose=False,
+                user_level=user_level
             )
         )
 

@@ -39,11 +39,11 @@ class LoginResponse(BaseModel):
     user_id: Optional[int] = None
     username: Optional[str] = None
 
-
 class VerifyResponse(BaseModel):
     success: bool
     user_id: Optional[int] = None
     username: Optional[str] = None
+    role: Optional[str] = "normal"  # 添加等级字段
 
 
 class SessionVerifyRequest(BaseModel):
@@ -105,9 +105,11 @@ async def login(request: LoginRequest):
     )
 
 
+# app/api/auth_routes.py - 修改 verify 接口
+
 @router.post("/verify", response_model=VerifyResponse)
 async def verify_token(authorization: str = Header(None)):
-    """验证 Token 是否有效"""
+    """验证 Token 是否有效，返回用户等级"""
     if not authorization:
         return VerifyResponse(success=False)
 
@@ -121,12 +123,19 @@ async def verify_token(authorization: str = Header(None)):
     if not payload:
         return VerifyResponse(success=False)
 
+    user_id = payload.get("user_id")
+    username = payload.get("username")
+
+    # 获取用户等级
+    db = get_db_manager()
+    user = db.get_user_by_id(user_id) if user_id else None
+
     return VerifyResponse(
         success=True,
-        user_id=payload.get("user_id"),
-        username=payload.get("username")
+        user_id=user_id,
+        username=username,
+        role=user.role.value if user else "normal"  # 添加 role 字段
     )
-
 
 @router.post("/session/verify", response_model=SessionVerifyResponse)
 async def verify_session_access(

@@ -62,6 +62,7 @@ datrie==0.8.2
 hanziconv==0.3.2
 six==1.16.0
 xxhash==3.4.0
+reportlab==3.6
 
 # 搜索
 elasticsearch==8.12.0
