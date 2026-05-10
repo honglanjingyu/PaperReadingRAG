@@ -1,24 +1,16 @@
 # app/service/core/deepdoc/__init__.py
 """
-DeepDoc 文档处理模块
-包含文档解析器、文档清洗器、布局识别、跨页连接等
+DeepDoc 文档处理模块 - 使用 MinerU 远程 API 解析所有文档
 """
 
 from typing import Optional, Dict
 
-from .parser import (
-    PlainParser,
-    RAGFlowDocxParser,
-    RAGFlowTxtParser,
-    RAGFlowExcelParser,
-    RAGFlowPdfParser,
-    RAGFlowHtmlParser,
-    RAGFlowJsonParser,
-    RAGFlowMarkdownParser,
-    RAGFlowPptParser,
+from .parser.remote_pdf_parser import (
     RemotePDFParser,
+    parse_document_remote,
     parse_pdf_remote,
     is_remote_parse_enabled,
+    save_chunked_report,
 )
 
 from .cleaner import (
@@ -41,9 +33,8 @@ from .loader import DataLoader
 from .layout_recognizer import LayoutRecognizer
 from .cross_page_connector import CrossPageConnector
 from .document_parser import DocumentParser
-from .parser.remote_pdf_parser import RemotePDFParser, parse_pdf_remote, is_remote_parse_enabled, save_chunked_report
 
-# 便捷函数
+
 def parse_document(file_path: str, enable_cleaning: bool = True, verbose: bool = False, **kwargs) -> ParsedDocument:
     """快速解析文档"""
     parser = DocumentParser()
@@ -70,19 +61,12 @@ __all__ = [
     'PageContent',
     'ParsedDocument',
 
-    # 解析器
-    'PlainParser',
-    'RAGFlowDocxParser',
-    'RAGFlowTxtParser',
-    'RAGFlowExcelParser',
-    'RAGFlowPdfParser',
-    'RAGFlowHtmlParser',
-    'RAGFlowJsonParser',
-    'RAGFlowMarkdownParser',
-    'RAGFlowPptParser',
+    # 远程解析器
     'RemotePDFParser',
+    'parse_document_remote',
     'parse_pdf_remote',
     'is_remote_parse_enabled',
+    'save_chunked_report',
 
     # 清洗器
     'DataCleaner',
@@ -101,9 +85,4 @@ __all__ = [
     'parse_document',
     'parse_document_to_text',
     'clean_text',
-
-    'RemotePDFParser',
-    'parse_pdf_remote',
-    'is_remote_parse_enabled',
-    'save_chunked_report',
 ]

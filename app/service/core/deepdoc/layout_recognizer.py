@@ -1,7 +1,5 @@
 # app/service/core/deepdoc/layout_recognizer.py
-"""
-布局识别模块 - 识别文档布局（分栏、表格位置等）
-"""
+"""布局识别模块 - 简化版，只处理远程解析结果"""
 
 from typing import List, Dict, Any, Tuple
 from collections import Counter
@@ -10,7 +8,7 @@ from .models import PageContent, LayoutType, TextBlock, TableBlock
 
 
 class LayoutRecognizer:
-    """布局识别器 - 识别文档布局"""
+    """布局识别器 - 简化版"""
 
     def __init__(self):
         pass
@@ -18,31 +16,25 @@ class LayoutRecognizer:
     def recognize(self, raw_data: Dict[str, Any]) -> List[PageContent]:
         """识别文档布局"""
         file_type = raw_data.get('file_type')
+        is_remote = raw_data.get('parse_method') == 'remote'
 
-        if file_type == 'pdf':
-            return self._recognize_pdf_layout(raw_data)
+        if file_type == 'pdf' and is_remote:
+            return self._recognize_remote_layout(raw_data)
         else:
             return self._recognize_simple_layout(raw_data)
 
-    # app/service/core/deepdoc/layout_recognizer.py
-
-    def _recognize_pdf_layout(self, raw_data: Dict[str, Any]) -> List[PageContent]:
-        """识别 PDF 布局"""
+    def _recognize_remote_layout(self, raw_data: Dict[str, Any]) -> List[PageContent]:
+        """识别远程解析的 PDF 布局"""
         pages_content = []
         pages_raw = raw_data.get('pages_raw', [])
 
-        # 检查是否使用远程解析
-        is_remote = raw_data.get('parse_method') == 'remote'
-
         for page_raw in pages_raw:
-            page_num = page_raw['page_num']
-            chars = page_raw.get('chars', [])
-            width = page_raw.get('width', 0)
+            page_num = page_raw.get('page_num', 1)
             tables_raw = page_raw.get('tables', [])
 
-            # 【关键修复】远程解析：直接使用预先生成的 text_blocks
-            if is_remote and page_raw.get('text_blocks'):
-                text_blocks = []
+            # 使用远程解析返回的 text_blocks
+            text_blocks = []
+            if page_raw.get('text_blocks'):
                 for block in page_raw['text_blocks']:
                     text_blocks.append(TextBlock(
                         page_num=page_num,
@@ -54,133 +46,18 @@ class LayoutRecognizer:
                         y1=block.get('y1', 0)
                     ))
 
-                # 提取表格
-                tables = self._extract_table_blocks(tables_raw, page_num)
+            # 提取表格
+            tables = self._extract_table_blocks(tables_raw, page_num)
 
-                pages_content.append(PageContent(
-                    page_num=page_num,
-                    text_blocks=text_blocks,
-                    tables=tables,
-                    layout_type=LayoutType.SINGLE_COLUMN,
-                    columns=1
-                ))
-                continue
-
-            # 原有逻辑：有 chars 数据时进行布局识别
-            if chars:
-                columns = self._detect_columns(chars, width)
-                text_blocks = self._extract_text_blocks(chars, page_num, columns)
-                tables = self._extract_table_blocks(tables_raw, page_num)
-                layout_type = self._detect_layout_type(tables_raw, len(chars) > 0)
-
-                pages_content.append(PageContent(
-                    page_num=page_num,
-                    text_blocks=text_blocks,
-                    tables=tables,
-                    layout_type=layout_type,
-                    columns=len(columns) if columns else 1
-                ))
-            else:
-                # 没有 chars 时，从 text 字段构建
-                text = page_raw.get('text', '')
-                if text:
-                    lines = text.split('\n')
-                    text_blocks = []
-                    for i, line in enumerate(lines):
-                        if line.strip():
-                            text_blocks.append(TextBlock(
-                                page_num=page_num,
-                                content=line,
-                                column=0,
-                                y0=i * 100
-                            ))
-
-                    tables = self._extract_table_blocks(tables_raw, page_num)
-
-                    pages_content.append(PageContent(
-                        page_num=page_num,
-                        text_blocks=text_blocks,
-                        tables=tables,
-                        layout_type=LayoutType.SINGLE_COLUMN,
-                        columns=1
-                    ))
+            pages_content.append(PageContent(
+                page_num=page_num,
+                text_blocks=text_blocks,
+                tables=tables,
+                layout_type=LayoutType.SINGLE_COLUMN,
+                columns=1
+            ))
 
         return pages_content
-
-    def _detect_columns(self, chars: List[Dict], page_width: float) -> List[Tuple[float, float]]:
-        """检测分栏"""
-        if not chars or page_width == 0:
-            return [(0, page_width)]
-
-        x_positions = [c.get('x0', 0) for c in chars]
-        rounded = [round(x / 50) * 50 for x in x_positions]
-
-        counter = Counter(rounded)
-
-        clusters = []
-        for x in sorted(counter.keys()):
-            if not clusters or x - clusters[-1][1] > 100:
-                clusters.append([x, x])
-            else:
-                clusters[-1][1] = x
-
-        if len(clusters) <= 1:
-            return [(0, page_width)]
-
-        columns = []
-        for cluster in clusters:
-            left = max(0, cluster[0] - 30)
-            right = min(page_width, cluster[1] + 30)
-            columns.append((left, right))
-
-        return columns
-
-    def _detect_layout_type(self, tables: List, has_text: bool) -> LayoutType:
-        """检测布局类型"""
-        has_tables = len(tables) > 0
-
-        if has_tables:
-            return LayoutType.TEXT_WITH_TABLES
-        else:
-            return LayoutType.SINGLE_COLUMN
-
-    def _extract_text_blocks(self, chars: List[Dict], page_num: int, columns: List) -> List[TextBlock]:
-        """提取文本块"""
-        if not chars:
-            return []
-
-        lines = {}
-        for char in chars:
-            y = round(char.get('y0', 0) / 5) * 5
-            if y not in lines:
-                lines[y] = []
-            lines[y].append(char)
-
-        text_blocks = []
-        for y, chars_in_line in sorted(lines.items()):
-            chars_in_line.sort(key=lambda c: c.get('x0', 0))
-
-            x0 = chars_in_line[0].get('x0', 0) if chars_in_line else 0
-            column = 0
-            for i, (left, right) in enumerate(columns):
-                if left <= x0 <= right:
-                    column = i
-                    break
-
-            text = ''.join([c.get('text', '') for c in chars_in_line])
-
-            if text.strip():
-                text_blocks.append(TextBlock(
-                    page_num=page_num,
-                    content=text,
-                    x0=chars_in_line[0].get('x0', 0),
-                    y0=y,
-                    x1=chars_in_line[-1].get('x1', 0),
-                    y1=y + 10,
-                    column=column
-                ))
-
-        return text_blocks
 
     def _extract_table_blocks(self, tables_raw: List, page_num: int) -> List[TableBlock]:
         """提取表格块"""
@@ -194,7 +71,7 @@ class LayoutRecognizer:
         return tables
 
     def _recognize_simple_layout(self, raw_data: Dict[str, Any]) -> List[PageContent]:
-        """识别简单布局（非PDF）"""
+        """识别简单布局（非PDF或非远程解析）"""
         text = raw_data.get('text', '')
         tables_raw = raw_data.get('tables', [])
 

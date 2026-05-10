@@ -14,9 +14,8 @@ from app.api.routes import health, upload, chat
 from app.api.config import settings
 from app.api.auth_routes import router as auth_router
 
-# 不在这里初始化日志，让 uvicorn 处理
-# 只设置基本的 logging 配置避免警告
-logging.basicConfig(level=logging.WARNING, force=True)
+# 获取日志器（不在这里初始化，让 run_api.py 处理）
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -41,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix="/api", tags=["智能问答"])
     app.include_router(auth_router)  # 添加认证路由
 
+    logger.info("FastAPI 应用创建完成")
     return app
 
 

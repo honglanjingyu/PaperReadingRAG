@@ -2,9 +2,13 @@
 ## mineru 的 vlm
 
 # 分块
-
+固定 token 数
+语义分块
+递归分块
+句子级分块
+段落级分块
 # 向量化
-
+不同embedding模型对比
 # 向量化存储
 es->milvus 效果提升:
 

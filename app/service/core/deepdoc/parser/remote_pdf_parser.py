@@ -1,43 +1,58 @@
 # app/service/core/deepdoc/parser/remote_pdf_parser.py
 """
-远程PDF解析器 - 使用MinerU云端API解析PDF
-将 MinerU 返回的 Markdown 正确解析为段落和表格
+远程文档解析器 - 使用 MinerU 云端 API 解析各种文档格式
+支持: PDF, DOCX, TXT, Excel, PPT, HTML, Markdown 等
 """
 
 import os
 import re
 import time
 from io import BytesIO
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any, Union
 import tempfile
 import logging
 from datetime import datetime
 from pathlib import Path
 import requests
 import zipfile
-from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
 
 class RemotePDFParser:
-    """远程PDF解析器 - 使用MinerU API解析PDF"""
+    """远程文档解析器 - 使用 MinerU API 解析各种文档"""
+
+    # 支持的文件类型
+    SUPPORTED_EXTENSIONS = {
+        '.pdf': 'pdf',
+        '.docx': 'docx',
+        '.txt': 'txt',
+        '.md': 'md',
+        '.markdown': 'md',
+        '.xlsx': 'xlsx',
+        '.xls': 'xls',
+        '.ppt': 'ppt',
+        '.pptx': 'ppt',
+        '.html': 'html',
+        '.htm': 'html',
+    }
 
     def __init__(self, api_token: str = None):
-        """初始化远程PDF解析器"""
+        """初始化远程文档解析器"""
         self.api_token = api_token or os.getenv("PARSE_API_TOKEN")
         self.model_version = os.getenv("MINERU_MODEL_VERSION", "vlm")
         self.enable_table = os.getenv("MINERU_ENABLE_TABLE", "true").lower() == "true"
         self.enable_formula = os.getenv("MINERU_ENABLE_FORMULA", "true").lower() == "true"
         self.is_ocr = os.getenv("MINERU_IS_OCR", "false").lower() == "true"
         self.language = os.getenv("MINERU_LANGUAGE", "ch")
+
         self._client = None
         self._init_client()
 
         # 设置解析报告输出目录
         self._report_dir = self._get_report_dir()
 
-        # 存储最后一次解析的结果（用于生成报告）
+        # 存储最后一次解析的结果
         self._last_parse_result = {
             "file_name": None,
             "markdown_content": None,
@@ -46,212 +61,22 @@ class RemotePDFParser:
         }
 
     def _get_report_dir(self) -> Path:
-        """获取解析报告输出目录（run_api.py 同级的 docparselist 目录）"""
-        # 获取项目根目录
+        """获取解析报告输出目录"""
         current_file = Path(__file__).resolve()
-        # app/service/core/deepdoc/parser/ -> 项目根目录
         project_root = current_file.parent.parent.parent.parent.parent.parent
         report_dir = project_root / "docparselist"
         report_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"解析报告目录: {report_dir}")
         return report_dir
 
-    def save_parse_report(
-            self,
-            file_name: str,
-            markdown_content: str,
-            sections: List[Tuple[str, str]],
-            tables: List[List[List[str]]],
-            chunks: List = None
-    ) -> Optional[str]:
-        """
-        保存解析报告到文件
-
-        Args:
-            file_name: 原始文件名
-            markdown_content: MinerU 返回的 Markdown 内容
-            sections: 解析出的段落列表
-            tables: 解析出的表格列表
-            chunks: 分块后的结果（可选）
-
-        Returns:
-            保存的文件路径，失败返回 None
-        """
-        if not file_name:
-            return None
-
-        # 生成报告文件名: 日期+解析文件名.md
-        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = Path(file_name).stem
-        # 清理文件名中的非法字符
-        safe_base_name = re.sub(r'[<>:"/\\|?*]', '_', base_name)
-        report_name = f"{date_str}_{safe_base_name}.md"
-        report_path = self._report_dir / report_name
-
-        # 构建报告内容
-        report_lines = []
-
-        # 标题
-        report_lines.append(f"# PDF解析报告")
-        report_lines.append(f"")
-        report_lines.append(f"**原始文件**: `{file_name}`")
-        report_lines.append(f"**解析时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report_lines.append(f"**解析引擎**: MinerU API")
-        report_lines.append(f"")
-        report_lines.append(f"---")
-        report_lines.append(f"")
-
-        # 统计信息
-        report_lines.append(f"## 📊 解析统计")
-        report_lines.append(f"")
-        report_lines.append(f"| 项目 | 数量 |")
-        report_lines.append(f"|------|------|")
-        report_lines.append(f"| 文字块数量 | {len(sections)} |")
-        report_lines.append(f"| 表格数量 | {len(tables)} |")
-        if chunks:
-            report_lines.append(f"| 分块数量 | {len(chunks)} |")
-        report_lines.append(f"| Markdown 长度 | {len(markdown_content)} 字符 |")
-        report_lines.append(f"")
-        report_lines.append(f"---")
-        report_lines.append(f"")
-
-        # 文字块详情
-        report_lines.append(f"## 📝 文字块详情 ({len(sections)} 个)")
-        report_lines.append(f"")
-        for idx, (text, style) in enumerate(sections, 1):
-            report_lines.append(f"### 块 {idx} (样式: {style})")
-            report_lines.append(f"")
-            report_lines.append(f"```")
-            # 限制长度，避免报告过大
-            display_text = text[:1000] + "\n... (内容过长，已截断)" if len(text) > 1000 else text
-            report_lines.append(display_text)
-            report_lines.append(f"```")
-            report_lines.append(f"")
-
-        # 表格详情
-        if tables:
-            report_lines.append(f"## 📋 表格详情 ({len(tables)} 个)")
-            report_lines.append(f"")
-            for idx, table in enumerate(tables, 1):
-                report_lines.append(f"### 表格 {idx}")
-                report_lines.append(f"")
-                if table and len(table) > 0:
-                    # 转换为 Markdown 表格格式
-                    if len(table) > 0:
-                        # 表头
-                        header = [str(cell) if cell else "" for cell in table[0]]
-                        report_lines.append("| " + " | ".join(header) + " |")
-                        report_lines.append("| " + " | ".join(["---"] * len(header)) + " |")
-                        # 数据行（最多显示 20 行）
-                        for row in table[1:21]:
-                            row_cells = [str(cell) if cell else "" for cell in row]
-                            report_lines.append("| " + " | ".join(row_cells) + " |")
-                        if len(table) > 21:
-                            report_lines.append(f"| ... | (还有 {len(table) - 21} 行) |")
-                    report_lines.append(f"")
-                report_lines.append(f"")
-
-        # 分块结果
-        if chunks:
-            report_lines.append(f"## 🔗 分块结果 ({len(chunks)} 个)")
-            report_lines.append(f"")
-            for idx, chunk in enumerate(chunks, 1):
-                report_lines.append(f"### 分块 {idx}")
-                report_lines.append(f"")
-                # 显示 chunk 内容
-                if hasattr(chunk, 'content'):
-                    content = chunk.content
-                elif isinstance(chunk, dict):
-                    content = chunk.get('content', chunk.get('content_with_weight', str(chunk)))
-                else:
-                    content = str(chunk)
-
-                display_content = content[:500] + "\n... (内容过长，已截断)" if len(content) > 500 else content
-                report_lines.append(f"```")
-                report_lines.append(display_content)
-                report_lines.append(f"```")
-                report_lines.append(f"")
-
-                # 显示 token 数量（如果有）
-                if hasattr(chunk, 'token_count') and chunk.token_count:
-                    report_lines.append(f"*Token 数量: {chunk.token_count}*")
-                    report_lines.append(f"")
-
-        # 原始 Markdown 内容（可选，放在最后）
-        report_lines.append(f"---")
-        report_lines.append(f"")
-        report_lines.append(f"## 📄 原始 Markdown 内容")
-        report_lines.append(f"")
-        report_lines.append(f"<details>")
-        report_lines.append(f"<summary>点击展开</summary>")
-        report_lines.append(f"")
-        report_lines.append(f"```markdown")
-        # 限制原始内容大小
-        if len(markdown_content) > 50000:
-            report_lines.append(markdown_content[:50000])
-            report_lines.append(f"\n... (内容过长，已截断，共 {len(markdown_content)} 字符)")
-        else:
-            report_lines.append(markdown_content)
-        report_lines.append(f"```")
-        report_lines.append(f"")
-        report_lines.append(f"</details>")
-
-        # 写入文件
-        try:
-            with open(report_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(report_lines))
-            logger.info(f"解析报告已保存: {report_path}")
-            return str(report_path)
-        except Exception as e:
-            logger.error(f"保存解析报告失败: {e}")
-            return None
-
-    def save_chunked_report(
-            self,
-            file_name: str,
-            chunks: List,
-            sections: List[Tuple[str, str]] = None,
-            tables: List[List[List[str]]] = None,
-            markdown_content: str = None
-    ) -> Optional[str]:
-        """
-        保存带分块结果的解析报告
-
-        Args:
-            file_name: 原始文件名
-            chunks: 分块结果
-            sections: 段落列表（可选）
-            tables: 表格列表（可选）
-            markdown_content: 原始 Markdown 内容（可选）
-
-        Returns:
-            保存的文件路径
-        """
-        # 使用存储的最后解析结果作为补充
-        if sections is None:
-            sections = self._last_parse_result.get("sections", [])
-        if tables is None:
-            tables = self._last_parse_result.get("tables", [])
-        if markdown_content is None:
-            markdown_content = self._last_parse_result.get("markdown_content", "")
-
-        return self.save_parse_report(
-            file_name=file_name,
-            markdown_content=markdown_content or "",
-            sections=sections or [],
-            tables=tables or [],
-            chunks=chunks
-        )
-
     def _init_client(self):
-        """初始化MinerU客户端（不再使用 mineru 库）"""
+        """初始化客户端"""
         if not self.api_token:
-            logger.warning("PARSE_API_TOKEN未配置，远程PDF解析不可用")
+            logger.warning("PARSE_API_TOKEN未配置，远程文档解析不可用")
             return
 
-        # 不再初始化 mineru 客户端，改为使用 requests
         self.base_url = "https://mineru.net"
-        logger.info("远程PDF解析器初始化成功（使用 REST API）")
+        logger.info("远程文档解析器初始化成功（使用 REST API）")
 
     def is_available(self) -> bool:
         """检查远程解析器是否可用"""
@@ -375,11 +200,9 @@ class RemotePDFParser:
 
             markdown_content = None
             with zipfile.ZipFile(zip_data, 'r') as zip_ref:
-                # 打印ZIP中的所有文件，用于调试
                 logger.info(f"ZIP文件列表: {zip_ref.namelist()}")
 
                 for file_name in zip_ref.namelist():
-                    # 匹配 full.md 或任何 .md 文件
                     if file_name.endswith('full.md') or file_name.endswith('.md'):
                         with zip_ref.open(file_name) as md_file:
                             content = md_file.read().decode('utf-8')
@@ -393,32 +216,42 @@ class RemotePDFParser:
             logger.error(f"下载解析结果失败: {e}")
             return None
 
-    def parse_pdf(
+    def parse_document(
             self,
-            file_path_or_binary,
+            file_path_or_binary: Union[str, bytes, BytesIO],
             from_page: int = 0,
             to_page: int = 100000,
             callback=None
     ) -> Tuple[List[Tuple[str, str]], List[List[List[str]]]]:
         """
-        解析PDF文件（使用 MinerU REST API）
+        解析文档（支持所有格式）
+
+        Args:
+            file_path_or_binary: 文件路径或二进制数据
+            from_page: 起始页（对 PDF 有效）
+            to_page: 结束页（对 PDF 有效）
+            callback: 回调函数
+
+        Returns:
+            (sections, tables): 段落列表和表格列表
         """
         if not self.is_available():
-            logger.error("远程PDF解析器不可用")
+            logger.error("远程文档解析器不可用")
             return [], []
 
         temp_file = None
         original_file_name = None
 
         try:
-            # 处理文件路径
+            # 处理文件路径或二进制数据
             if isinstance(file_path_or_binary, (bytes, BytesIO)):
                 if isinstance(file_path_or_binary, BytesIO):
                     binary_data = file_path_or_binary.getvalue()
                 else:
                     binary_data = file_path_or_binary
 
-                original_file_name = "uploaded_file.pdf"
+                # 尝试检测文件类型
+                original_file_name = "uploaded_document"
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
                 temp_file.write(binary_data)
                 temp_file.close()
@@ -431,14 +264,15 @@ class RemotePDFParser:
                 logger.error(f"文件不存在: {file_path}")
                 return [], []
 
-            logger.info(f"  正在调用 MinerU API...")
-            logger.info(f"  文件大小: {os.path.getsize(file_path) / 1024:.2f} KB")
-            logger.info(f"  配置参数: model_version={self.model_version}, enable_table={self.enable_table}")
+            file_size = os.path.getsize(file_path) / 1024
+            logger.info(f"  正在调用 MinerU API 解析文档...")
+            logger.info(f"  文件名: {original_file_name}")
+            logger.info(f"  文件大小: {file_size:.2f} KB")
 
-            # 步骤1：申请上传URL
+            # 步骤1：上传文件
             batch_id = self._upload_file(file_path)
             if not batch_id:
-                logger.error("申请上传URL失败")
+                logger.error("上传文件失败")
                 return [], []
 
             # 步骤2：等待解析结果
@@ -454,39 +288,35 @@ class RemotePDFParser:
                 return [], []
 
             logger.info(f"  ✓ API 调用成功，返回内容长度: {len(markdown_content)} 字符")
-
-            # 调试日志：打印前500字符
             logger.info(f"  Markdown 预览: {markdown_content[:200]}...")
 
             # 解析 Markdown 为段落和表格
             sections, tables = self.parse_markdown(markdown_content)
+
+            # 将表格转换为文本段落
             table_sections = []
             for i, table in enumerate(tables):
                 if table and len(table) > 0:
-                    # 将表格转换为 Markdown 格式文本
                     table_text = self._table_to_markdown(table)
                     if table_text:
                         table_sections.append((table_text, f"table_{i}"))
 
             all_sections = sections + table_sections
 
-            logger.info(f"  解析完成: {len(sections)}段落, {len(tables)}表格")
-
-            # 调试日志：打印表格数量
-            logger.info(f"  表格详情: {tables}")
+            logger.info(f"  解析完成: {len(sections)} 段落, {len(tables)} 表格")
 
             # 存储解析结果
             self._last_parse_result = {
                 "file_name": original_file_name,
-                "markdown_content": markdown_content,  # 确保这里保存了完整内容
+                "markdown_content": markdown_content,
                 "sections": sections,
                 "tables": tables
             }
 
-            # 保存基础解析报告（确保 markdown_content 不为空）
-            self.save_parse_report(
+            # 保存基础解析报告
+            self._save_parse_report(
                 file_name=original_file_name,
-                markdown_content=markdown_content,  # 确保传递完整内容
+                markdown_content=markdown_content,
                 sections=sections,
                 tables=tables,
                 chunks=None
@@ -495,7 +325,7 @@ class RemotePDFParser:
             return all_sections, tables
 
         except Exception as e:
-            logger.error(f"远程PDF解析失败: {e}")
+            logger.error(f"远程文档解析失败: {e}")
             import traceback
             traceback.print_exc()
             return [], []
@@ -506,6 +336,12 @@ class RemotePDFParser:
                 except:
                     pass
 
+    # 兼容旧方法名
+    def parse_pdf(self, file_path_or_binary, from_page: int = 0, to_page: int = 100000, callback=None) -> Tuple[
+        List[Tuple[str, str]], List[List[List[str]]]]:
+        """解析 PDF（兼容旧方法名）"""
+        return self.parse_document(file_path_or_binary, from_page, to_page, callback)
+
     def _table_to_markdown(self, table: List[List[str]]) -> str:
         """将表格转换为 Markdown 格式的文本"""
         if not table or len(table) == 0:
@@ -513,14 +349,14 @@ class RemotePDFParser:
 
         lines = []
         # 表头
-        header = "| " + " | ".join(str(cell) for cell in table[0]) + " |"
+        header = "| " + " | ".join(str(cell) if cell else "" for cell in table[0]) + " |"
         lines.append(header)
         # 分隔线
         separator = "| " + " | ".join(["---"] * len(table[0])) + " |"
         lines.append(separator)
         # 数据行
         for row in table[1:]:
-            line = "| " + " | ".join(str(cell) for cell in row) + " |"
+            line = "| " + " | ".join(str(cell) if cell else "" for cell in row) + " |"
             lines.append(line)
 
         return "\n".join(lines)
@@ -528,6 +364,12 @@ class RemotePDFParser:
     def parse_markdown(self, markdown_content: str) -> Tuple[List[Tuple[str, str]], List[List[List[str]]]]:
         """
         将 MinerU 返回的 Markdown 解析为段落和表格
+
+        Args:
+            markdown_content: Markdown 内容
+
+        Returns:
+            (sections, tables): 段落列表和表格列表
         """
         if not markdown_content:
             return [], []
@@ -537,7 +379,7 @@ class RemotePDFParser:
 
         logger.info(f"  开始解析 Markdown，共 {total_lines} 行")
 
-        # 第一步：提取所有表格及其占用的行范围
+        # 提取所有表格及其占用的行范围
         tables = []
         table_ranges = []
 
@@ -566,19 +408,17 @@ class RemotePDFParser:
                         logger.info(f"    表格 {len(tables)}: {len(table_data)} 行 x {len(table_data[0])} 列")
                 continue
 
-            # ========== 修复：检测 HTML 表格（不区分大小写，检测整个行内容） ==========
-            elif '<table' in line.lower() or '</table>' in line.lower():
+            # 检测 HTML 表格
+            elif '<table' in line.lower() or '<table>' in line.lower():
                 start = i
                 html_lines = []
                 found_table_end = False
                 table_tag_count = 0
 
-                # 收集从 <table 到 <table> 的所有行
                 while i < total_lines:
                     current_line = lines[i]
                     html_lines.append(current_line)
 
-                    # 统计表格标签
                     if '<table' in current_line.lower() or '<thead' in current_line.lower() or '<tbody' in current_line.lower():
                         table_tag_count += 1
                     if '</table>' in current_line.lower():
@@ -589,11 +429,9 @@ class RemotePDFParser:
                             break
                     i += 1
 
-                    # 防止无限循环，最多收集 100 行
                     if len(html_lines) > 100:
                         break
 
-                # 如果找到了表格结束标签，或者至少收集到了内容
                 if found_table_end or len(html_lines) > 1:
                     html_content = '\n'.join(html_lines)
                     table_data = self._parse_html_table(html_content)
@@ -606,7 +444,7 @@ class RemotePDFParser:
             else:
                 i += 1
 
-        # 第二步：解析段落（跳过表格行）
+        # 解析段落（跳过表格行）
         sections = []
         current_paragraph = []
 
@@ -673,40 +511,23 @@ class RemotePDFParser:
         return sections, tables
 
     def _parse_md_table(self, table_lines: List[str]) -> List[List[str]]:
-        """
-        解析 Markdown 格式的表格
-
-        Args:
-            table_lines: Markdown 表格行，如：
-                "| 列1 | 列2 | 列3 |"
-                "| --- | --- | --- |"
-                "| 值1 | 值2 | 值3 |"
-
-        Returns:
-            二维列表
-        """
+        """解析 Markdown 格式的表格"""
         if not table_lines or len(table_lines) < 2:
             return []
 
         result = []
-
         for line_idx, line in enumerate(table_lines):
-            # 分割单元格
             cells = line.split('|')
-            # 去掉首尾空元素（因为行以 | 开头和结尾）
             cells = cells[1:-1]
-            # 清理每个单元格
             cells = [c.strip() for c in cells]
 
-            # 跳过分隔行（包含 --- 或 :--- 的行）
+            # 跳过分隔行
             if line_idx == 1 and all(self._is_separator(c) for c in cells):
                 continue
 
-            # 过滤掉全空的行
             if not any(c for c in cells):
                 continue
 
-            # 清理单元格内容
             cleaned_row = []
             for cell in cells:
                 cleaned = self._clean_cell(cell)
@@ -728,25 +549,19 @@ class RemotePDFParser:
         """判断是否为表格分隔行单元格"""
         if not cell:
             return False
-        # 移除空白和冒号
         cleaned = cell.replace(' ', '').replace(':', '')
         return all(c == '-' for c in cleaned)
 
     def _parse_html_table(self, html_content: str) -> List[List[str]]:
-        """
-        解析 HTML 格式的表格
-        """
+        """解析 HTML 格式的表格"""
         if not html_content:
             return []
 
         result = []
-
-        # 方法1：使用正则提取所有行（保持原有逻辑）
         tr_pattern = r'<tr[^>]*>(.*?)</tr>'
         rows = re.findall(tr_pattern, html_content, re.DOTALL | re.IGNORECASE)
 
         for row_html in rows:
-            # 提取所有单元格（td 和 th）
             cell_pattern = r'<t[dh][^>]*>(.*?)</t[dh]>'
             cells = re.findall(cell_pattern, row_html, re.DOTALL | re.IGNORECASE)
 
@@ -755,9 +570,7 @@ class RemotePDFParser:
 
             cleaned_row = []
             for cell_html in cells:
-                # 移除内部 HTML 标签
                 text = re.sub(r'<[^>]+>', '', cell_html)
-                # 清理空白
                 text = re.sub(r'\s+', ' ', text)
                 text = text.strip()
                 cleaned = self._clean_cell(text)
@@ -765,24 +578,6 @@ class RemotePDFParser:
 
             if any(c for c in cleaned_row):
                 result.append(cleaned_row)
-
-        # 方法2：如果方法1没有解析出结果，尝试按单元格直接提取
-        if not result:
-            # 提取所有单元格
-            all_cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', html_content, re.DOTALL | re.IGNORECASE)
-            if all_cells:
-                # 尝试确定列数（通过查找第一行）
-                # 简单处理：如果找到的单元格数量 > 0，按每行假设的列数分组
-                # 这里先返回原始单元格列表
-                logger.warning(f"未找到完整的表格行结构，直接返回 {len(all_cells)} 个单元格")
-                # 将所有单元格作为单行返回
-                cleaned_row = []
-                for cell in all_cells:
-                    text = re.sub(r'<[^>]+>', '', cell)
-                    text = re.sub(r'\s+', ' ', text).strip()
-                    cleaned_row.append(self._clean_cell(text))
-                if cleaned_row:
-                    result.append(cleaned_row)
 
         # 确保每行列数一致
         if result and len(result) > 1:
@@ -794,90 +589,138 @@ class RemotePDFParser:
         return result
 
     def _clean_cell(self, text: str) -> str:
-        """
-        清理单元格内容，移除 Markdown 格式标记
-
-        Args:
-            text: 原始单元格文本
-
-        Returns:
-            清理后的文本
-        """
+        """清理单元格内容"""
         if not text:
             return ""
 
-        # 粗体 **text** 或 __text__
+        # 粗体
         text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
         text = re.sub(r'__([^_]+)__', r'\1', text)
-
-        # 斜体 *text* 或 _text_
+        # 斜体
         text = re.sub(r'\*([^*]+)\*', r'\1', text)
         text = re.sub(r'_([^_]+)_', r'\1', text)
-
-        # 行内代码 `code`
+        # 行内代码
         text = re.sub(r'`([^`]+)`', r'\1', text)
-
-        # 链接 [text](url)
+        # 链接
         text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
-
-        # 移除 HTML 标签
+        # HTML 标签
         text = re.sub(r'<[^>]+>', '', text)
-
-        # 移除 LaTeX 公式 $...$
+        # LaTeX 公式
         text = re.sub(r'\$[^$]+\$', '', text)
-
-        # 移除特殊符号
-        text = text.replace('\\', '').replace('*', '').replace('_', '')
-
         # 标准化空白
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
 
-        # 限制长度
         if len(text) > 2000:
             text = text[:2000] + "..."
 
         return text
 
     def _clean_text(self, text: str) -> str:
-        """
-        清理普通文本，移除 Markdown 格式标记
-
-        Args:
-            text: 原始文本
-
-        Returns:
-            清理后的文本
-        """
+        """清理普通文本"""
         if not text:
             return ""
 
-        # 移除标题标记
         if text.startswith('#'):
             text = re.sub(r'^#+\s*', '', text)
 
-        # 移除粗体
         text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
         text = re.sub(r'__([^_]+)__', r'\1', text)
-
-        # 移除斜体
         text = re.sub(r'\*([^*]+)\*', r'\1', text)
         text = re.sub(r'_([^_]+)_', r'\1', text)
-
-        # 移除行内代码
         text = re.sub(r'`([^`]+)`', r'\1', text)
-
-        # 移除链接
         text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
-
-        # 移除 HTML 标签
         text = re.sub(r'<[^>]+>', '', text)
-
-        # 标准化空白
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
 
         return text
+
+    def _save_parse_report(
+            self,
+            file_name: str,
+            markdown_content: str,
+            sections: List[Tuple[str, str]],
+            tables: List[List[List[str]]],
+            chunks: List = None
+    ) -> Optional[str]:
+        """保存解析报告到文件"""
+        if not file_name:
+            return None
+
+        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = Path(file_name).stem
+        safe_base_name = re.sub(r'[<>:"/\\|?*]', '_', base_name)
+        report_name = f"{date_str}_{safe_base_name}.md"
+        report_path = self._report_dir / report_name
+
+        report_lines = []
+        report_lines.append(f"# 文档解析报告")
+        report_lines.append(f"")
+        report_lines.append(f"**原始文件**: `{file_name}`")
+        report_lines.append(f"**解析时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append(f"**解析引擎**: MinerU API")
+        report_lines.append(f"")
+        report_lines.append(f"---")
+        report_lines.append(f"")
+
+        report_lines.append(f"## 📊 解析统计")
+        report_lines.append(f"")
+        report_lines.append(f"| 项目 | 数量 |")
+        report_lines.append(f"|------|------|")
+        report_lines.append(f"| 文字块数量 | {len(sections)} |")
+        report_lines.append(f"| 表格数量 | {len(tables)} |")
+        if chunks:
+            report_lines.append(f"| 分块数量 | {len(chunks)} |")
+        report_lines.append(f"| Markdown 长度 | {len(markdown_content)} 字符 |")
+        report_lines.append(f"")
+        report_lines.append(f"---")
+        report_lines.append(f"")
+
+        if sections:
+            report_lines.append(f"## 📝 文字块详情 ({len(sections)} 个)")
+            report_lines.append(f"")
+            for idx, (text, style) in enumerate(sections[:50], 1):
+                report_lines.append(f"### 块 {idx} (样式: {style})")
+                report_lines.append(f"")
+                display_text = text[:500] + "\n... (内容过长，已截断)" if len(text) > 500 else text
+                report_lines.append(f"```")
+                report_lines.append(display_text)
+                report_lines.append(f"```")
+                report_lines.append(f"")
+
+        try:
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(report_lines))
+            logger.info(f"解析报告已保存: {report_path}")
+            return str(report_path)
+        except Exception as e:
+            logger.error(f"保存解析报告失败: {e}")
+            return None
+
+    def save_chunked_report(
+            self,
+            file_name: str,
+            chunks: List,
+            sections: List[Tuple[str, str]] = None,
+            tables: List[List[List[str]]] = None,
+            markdown_content: str = None
+    ) -> Optional[str]:
+        """保存带分块结果的解析报告"""
+        if sections is None:
+            sections = self._last_parse_result.get("sections", [])
+        if tables is None:
+            tables = self._last_parse_result.get("tables", [])
+        if markdown_content is None:
+            markdown_content = self._last_parse_result.get("markdown_content", "")
+
+        return self._save_parse_report(
+            file_name=file_name,
+            markdown_content=markdown_content or "",
+            sections=sections or [],
+            tables=tables or [],
+            chunks=chunks
+        )
 
     def get_last_parse_result(self) -> Dict[str, Any]:
         """获取最后一次解析的结果"""
@@ -891,15 +734,15 @@ def is_remote_parse_enabled() -> bool:
     return enabled and has_token
 
 
-def parse_pdf_remote(
+def parse_document_remote(
         file_path_or_binary,
         from_page: int = 0,
         to_page: int = 100000,
         api_token: str = None
 ) -> Tuple[List[Tuple[str, str]], List[List[List[str]]]]:
-    """使用远程API解析PDF"""
+    """使用远程API解析文档"""
     parser = RemotePDFParser(api_token)
-    return parser.parse_pdf(file_path_or_binary, from_page, to_page)
+    return parser.parse_document(file_path_or_binary, from_page, to_page)
 
 
 def save_chunked_report(
@@ -910,20 +753,7 @@ def save_chunked_report(
         markdown_content: str = None,
         api_token: str = None
 ) -> Optional[str]:
-    """
-    保存带分块结果的解析报告（便捷函数）
-
-    Args:
-        file_name: 原始文件名
-        chunks: 分块结果
-        sections: 段落列表（可选）
-        tables: 表格列表（可选）
-        markdown_content: 原始 Markdown 内容（可选）
-        api_token: API Token（可选）
-
-    Returns:
-        保存的文件路径
-    """
+    """保存带分块结果的解析报告"""
     parser = RemotePDFParser(api_token)
     return parser.save_chunked_report(
         file_name=file_name,
@@ -933,10 +763,20 @@ def save_chunked_report(
         markdown_content=markdown_content
     )
 
+def parse_pdf_remote(
+        file_path_or_binary,
+        from_page: int = 0,
+        to_page: int = 100000,
+        api_token: str = None
+) -> Tuple[List[Tuple[str, str]], List[List[List[str]]]]:
+    """使用远程API解析PDF（兼容旧接口）"""
+    parser = RemotePDFParser(api_token)
+    return parser.parse_document(file_path_or_binary, from_page, to_page)
 
 __all__ = [
     'RemotePDFParser',
-    'parse_pdf_remote',
+    'parse_document_remote',
+    'parse_pdf_remote',  # 兼容旧名
     'is_remote_parse_enabled',
     'save_chunked_report'
 ]

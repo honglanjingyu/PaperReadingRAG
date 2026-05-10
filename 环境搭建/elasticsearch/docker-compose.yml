@@ -1,0 +1,76 @@
+# E:\elasticsearch\docker-compose.yml
+# 一条命令搭建完整 ES 环境
+# 启动命令: docker-compose up -d --build
+# 停止命令: docker-compose down
+# 查看日志: docker-compose logs -f
+
+version: '3.8'
+
+services:
+  elasticsearch:
+    # 使用本地 Dockerfile 构建（包含 IK 分词器）
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: elasticsearch
+    restart: unless-stopped
+    
+    environment:
+      # 集群配置
+      - cluster.name=rag-cluster
+      - node.name=es-node-1
+      - discovery.type=single-node
+      
+      # 内存配置（根据你的机器调整，Windows 建议 1g）
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      
+      # 安全配置（关闭安全认证，便于开发调试）
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      
+      # 网络配置
+      - network.host=0.0.0.0
+      - http.port=9200
+      - transport.port=9300
+      
+      # 性能配置
+      - indices.query.bool.max_clause_count=1024
+      - indices.memory.index_buffer_size=20%
+      
+      # 时区
+      - TZ=Asia/Shanghai
+      
+    ports:
+      - "9200:9200"  # HTTP API 端口
+      - "9300:9300"  # 集群通信端口
+      
+    volumes:
+      # 数据挂载到 Windows E 盘
+      - ./data:/usr/share/elasticsearch/data
+      # 配置挂载
+      - ./config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      # 日志挂载
+      - ./logs:/usr/share/elasticsearch/logs
+      
+    networks:
+      - rag-network
+      
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+      
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s  # 给予 60 秒启动时间
+
+networks:
+  rag-network:
+    driver: bridge
+    name: rag-network

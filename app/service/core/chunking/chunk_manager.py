@@ -1,4 +1,5 @@
 # app/service/core/chunking/chunk_manager.py
+
 """
 分块管理器 - 统一分块接口
 整合项目原有的 naive_merge 分块逻辑
@@ -13,8 +14,9 @@ from pathlib import Path
 # 添加项目路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
+from .chunk_types import Chunk
 from .chunk_strategies import (
-    ChunkStrategy, BaseChunker, Chunk,
+    ChunkStrategy, BaseChunker,
     FixedTokenChunker, SemanticChunker,
     RecursiveChunker, SentenceChunker, ParagraphChunker
 )

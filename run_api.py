@@ -8,14 +8,25 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
-# 设置根日志器 - 只保留 uvicorn 日志
-logging.basicConfig(level=logging.WARNING)
+# ========== 重要：在导入 app 之前初始化日志 ==========
+from app.api.services.logging_config import init_logging
 
-# 抑制第三方库的详细日志
+init_logging()
+
+# 获取日志器
+logger = logging.getLogger(__name__)
+
+# 抑制第三方库的详细日志（控制台）
+import warnings
+
+warnings.filterwarnings("ignore")
+
+# 抑制一些常见的警告
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("elasticsearch").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("pymilvus").setLevel(logging.WARNING)
 
 # 导入app
 from app.api.main import app
@@ -24,6 +35,7 @@ from app.a2a.server import integrate_a2a_to_app
 
 def signal_handler(signum, frame):
     """处理中断信号"""
+    logger.info(f"收到停止信号: {signum}，正在关闭服务...")
     print("\n\n收到停止信号，正在关闭服务...")
     sys.exit(0)
 
@@ -67,8 +79,16 @@ def main():
     print(f"Agent Discovery: http://{args.host}:{args.port}/.well-known/agent.json")
     print("=" * 60)
 
+    # 记录启动信息到日志
+    logger.info(f"PaperReadingRAG 服务启动: host={args.host}, port={args.port}")
+    logger.info(f"API 文档地址: http://{args.host}:{args.port}/docs")
+
     # 集成 A2A 路由（包含发现端点）
     integrate_a2a_to_app(app)
+
+    # 配置 uvicorn 日志级别
+    log_config = uvicorn.config.LOGGING_CONFIG
+    log_config["formatters"]["access"]["fmt"] = '%(asctime)s - %(levelname)s - %(message)s'
 
     uvicorn.run(
         app,
@@ -76,7 +96,7 @@ def main():
         port=args.port,
         reload=args.reload,
         log_level="info",
-        access_log=True,  # 启用访问日志
+        access_log=True,
     )
 
 

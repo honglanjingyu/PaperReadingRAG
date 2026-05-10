@@ -1,26 +1,18 @@
 # app/service/core/deepdoc/loader.py
-"""
-数据加载模块 - 加载文档原始内容
-"""
+"""数据加载模块 - 只使用远程 MinerU 解析"""
 
 import os
 import re
 from typing import Dict, Any, List
-
-from .parser.pdf_parser import PlainParser
-from .parser.docx_parser import RAGFlowDocxParser
-from .parser.txt_parser import RAGFlowTxtParser
-from .parser.excel_parser import RAGFlowExcelParser
 import logging
+
+from .parser.remote_pdf_parser import RemotePDFParser, is_remote_parse_enabled
 
 logger = logging.getLogger(__name__)
 
-# 导入远程PDF解析器
-from .parser.remote_pdf_parser import RemotePDFParser, is_remote_parse_enabled
-
 
 class DataLoader:
-    """数据加载器 - 加载文档原始内容"""
+    """数据加载器 - 只使用远程 MinerU 解析 PDF"""
 
     SUPPORTED_TYPES = {
         '.pdf': 'pdf',
@@ -33,19 +25,15 @@ class DataLoader:
     }
 
     def __init__(self):
-        self.pdf_parser = PlainParser()
-        self.docx_parser = RAGFlowDocxParser()
-        self.txt_parser = RAGFlowTxtParser()
-        self.excel_parser = RAGFlowExcelParser()
 
         # 初始化远程PDF解析器
         self.remote_pdf_parser = RemotePDFParser()
-        self.use_remote_parse = is_remote_parse_enabled()
 
-        if self.use_remote_parse:
-            logger.info(f"[DataLoader] 远程PDF解析已启用")
-        else:
-            logger.info(f"[DataLoader] 使用本地PDF解析")
+        if not is_remote_parse_enabled():
+            logger.error("远程PDF解析未启用，请设置 ENABLE_REMOTE_PARSE=true 和 PARSE_API_TOKEN")
+            raise RuntimeError("远程PDF解析未启用，MinerU API 是必需的")
+
+        logger.info(f"[DataLoader] 远程PDF解析已启用")
 
     def load(self, file_path: str, from_page: int = 0, to_page: int = 100000) -> Dict[str, Any]:
         """加载文档"""
@@ -56,7 +44,7 @@ class DataLoader:
         file_type = self.SUPPORTED_TYPES.get(file_ext, 'text')
 
         if file_type == 'pdf':
-            return self._load_pdf(file_path, from_page, to_page)
+            return self._load_pdf_remote(file_path, from_page, to_page)
         elif file_type == 'docx':
             return self._load_docx(file_path)
         elif file_type == 'text':
@@ -66,54 +54,11 @@ class DataLoader:
         else:
             return self._load_text(file_path)
 
-    def _load_pdf(self, file_path: str, from_page: int, to_page: int) -> Dict[str, Any]:
-        """加载 PDF - 支持本地和远程解析"""
-
-        # 判断是否使用远程解析
-        if self.use_remote_parse and self.remote_pdf_parser.is_available():
-            logger.info(f"  使用远程API解析PDF: {os.path.basename(file_path)}")
-            return self._load_pdf_remote(file_path, from_page, to_page)
-        else:
-            logger.info(f"  使用本地解析PDF: {os.path.basename(file_path)}")
-            return self._load_pdf_local(file_path, from_page, to_page)
-
-    def _load_pdf_local(self, file_path: str, from_page: int, to_page: int) -> Dict[str, Any]:
-        """本地解析PDF"""
-        import pdfplumber
-
-        pages_raw = []
-        with pdfplumber.open(file_path) as pdf:
-            total_pages = len(pdf.pages)
-            end_page = min(total_pages, to_page)
-
-            for page_num in range(from_page, end_page):
-                page = pdf.pages[page_num]
-                pages_raw.append({
-                    'page_num': page_num + 1,
-                    'text': page.extract_text() or "",
-                    'chars': page.chars if page.chars else [],
-                    'words': page.extract_words() if page.chars else [],
-                    'width': page.width,
-                    'height': page.height,
-                    'tables': page.extract_tables() or [],
-                    'images': page.images if hasattr(page, 'images') else []
-                })
-
-        return {
-            'file_path': file_path,
-            'file_name': os.path.basename(file_path),
-            'file_type': 'pdf',
-            'total_pages': len(pages_raw),
-            'pages_raw': pages_raw,
-            'parse_method': 'local'
-        }
-
-    # app/service/core/deepdoc/loader.py
-
     def _load_pdf_remote(self, file_path: str, from_page: int, to_page: int) -> Dict[str, Any]:
         """远程API解析PDF"""
         try:
-            # 调用远程解析器
+            logger.info(f"使用远程MinerU API解析PDF: {os.path.basename(file_path)}")
+
             sections, tables = self.remote_pdf_parser.parse_pdf(
                 file_path,
                 from_page=from_page,
@@ -130,7 +75,7 @@ class DataLoader:
                     text_blocks_for_pages.append({
                         'text': section,
                         'style': style,
-                        'x0': 0, 'y0': idx * 100,  # 模拟位置
+                        'x0': 0, 'y0': idx * 100,
                         'x1': 0, 'y1': idx * 100 + 50,
                         'column': 0
                     })
@@ -172,10 +117,10 @@ class DataLoader:
             return result
 
         except Exception as e:
-            logger.info(f"  远程PDF解析失败: {e}，回退到本地解析")
+            logger.error(f"远程PDF解析失败: {e}")
             import traceback
             traceback.print_exc()
-            return self._load_pdf_local(file_path, from_page, to_page)
+            raise RuntimeError(f"PDF解析失败，请检查 MinerU API 配置: {e}")
 
     def _load_docx(self, file_path: str) -> Dict[str, Any]:
         """加载 DOCX"""

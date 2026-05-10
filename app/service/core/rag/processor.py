@@ -10,6 +10,8 @@ import hashlib
 from typing import List, Optional, Dict
 from dotenv import load_dotenv
 from app.service.core.deepdoc.parser.remote_pdf_parser import save_chunked_report, RemotePDFParser,is_remote_parse_enabled
+import logging
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -30,8 +32,9 @@ from app.service.core.chunking import (
 
 # 导入向量化模块
 from app.service.core.embedding import (
-    VectorChunk, VectorizationService, vectorize_chunks, vectorize_text,
-    EmbeddingManager, EmbeddingType, get_embedding_manager, get_embedding_service,
+    VectorChunk,
+    get_embedding_service,  # 使用 EmbeddingService 替代 VectorizationService
+    vectorize_chunks,
 )
 
 # 导入向量存储模块 - 修复：移除 ESVectorStore 导入
@@ -190,8 +193,14 @@ def create_and_vectorize_chunks_with_level(chunks, model_type: str = None, user_
             user_level=user_level  # 设置文档等级
         ))
 
-    vec_service = VectorizationService(model_type)
-    return vec_service.vectorize_chunks(vector_chunks)
+    embedding_service = get_embedding_service()
+    if model_type:
+        if model_type == 'local':
+            embedding_service.switch_to_local()
+        else:
+            embedding_service.switch_to_remote()
+
+    return embedding_service.vectorize_chunks(vector_chunks)
 
 
 def parse_only(

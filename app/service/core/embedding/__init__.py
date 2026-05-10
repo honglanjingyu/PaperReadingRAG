@@ -1,32 +1,30 @@
 # app/service/core/embedding/__init__.py
-"""
-向量化服务模块
-提供文本向量嵌入生成功能，支持远程API和本地模型
-"""
+"""Embedding 向量化模块"""
 
 from .base_embedding import BaseEmbeddingModel
 from .remote_embedding import RemoteEmbeddingModel
 from .local_embedding import LocalEmbeddingModel
-from .embedding_manager import EmbeddingManager, EmbeddingType, get_embedding_manager
-from .vector_types import VectorChunk
-from .vectorization_service import VectorizationService, vectorize_chunks, vectorize_text
+from .cached_embedding import CachedEmbeddingModel
+from .embedding_service import (
+    EmbeddingService, get_embedding_service,
+    VectorChunk, generate_embedding, generate_embeddings,
+    vectorize_chunks, get_vector_field_name
+)
 
-# 创建向后兼容的函数
-def get_embedding_service():
-    """获取EmbeddingService（向后兼容）"""
-    return get_embedding_manager()
-
+# 添加向后兼容别名
+VectorizationService = EmbeddingService
 
 __all__ = [
     'BaseEmbeddingModel',
     'RemoteEmbeddingModel',
     'LocalEmbeddingModel',
-    'EmbeddingManager',
-    'EmbeddingType',
-    'get_embedding_manager',
+    'CachedEmbeddingModel',
+    'EmbeddingService',
+    'VectorizationService',  # 向后兼容
     'get_embedding_service',
     'VectorChunk',
-    'VectorizationService',
+    'generate_embedding',
+    'generate_embeddings',
     'vectorize_chunks',
-    'vectorize_text',
+    'get_vector_field_name',
 ]

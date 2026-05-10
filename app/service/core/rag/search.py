@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app.service.core.embedding import VectorizationService, get_embedding_manager
+from app.service.core.embedding import get_embedding_service
 from app.service.core.vector_store import get_vector_search_service
 from .cached_search import CachedSearchService
 
@@ -39,8 +39,13 @@ def vectorize_user_question(
         if model_type is None:
             model_type = os.getenv("EMBEDDING_TYPE", "remote")
 
-        vec_service = VectorizationService(model_type)
-        question_vector = vec_service.manager.generate_embedding(question)
+        embedding_service = get_embedding_service()
+        if model_type:
+            if model_type == 'local':
+                embedding_service.switch_to_local()
+            else:
+                embedding_service.switch_to_remote()
+        question_vector = embedding_service.generate_embedding(question)
 
         if question_vector is None:
             return {"success": False, "question": question, "error": "问题向量化失败"}
@@ -52,7 +57,7 @@ def vectorize_user_question(
             "vector": question_vector,
             "vector_dimension": len(question_vector),
             "model_type": model_type,
-            "model_info": vec_service.get_model_info()
+            "model_info": embedding_service.get_model_info()
         }
 
     except Exception as e:
@@ -75,8 +80,12 @@ def search_similar_documents(
         if model_type is None:
             model_type = os.getenv("EMBEDDING_TYPE", "remote")
 
-        vec_service = VectorizationService(model_type)
-        question_vector = vec_service.manager.generate_embedding(question)
+        embedding_service = get_embedding_service()
+        if model_type == 'local':
+            embedding_service.switch_to_local()
+        else:
+            embedding_service.switch_to_remote()
+        question_vector = embedding_service.generate_embedding(question)
 
         if question_vector is None:
             return {"success": False, "question": question, "error": "问题向量化失败"}
@@ -203,10 +212,11 @@ def _enhanced_search_internal(
 
         hybrid_results.sort(key=lambda x: x.get('final_score', x.get('_score', 0)), reverse=True)
 
+
     except Exception as e:
-        from app.service.core.embedding import get_embedding_manager
-        embedding_manager = get_embedding_manager()
-        query_vector = embedding_manager.generate_embedding(rewritten_query)
+        from app.service.core.embedding import get_embedding_service
+        embedding_service = get_embedding_service()
+        query_vector = embedding_service.generate_embedding(rewritten_query)
         if query_vector:
             from app.service.core.vector_store import get_vector_search_service
             search_service = get_vector_search_service()

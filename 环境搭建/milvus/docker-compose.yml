@@ -1,10 +1,10 @@
-docker-compose.yml
 version: '3.5'
 
 services:
   etcd:
     container_name: milvus-etcd
     image: quay.io/coreos/etcd:v3.5.18
+    restart: always
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
@@ -22,6 +22,7 @@ services:
   minio:
     container_name: milvus-minio
     image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    restart: always
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -40,6 +41,7 @@ services:
   standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.0
+    restart: always
     command: ["milvus", "run", "standalone"]
     security_opt:
     - seccomp:unconfined
@@ -66,8 +68,3 @@ networks:
   default:
     name: milvus
     external: true
-
-
-docker-compose up -d --build
-
-注意使用wsl中的python,而milvus部署在windows环境的时候ip地址

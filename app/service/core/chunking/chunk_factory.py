@@ -1,18 +1,20 @@
 # app/service/core/chunking/chunk_factory.py
+
 """
 分块工厂 - 提供便捷的分块接口
 """
 
 from typing import List, Dict, Any, Optional
-from .chunk_manager import ChunkManager, Chunk
-from .recursive_chunker import RecursiveChunkerSimple
+from .chunk_manager import ChunkManager
+from .chunk_types import Chunk
+from .chunk_strategies import RecursiveChunker
 import hashlib
 
 
 def create_chunker(chunk_size: int = 256, strategy: str = 'recursive'):
     """创建分块器"""
     if strategy == 'recursive':
-        return RecursiveChunkerSimple(chunk_token_num=chunk_size)
+        return RecursiveChunker(chunk_size)
     else:
         return ChunkManager({
             'chunk_token_num': chunk_size,
@@ -25,7 +27,7 @@ def chunk_text_to_chunks(
     chunk_size: int = 256,
     metadata: Optional[Dict] = None,
     strategy: str = 'recursive'
-) -> List:
+) -> List[Chunk]:
     """
     将文本分块并返回 Chunk 对象列表
 
@@ -42,14 +44,13 @@ def chunk_text_to_chunks(
         return []
 
     if strategy == 'recursive':
-        chunker = RecursiveChunkerSimple(chunk_token_num=chunk_size)
-        chunk_texts = chunker.chunk(text)
+        chunker = RecursiveChunker(chunk_size)
+        chunk_texts = chunker.chunk_to_texts(text)
 
         chunks = []
         for i, chunk_text in enumerate(chunk_texts):
             if chunk_text.strip():
                 chunk_id = hashlib.md5(f"{i}_{chunk_text[:100]}".encode()).hexdigest()[:16]
-                from .chunk_strategies import Chunk
                 chunks.append(Chunk(
                     id=f"chunk_{i}_{chunk_id}",
                     content=chunk_text,
@@ -69,11 +70,11 @@ def chunk_text_to_chunks(
 
 def chunk_text_simple(text: str, chunk_size: int = 256) -> List[str]:
     """简单分块，只返回文本列表"""
-    chunker = RecursiveChunkerSimple(chunk_token_num=chunk_size)
-    return chunker.chunk(text)
+    chunker = RecursiveChunker(chunk_size)
+    return chunker.chunk_to_texts(text)
 
 
-def get_chunk_statistics(chunks: List) -> Dict[str, Any]:
+def get_chunk_statistics(chunks: List[Chunk]) -> Dict[str, Any]:
     """获取分块统计信息"""
     if not chunks:
         return {
