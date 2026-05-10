@@ -3,20 +3,28 @@
 文档上传路由
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Header
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Header, Request
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any,Optional, List
 import hashlib
 import time
 import shutil
 import os
-import logging
-
 
 from app.api.config import UPLOAD_DIR, SUPPORTED_EXTENSIONS, settings, processing_status
 from app.api.dependencies import get_document_service
 from app.auth.jwt_utils import get_user_id_from_token
 from app.db.database import get_db_manager
+import re
+import logging
+from datetime import datetime
+
+from app.service.core.cache import get_document_cache
+from app.service.core.vector_store import get_vector_storage_service, get_vector_store
+from app.service.core.retrieval.es_bm25_retriever import get_es_bm25_retriever
+from app.service.core.memory import get_memory_manager
+
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -325,33 +333,458 @@ async def list_documents(authorization: Optional[str] = Header(None)) -> Dict[st
         }
 
 
-# app/api/routes/upload.py - 修改 delete_document 函数
+def _delete_from_milvus(filename: str, index_name: str) -> int:
+    """从 Milvus 删除文档的所有分块"""
+    try:
+        store = get_vector_store()
+        if store and store.index_exists(index_name):
+            # 删除 docnm 匹配的所有文档
+            deleted = store.delete(index_name, {"docnm": filename})
+            logger.info(f"Milvus 删除完成: {filename}, 删除 {deleted} 条记录")
+            return deleted if isinstance(deleted, int) else 0
+    except Exception as e:
+        logger.error(f"Milvus 删除失败: {e}")
+    return 0
+
+
+def _delete_from_elasticsearch(filename: str, index_name: str) -> int:
+    """从 Elasticsearch 删除文档的所有相关记录"""
+    try:
+        es_retriever = get_es_bm25_retriever()
+        if es_retriever and es_retriever.is_available():
+            # 需要先查询所有匹配的文档ID
+            es_index = f"rag_bm25_{index_name}"
+
+            # 使用 scroll 查询获取所有匹配的文档ID
+            from elasticsearch import Elasticsearch
+            client = es_retriever._client
+
+            if client and client.indices.exists(index=es_index):
+                # 查询所有匹配的文档
+                query = {
+                    "query": {
+                        "term": {"document_name": filename}
+                    },
+                    "_source": False  # 只返回ID
+                }
+
+                # 使用 scroll 分页获取所有结果
+                response = client.search(
+                    index=es_index,
+                    body=query,
+                    scroll="2m",
+                    size=1000
+                )
+
+                scroll_id = response.get("_scroll_id")
+                hits = response.get("hits", {}).get("hits", [])
+                doc_ids = [hit["_id"] for hit in hits]
+
+                # 继续 scroll 获取剩余结果
+                while hits:
+                    response = client.scroll(scroll_id=scroll_id, scroll="2m")
+                    scroll_id = response.get("_scroll_id")
+                    hits = response.get("hits", {}).get("hits", [])
+                    doc_ids.extend([hit["_id"] for hit in hits])
+
+                # 清除 scroll
+                if scroll_id:
+                    client.clear_scroll(scroll_id=scroll_id)
+
+                # 批量删除文档
+                if doc_ids:
+                    from elasticsearch.helpers import bulk
+                    actions = [
+                        {"_op_type": "delete", "_index": es_index, "_id": doc_id}
+                        for doc_id in doc_ids
+                    ]
+                    success, failed = bulk(client, actions, stats_only=True, raise_on_error=False)
+                    logger.info(f"Elasticsearch 删除完成: {filename}, 删除 {success} 条记录")
+                    return success
+        return 0
+    except Exception as e:
+        logger.error(f"Elasticsearch 删除失败: {e}")
+    return 0
+
+
+def _delete_from_redis_and_memory(filename: str) -> int:
+    """
+    从 Redis 和对话记忆中删除与文档相关的历史
+    修复：正确处理不同数据类型的 key，同时删除用户问题和对应的回答
+    """
+    try:
+        memory_manager = get_memory_manager()
+        if not memory_manager or not memory_manager.redis_client:
+            logger.warning("Redis 不可用，跳过对话历史清理")
+            return 0
+
+        deleted_count = 0
+        redis_client = memory_manager.redis_client
+
+        # 获取所有会话相关的 key
+        pattern = f"{memory_manager._key_prefix}*"
+        meta_pattern = f"{memory_manager._meta_prefix}*"
+
+        all_keys = redis_client.keys(pattern)
+        meta_keys = redis_client.keys(meta_pattern)
+
+        # 合并所有需要检查的 key
+        all_session_keys = list(set(all_keys + meta_keys))
+
+        logger.info(f"找到 {len(all_session_keys)} 个会话相关 key")
+
+        for session_key in all_session_keys:
+            try:
+                # 检查 key 类型
+                key_type = redis_client.type(session_key)
+                logger.debug(f"检查 key: {session_key}, type: {key_type}")
+
+                if key_type == 'list':
+                    # 处理 List 类型（消息列表）
+                    messages = redis_client.lrange(session_key, 0, -1)
+                    if not messages:
+                        continue
+
+                    import json
+
+                    # 先解析所有消息
+                    parsed_messages = []
+                    for msg_json in messages:
+                        try:
+                            parsed_messages.append(json.loads(msg_json))
+                        except:
+                            parsed_messages.append({"role": "unknown", "content": msg_json})
+
+                    # 找出需要删除的索引
+                    indices_to_remove = set()
+
+                    for idx, msg in enumerate(parsed_messages):
+                        content = msg.get("content", "")
+                        role = msg.get("role", "")
+
+                        # 检查是否引用了该文档
+                        if filename in content or f"文档「{filename}」" in content:
+                            indices_to_remove.add(idx)
+                            # 如果是助手回答，同时删除它前面的用户问题
+                            if role == "assistant" and idx > 0:
+                                prev_msg = parsed_messages[idx - 1]
+                                if prev_msg.get("role") == "user":
+                                    indices_to_remove.add(idx - 1)
+                                    logger.debug(
+                                        f"找到匹配的对话对: session={session_key}, user_idx={idx - 1}, assistant_idx={idx}")
+                            logger.debug(f"找到匹配消息: session={session_key}, idx={idx}")
+
+                    # 删除匹配的消息
+                    if indices_to_remove:
+                        valid_messages = []
+                        for idx, msg_json in enumerate(messages):
+                            if idx not in indices_to_remove:
+                                valid_messages.append(msg_json)
+
+                        redis_client.delete(session_key)
+                        if valid_messages:
+                            redis_client.rpush(session_key, *valid_messages)
+                            logger.debug(
+                                f"会话 {session_key} 已更新: 删除 {len(indices_to_remove)} 条，保留 {len(valid_messages)} 条")
+                        else:
+                            logger.debug(f"会话 {session_key} 已清空")
+
+                        deleted_count += len(indices_to_remove)
+
+                elif key_type == 'hash':
+                    # 处理 Hash 类型（元数据）
+                    meta_data = redis_client.hgetall(session_key)
+                    if meta_data:
+                        has_doc_ref = False
+                        for value in meta_data.values():
+                            if filename in str(value):
+                                has_doc_ref = True
+                                break
+
+                        if has_doc_ref:
+                            redis_client.delete(session_key)
+                            deleted_count += 1
+                            logger.debug(f"删除元数据: {session_key}")
+
+                elif key_type == 'string':
+                    value = redis_client.get(session_key)
+                    if value and filename in str(value):
+                        redis_client.delete(session_key)
+                        deleted_count += 1
+                        logger.debug(f"删除字符串 key: {session_key}")
+
+            except Exception as e:
+                logger.warning(f"处理 key {session_key} 时出错: {e}")
+                continue
+
+        logger.info(f"Redis 清理完成: 删除了 {deleted_count} 条相关记录")
+        return deleted_count
+
+    except Exception as e:
+        logger.error(f"Redis 清理失败: {e}", exc_info=True)
+        return 0
+
+def _delete_from_local_storage(filename: str) -> bool:
+    """删除本地存储的文件"""
+    try:
+        file_path = UPLOAD_DIR / filename
+        if file_path.exists():
+            file_path.unlink()
+            logger.info(f"本地文件已删除: {filename}")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"本地文件删除失败: {e}")
+        return False
+
 
 @router.delete("/upload/{filename}")
 async def delete_document(
         filename: str,
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
-    """删除文档（同时使缓存失效）"""
+    """
+    删除文档（同时删除 Milvus、Elasticsearch、Redis、本地存储的所有相关数据）
+    """
+    from app.api.config import UPLOAD_DIR
     from app.service.core.cache import get_document_cache
+    from app.service.core.vector_store import get_vector_storage_service
+    from app.db.database import get_db_manager
 
     file_path = UPLOAD_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"文件不存在: {filename}")
 
-    try:
-        # 删除文件
-        file_path.unlink()
+    # 获取索引名称
+    index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
 
-        # 使文档等级缓存失效
+    result = {
+        "success": True,
+        "filename": filename,
+        "deleted": {
+            "local": False,
+            "milvus": 0,
+            "elasticsearch": 0,
+            "redis_messages": 0,
+            "cache": False
+        },
+        "message": ""
+    }
+
+    details = []
+
+    try:
+        # 1. 删除本地文件
+        if _delete_from_local_storage(filename):
+            result["deleted"]["local"] = True
+            details.append("✅ 本地文件已删除")
+        else:
+            details.append("⚠️ 本地文件删除失败")
+
+        # 2. 从 Milvus 删除向量数据
+        milvus_deleted = _delete_from_milvus(filename, index_name)
+        result["deleted"]["milvus"] = milvus_deleted
+        if milvus_deleted > 0:
+            details.append(f"✅ Milvus 已删除 {milvus_deleted} 条向量记录")
+        else:
+            details.append("⚠️ Milvus 无相关记录或删除失败")
+
+        # 3. 从 Elasticsearch 删除 BM25 索引数据
+        es_deleted = _delete_from_elasticsearch(filename, index_name)
+        result["deleted"]["elasticsearch"] = es_deleted
+        if es_deleted > 0:
+            details.append(f"✅ Elasticsearch 已删除 {es_deleted} 条记录")
+        else:
+            details.append("⚠️ Elasticsearch 无相关记录或删除失败")
+
+        # 4. 从 Redis 清理对话历史
+        redis_deleted = _delete_from_redis_and_memory(filename)
+        result["deleted"]["redis_messages"] = redis_deleted
+        if redis_deleted > 0:
+            details.append(f"✅ Redis 已清理 {redis_deleted} 条相关对话")
+        else:
+            details.append("✅ Redis 无相关对话记录")
+
+        # 5. 使文档等级缓存失效
         doc_cache = get_document_cache()
         doc_cache.delete_document_level(filename)
-        logger.info(f"文档 {filename} 缓存已清除")
+        result["deleted"]["cache"] = True
+        details.append("✅ 文档等级缓存已清除")
 
-        return {
-            "success": True,
-            "message": f"文档已删除: {filename}"
-        }
+        # 6. 使搜索缓存失效
+        try:
+            from app.service.core.rag.cached_search import CachedSearchService
+            search_cache = CachedSearchService()
+            search_cache.invalidate_cache(pattern=f"*{filename}*")
+            details.append("✅ 搜索缓存已清除")
+        except Exception as e:
+            logger.warning(f"搜索缓存清除失败: {e}")
+
+        # 7. 从数据库中删除会话关联（可选）
+        try:
+            db = get_db_manager()
+            # 查找包含该文档名的会话并解除关联
+            # 注意：这取决于你如何存储文档与会话的关联
+            # 如果 user_sessions 表中没有文档关联，可以跳过
+        except Exception as e:
+            logger.warning(f"数据库会话关联清理失败: {e}")
+
+        result["message"] = "\n".join(details)
+        logger.info(f"文档删除完成: {filename}, 详情: {result['deleted']}")
+
+        return result
+
     except Exception as e:
-        logger.error(f"删除失败: {e}")
+        logger.error(f"删除文档失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+
+@router.post("/upload/delete-batch")
+async def delete_documents_batch(
+        request: Request,
+        authorization: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """
+    批量删除文档（所有用户都可以批量删除，但只能删除自己有权限的文档）
+    """
+    from app.auth.jwt_utils import get_user_id_from_token
+    from app.db.database import get_db_manager
+    import json
+
+    # 解析请求体
+    try:
+        body = await request.json()
+        filenames = body.get('filenames', [])
+    except:
+        raise HTTPException(status_code=400, detail="请求体必须包含 filenames 数组")
+
+    if not filenames:
+        raise HTTPException(status_code=400, detail="请提供要删除的文件名列表")
+
+    # 获取当前用户信息
+    user_level = "normal"
+    user_id = None
+    user = None
+
+    if authorization:
+        token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+        user_id = get_user_id_from_token(token)
+        if user_id:
+            db = get_db_manager()
+            user = db.get_user_by_id(user_id)
+            if user:
+                user_level = user.role.value
+                logger.info(f"用户 {user.username} (等级={user_level}) 请求批量删除 {len(filenames)} 个文档")
+
+    # 等级优先级
+    level_priority = {"normal": 1, "admin": 2, "owner": 3}
+    current_priority = level_priority.get(user_level, 1)
+
+    # 允许用户删除的等级（只能删除等级 <= 自己等级的文档）
+    allowed_levels = [level for level, priority in level_priority.items() if priority <= current_priority]
+
+    # 获取索引名称
+    index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
+
+    # 第一步：验证用户权限，过滤出有权限删除的文档
+    verified_filenames = []
+    permission_denied = []
+    not_found = []
+
+    for filename in filenames:
+        # 检查文件是否存在
+        file_path = UPLOAD_DIR / filename
+        if not file_path.exists():
+            not_found.append(filename)
+            continue
+
+        # 获取文档等级
+        doc_level = "normal"
+        try:
+            # 从缓存或 Milvus 获取文档等级
+            doc_cache = get_document_cache()
+            cached_level = doc_cache.get_document_level(filename)
+
+            if cached_level:
+                doc_level = cached_level
+            else:
+                # 从 Milvus 查询
+                store = get_vector_store()
+                if store and store.index_exists(index_name):
+                    from pymilvus import Collection
+                    collection = Collection(index_name)
+                    collection.load()
+
+                    # 查询文档等级
+                    expr = f'docnm == "{filename}"'
+                    results = collection.query(
+                        expr=expr,
+                        output_fields=["docnm", "user_level"],
+                        limit=1
+                    )
+                    if results:
+                        doc_level = results[0].get("user_level", "normal")
+                        # 缓存结果
+                        doc_cache.set_document_level(filename, doc_level)
+        except Exception as e:
+            logger.warning(f"获取文档等级失败 {filename}: {e}")
+
+        # 检查权限：用户等级必须 >= 文档等级
+        doc_priority = level_priority.get(doc_level, 1)
+        if current_priority >= doc_priority:
+            verified_filenames.append(filename)
+        else:
+            permission_denied.append(filename)
+
+    # 第二步：执行删除操作
+    results = {}
+    success_count = 0
+    fail_count = 0
+
+    for filename in verified_filenames:
+        try:
+            # 删除各处的数据
+            local_deleted = _delete_from_local_storage(filename)
+            milvus_deleted = _delete_from_milvus(filename, index_name)
+            es_deleted = _delete_from_elasticsearch(filename, index_name)
+            redis_deleted = _delete_from_redis_and_memory(filename)
+
+            # 清除缓存
+            doc_cache = get_document_cache()
+            doc_cache.delete_document_level(filename)
+
+            # 清除搜索缓存
+            try:
+                from app.service.core.rag.cached_search import CachedSearchService
+                search_cache = CachedSearchService()
+                search_cache.invalidate_cache(pattern=f"*{filename}*")
+            except Exception as e:
+                logger.warning(f"搜索缓存清除失败: {e}")
+
+            results[filename] = {
+                "success": True,
+                "deleted": {
+                    "local": local_deleted,
+                    "milvus": milvus_deleted,
+                    "elasticsearch": es_deleted,
+                    "redis_messages": redis_deleted
+                }
+            }
+            success_count += 1
+            logger.info(f"批量删除成功: {filename}")
+
+        except Exception as e:
+            results[filename] = {"success": False, "error": str(e)}
+            fail_count += 1
+            logger.error(f"批量删除失败 {filename}: {e}")
+
+    # 返回结果
+    return {
+        "success": success_count > 0,
+        "total": len(filenames),
+        "success_count": success_count,
+        "fail_count": fail_count,
+        "permission_denied": permission_denied,
+        "not_found": not_found,
+        "results": results,
+        "message": f"成功删除 {success_count} 个文档，失败 {fail_count} 个，无权限 {len(permission_denied)} 个，不存在 {len(not_found)} 个"
+    }

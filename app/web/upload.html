@@ -7,8 +7,7 @@
     <title>文档上传 - RAG智能问答系统</title>
     <link rel="stylesheet" href="/static/css/common.css">
     <link rel="stylesheet" href="/static/css/upload.css">
-    <!-- Font Awesome 6 (用于图标) -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 </head>
 <body>
     <div class="container">
@@ -16,7 +15,6 @@
         <div class="sidebar-nav">
             <div class="logo">📚 RAG智能问答系统</div>
 
-            <!-- 用户信息区域 - 修改后的上下结构 -->
             <div class="sidebar-user" id="sidebarUser">
                 <div class="user-info">
                     <i class="fas fa-user-circle"></i>
@@ -59,7 +57,28 @@
                     <div class="upload-icon">📁</div>
                     <div class="upload-text">点击或拖拽文件到此区域上传</div>
                     <div class="upload-hint">支持 PDF、DOCX、TXT、MD 格式，最大 50MB</div>
-                    <input type="file" id="fileInput" class="file-input" accept=".pdf,.docx,.txt,.md,.markdown">
+                    <input type="file" id="fileInput" class="file-input" accept=".pdf,.docx,.txt,.md,.markdown" multiple>
+                </div>
+
+                <!-- ========== 新增：批量上传工具栏 ========== -->
+                <div class="batch-upload-toolbar" id="batchUploadToolbar" style="display: none;">
+                    <div class="batch-upload-info">
+                        <span class="batch-count" id="batchFileCount">已选择 0 个文件</span>
+                        <span class="batch-total-size" id="batchTotalSize"></span>
+                    </div>
+                    <div class="batch-upload-actions">
+                        <button class="btn-clear-batch" id="clearBatchBtn">清空列表</button>
+                        <button class="btn-upload-batch" id="uploadBatchBtn">📤 批量上传</button>
+                    </div>
+                </div>
+
+                <!-- ========== 新增：待上传文件列表 ========== -->
+                <div class="pending-files-container" id="pendingFilesContainer" style="display: none;">
+                    <div class="pending-files-header">
+                        <span>📋 待上传文件列表</span>
+                        <span class="pending-files-hint">点击文件可移除</span>
+                    </div>
+                    <div class="pending-files-list" id="pendingFilesList"></div>
                 </div>
 
                 <!-- 配置面板 -->
@@ -86,10 +105,47 @@
                             <input type="checkbox" id="enableStorage" checked>
                             <label class="config-label">启用存储</label>
                         </div>
+                        <div class="config-item config-checkbox">
+                            <input type="checkbox" id="concurrentUpload" checked>
+                            <label class="config-label">并发上传</label>
+                            <span class="config-hint">(同时上传多个文件)</span>
+                        </div>
+                        <div class="config-item">
+                            <label class="config-label">并发数</label>
+                            <select id="concurrencyLimit" class="config-input" style="width: 70px;">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3" selected>3</option>
+                                <option value="5">5</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 进度条 -->
+                <!-- 全局进度条 -->
+                <div class="global-progress-container" id="globalProgressContainer" style="display: none;">
+                    <div class="global-progress-header">
+                        <span>📊 批量上传进度</span>
+                        <span id="globalProgressStatus">准备中...</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="globalProgressFill"></div>
+                    </div>
+                    <div class="global-progress-stats" id="globalProgressStats">
+                        已完成: 0 / 0
+                    </div>
+                </div>
+
+                <!-- 单个文件上传进度列表 -->
+                <div class="upload-progress-list" id="uploadProgressList" style="display: none;">
+                    <div class="upload-progress-header">
+                        <span>📁 文件上传详情</span>
+                        <button class="btn-collapse-progress" id="collapseProgressBtn">收起</button>
+                    </div>
+                    <div class="upload-progress-items" id="uploadProgressItems"></div>
+                </div>
+
+                <!-- 原有进度条（保留向后兼容） -->
                 <div class="progress-container" id="progressContainer" style="display: none;">
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill"></div>
@@ -100,8 +156,18 @@
 
             <!-- 已上传文档列表 -->
             <div class="card">
-                <div class="card-title">📋 已上传文档</div>
-                <div class="card-subtitle">已处理的文档列表，可删除重新上传</div>
+                <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>📋 已上传文档</span>
+                    <button id="batchDeleteBtn" class="btn-batch-delete" style="display: none;">
+                        🗑️ 批量删除 (<span id="selectedCount">0</span>)
+                    </button>
+                </div>
+                <div class="card-subtitle">
+                    已处理的文档列表，可删除重新上传
+                    <label class="select-all-label" style="margin-left: 16px;">
+                        <input type="checkbox" id="selectAllCheckbox"> 全选
+                    </label>
+                </div>
                 <div id="fileList" class="file-list">
                     <div style="text-align: center; color: #999; padding: 32px;">加载中...</div>
                 </div>
@@ -109,7 +175,26 @@
         </div>
     </div>
 
+    <!-- 批量上传确认对话框 -->
+    <div id="batchConfirmModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>确认批量上传</span>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>即将上传以下 <span id="confirmFileCount">0</span> 个文件：</p>
+                <div class="confirm-file-list" id="confirmFileList"></div>
+                <p class="modal-warning">⚠️ 上传过程可能需要一些时间，请勿关闭页面</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel">取消</button>
+                <button class="btn-confirm">开始上传</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/common.js"></script>
-    <script src="/static/js/upload.js"></script>
+    <script type="module" src="/static/js/upload.js"></script>
 </body>
 </html>
