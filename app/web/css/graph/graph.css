@@ -1,0 +1,44 @@
+/* app/web/css/graph/graph.css - 图谱容器样式 */
+/* 图谱容器 */
+.graph-container {
+    flex: 1;
+    position: relative;
+    background: var(--bg-secondary);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.graph-canvas {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-secondary);
+}
+
+/* 加载动画 */
+.graph-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(248, 249, 250, 0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 10;
+}
+
+.loading-spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(66, 99, 235, 0.2);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

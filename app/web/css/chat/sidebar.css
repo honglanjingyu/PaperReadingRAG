@@ -1,0 +1,163 @@
+/* app/web/css/chat/sidebar.css - 左侧边栏样式 */
+/* 左侧边栏导航 - 白色主题 */
+.sidebar-nav {
+    width: 280px;
+    background: var(--bg-primary);
+    border-radius: 0;
+    padding: 24px 20px;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    border-right: 1px solid var(--border-color);
+}
+
+.logo {
+    font-size: 22px;
+    font-weight: bold;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 32px;
+    text-align: center;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* 侧边栏用户信息 */
+.sidebar-user {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+    margin: 0 12px 20px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    gap: 12px;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.user-info i {
+    font-size: 1.2rem;
+    color: var(--primary);
+}
+
+.user-info span {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.user-role-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.user-role-badge.normal {
+    background: rgba(64, 192, 87, 0.15);
+    color: var(--success);
+}
+
+.user-role-badge.admin {
+    background: rgba(52, 152, 219, 0.15);
+    color: var(--info);
+}
+
+.user-role-badge.owner {
+    background: rgba(253, 126, 20, 0.15);
+    color: var(--warning);
+}
+
+.btn-logout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+
+.btn-logout:hover {
+    background: rgba(250, 82, 82, 0.1);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* 导航菜单 */
+.nav-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    font-weight: 500;
+    transition: all 0.3s;
+}
+
+.nav-item .nav-icon {
+    font-size: 20px;
+}
+
+.nav-item.active {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    box-shadow: 0 4px 12px rgba(66, 99, 235, 0.3);
+}
+
+.nav-item:hover:not(.active) {
+    background: var(--bg-tertiary);
+    color: var(--primary);
+    transform: translateX(4px);
+}
+
+/* 侧边栏底部 */
+.sidebar-footer {
+    margin-top: auto;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.system-status {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--success);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}

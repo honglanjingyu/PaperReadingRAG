@@ -105,6 +105,10 @@ async def batch_upload(
         except Exception as e:
             logger.error(f"提交任务失败 {file_name}: {e}")
 
+    from app.service.core.graphrag import get_graph_rag_service
+    graph_service = get_graph_rag_service()
+    graph_service.invalidate_cache(user_level)
+
     return {
         "success": True,
         "total_files": len(valid_files),

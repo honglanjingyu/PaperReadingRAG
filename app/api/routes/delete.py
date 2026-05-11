@@ -370,6 +370,11 @@ async def delete_document(
         result["message"] = "\n".join(details)
         logger.info(f"文档删除完成: {filename}, 删除者: {username} (等级={user_level})")
 
+        # 7. 使知识图谱缓存失效
+        from app.service.core.graphrag import get_graph_rag_service
+        graph_service = get_graph_rag_service()
+        graph_service.invalidate_cache(user_level)
+
         return result
 
     except Exception as e:

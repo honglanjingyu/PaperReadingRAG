@@ -1,0 +1,106 @@
+/* app/web/css/graph/communities.css - 社区面板样式（可收起） */
+/* 社区面板 - 可收起 */
+.communities-panel {
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-color);
+    transition: all 0.3s ease;
+}
+
+.communities-panel.collapsed {
+    display: none;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.panel-header h3 {
+    font-size: 14px;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.btn-icon {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 4px 12px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.btn-icon:hover {
+    background: var(--bg-secondary);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.communities-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+    padding: 16px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.community-card {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--border-color);
+}
+
+.community-card:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--primary);
+    transform: translateX(4px);
+}
+
+.community-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.community-title {
+    font-weight: 600;
+    color: var(--primary);
+    font-size: 13px;
+}
+
+.community-size {
+    background: rgba(66, 99, 235, 0.1);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    color: var(--primary);
+}
+
+.community-entities {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.community-summary {
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.4;
+}

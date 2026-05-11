@@ -1,0 +1,116 @@
+/* app/web/css/chat/right-sidebar.css - 使用项目 CSS 变量 */
+
+/* 右侧边栏 */
+.sidebar {
+    flex: 1;
+    background: var(--bg-primary);
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-header h3 {
+    font-size: 16px;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+/* 检索结果卡片 - 备份样式 */
+.retrieval-results {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+.result-card {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--border-color);
+}
+
+.result-card:hover {
+    background: var(--bg-tertiary);
+    transform: translateX(-2px);
+    border-color: var(--primary);
+}
+
+.result-score {
+    font-size: 12px;
+    color: var(--primary);
+    margin-bottom: 4px;
+}
+
+.result-content {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+
+.result-source {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 8px;
+}
+
+/* 配置面板 */
+.config-section {
+    padding: 16px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.config-title {
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+}
+
+.config-item {
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.config-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.config-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.config-input {
+    padding: 4px 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    width: 80px;
+    color: var(--text-primary);
+}
+
+.config-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 4px;
+}

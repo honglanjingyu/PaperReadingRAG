@@ -97,6 +97,10 @@ async def upload_document(
         user_level
     )
 
+    from app.service.core.graphrag import get_graph_rag_service
+    graph_service = get_graph_rag_service()
+    graph_service.invalidate_cache(user_level)
+
     return {
         "success": True,
         "process_id": process_id,
@@ -160,6 +164,10 @@ async def upload_document_async(
         enable_vectorization=enable_vectorization,
         enable_storage=enable_storage
     )
+
+    from app.service.core.graphrag import get_graph_rag_service
+    graph_service = get_graph_rag_service()
+    graph_service.invalidate_cache(user_level)
 
     return {
         "success": True,

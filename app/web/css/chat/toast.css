@@ -1,0 +1,141 @@
+/* app/web/css/chat/toast.css - 提示消息样式 */
+/* 提示消息 */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 12px 20px;
+    border-radius: 8px;
+    animation: slideIn 0.3s ease;
+    z-index: 1000;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.toast.success {
+    background: var(--success);
+    color: white;
+    border-color: var(--success);
+}
+
+.toast.error {
+    background: var(--danger);
+    color: white;
+    border-color: var(--danger);
+}
+
+.toast.warning {
+    background: var(--warning);
+    color: white;
+    border-color: var(--warning);
+}
+
+.session-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 1000;
+    animation: slideIn 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border: 1px solid var(--border-color);
+}
+
+.session-toast.info {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* 滚动条美化 */
+.messages-container::-webkit-scrollbar,
+.retrieval-results::-webkit-scrollbar,
+.communities-list-sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track,
+.retrieval-results::-webkit-scrollbar-track,
+.communities-list-sidebar::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb,
+.retrieval-results::-webkit-scrollbar-thumb,
+.communities-list-sidebar::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover,
+.retrieval-results::-webkit-scrollbar-thumb:hover,
+.communities-list-sidebar::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
+}
+
+/* 响应式布局 */
+@media (max-width: 768px) {
+    .container {
+        flex-direction: column;
+        height: auto;
+    }
+
+    .sidebar-nav {
+        width: 100%;
+        height: auto;
+        position: relative;
+    }
+
+    .nav-menu {
+        flex-direction: row;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .nav-item {
+        justify-content: center;
+    }
+
+    .main-layout {
+        flex-direction: column;
+        height: auto;
+    }
+
+    .chat-container {
+        min-height: 500px;
+    }
+
+    .sidebar {
+        max-height: 400px;
+    }
+
+    .message-content {
+        max-width: 85%;
+    }
+
+    .chat-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .header-actions {
+        flex-wrap: wrap;
+    }
+
+    .input-wrapper {
+        flex-direction: column;
+    }
+}

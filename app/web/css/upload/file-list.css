@@ -1,0 +1,140 @@
+/* app/web/css/upload/file-list.css - 文件列表样式 */
+/* 文件列表 */
+.file-list {
+    margin-top: 24px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-light);
+    transition: background 0.2s;
+}
+
+.file-item:hover {
+    background: rgba(66, 99, 235, 0.03);
+}
+
+.file-item.selected {
+    background: rgba(66, 99, 235, 0.05);
+}
+
+.file-checkbox {
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.file-checkbox input {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.file-icon {
+    font-size: 28px;
+}
+
+.file-details {
+    flex: 1;
+}
+
+.file-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.file-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.file-level {
+    margin-top: 4px;
+}
+
+.level-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+}
+
+.level-badge.normal {
+    background: rgba(64, 192, 87, 0.15);
+    color: var(--success);
+}
+
+.level-badge.admin {
+    background: rgba(52, 152, 219, 0.15);
+    color: var(--info);
+}
+
+.level-badge.owner {
+    background: rgba(253, 126, 20, 0.15);
+    color: var(--warning);
+}
+
+.delete-btn {
+    background: none;
+    border: none;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    opacity: 0.6;
+    transition: all 0.2s;
+}
+
+.delete-btn:hover {
+    opacity: 1;
+    background: rgba(250, 82, 82, 0.1);
+}
+
+.select-all-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* 批量删除按钮 */
+.btn-batch-delete {
+    background: linear-gradient(135deg, var(--danger), #e03131);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.btn-batch-delete:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(250, 82, 82, 0.3);
+}
+
+.btn-batch-delete:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}

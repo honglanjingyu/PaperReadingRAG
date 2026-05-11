@@ -1,5 +1,5 @@
 /* app/web/css/login.css */
-/* 登录页面专用样式 */
+/* 登录页面专用样式 - 白色主题 */
 
 * {
     margin: 0;
@@ -8,21 +8,28 @@
 }
 
 :root {
-    --primary-color: #667eea;
-    --primary-dark: #5a67d8;
-    --danger-color: #ef4444;
-    --dark-bg: #1a1a2e;
-    --dark-card: #16213e;
-    --dark-text: #e2e8f0;
-    --dark-text-secondary: #94a3b8;
-    --border-color: rgba(255, 255, 255, 0.1);
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8f9fa;
+    --bg-tertiary: #f1f3f5;
+    --text-primary: #212529;
+    --text-secondary: #6c757d;
+    --text-muted: #adb5bd;
+    --border-color: #e9ecef;
+    --border-light: #f1f3f5;
+    --primary: #4263eb;
+    --primary-dark: #364fc7;
+    --primary-light: #748ffc;
+    --success: #40c057;
+    --warning: #fd7e14;
+    --danger: #fa5252;
+    --info: #339af0;
     --radius: 12px;
     --radius-sm: 8px;
 }
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #e8f0fe 0%, #f5f0fa 100%);
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -36,10 +43,11 @@ body {
 }
 
 .auth-card {
-    background: white;
+    background: var(--bg-primary);
     border-radius: 24px;
     padding: 40px 32px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--border-color);
 }
 
 .logo {
@@ -55,14 +63,14 @@ body {
 .logo h1 {
     font-size: 28px;
     font-weight: bold;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
 
 .logo p {
-    color: #666;
+    color: var(--text-secondary);
     font-size: 14px;
     margin-top: 8px;
 }
@@ -72,9 +80,10 @@ body {
     display: flex;
     gap: 8px;
     margin-bottom: 24px;
-    background: #f0f0f0;
+    background: var(--bg-secondary);
     border-radius: 12px;
     padding: 4px;
+    border: 1px solid var(--border-color);
 }
 
 .tab-btn {
@@ -82,7 +91,7 @@ body {
     padding: 10px;
     background: transparent;
     border: none;
-    color: #666;
+    color: var(--text-secondary);
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
@@ -91,8 +100,14 @@ body {
 }
 
 .tab-btn.active {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     color: white;
+    box-shadow: 0 2px 8px rgba(66, 99, 235, 0.3);
+}
+
+.tab-btn:hover:not(.active) {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
 }
 
 /* 标签页内容 */
@@ -126,29 +141,36 @@ body {
     margin-bottom: 8px;
     font-size: 14px;
     font-weight: 500;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .form-group input {
     width: 100%;
     padding: 12px 16px;
-    border: 1px solid #e0e0e0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 12px;
     font-size: 14px;
     transition: all 0.2s;
+    color: var(--text-primary);
 }
 
 .form-group input:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(66, 99, 235, 0.1);
+    background: var(--bg-primary);
+}
+
+.form-group input::placeholder {
+    color: var(--text-muted);
 }
 
 /* 按钮样式 */
 .btn {
     width: 100%;
     padding: 12px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     border: none;
     border-radius: 12px;
     color: white;
@@ -160,7 +182,7 @@ body {
 
 .btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 4px 12px rgba(66, 99, 235, 0.4);
 }
 
 .btn:disabled {
@@ -171,23 +193,23 @@ body {
 
 /* 消息提示 */
 .error-message {
-    background: #fee2e2;
-    border: 1px solid #fecaca;
+    background: rgba(250, 82, 82, 0.1);
+    border: 1px solid var(--danger);
     border-radius: 12px;
     padding: 12px;
     margin-bottom: 20px;
-    color: #dc2626;
+    color: var(--danger);
     font-size: 14px;
     text-align: center;
 }
 
 .success-message {
-    background: #d1fae5;
-    border: 1px solid #a7f3d0;
+    background: rgba(64, 192, 87, 0.1);
+    border: 1px solid var(--success);
     border-radius: 12px;
     padding: 12px;
     margin-bottom: 20px;
-    color: #059669;
+    color: var(--success);
     font-size: 14px;
     text-align: center;
 }
@@ -197,11 +219,11 @@ body {
     text-align: center;
     margin-top: 24px;
     font-size: 12px;
-    color: #999;
+    color: var(--text-muted);
 }
 
 .info-text a {
-    color: #667eea;
+    color: var(--primary);
     text-decoration: none;
 }
 

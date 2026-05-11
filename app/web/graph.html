@@ -1,0 +1,156 @@
+<!-- app/web/graph.html - 知识图谱页面 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识图谱 - RAG智能问答系统</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/graph.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 左侧边栏导航 -->
+        <div class="sidebar-nav">
+            <div class="logo">📚 RAG智能问答系统</div>
+
+            <div class="sidebar-user" id="sidebarUser">
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <span id="userNameDisplay">加载中...</span>
+                    <span id="userRoleBadge" class="user-role-badge">普通用户</span>
+                </div>
+                <button class="btn-logout" id="logoutBtn" title="退出登录">
+                    <i class="fas fa-sign-out-alt"></i>
+                    退出登录
+                </button>
+            </div>
+
+            <div class="nav-menu">
+                <a href="/upload" class="nav-item">
+                    <span class="nav-icon">📤</span>
+                    <span>上传文档</span>
+                </a>
+                <a href="/graph" class="nav-item active">
+                    <span class="nav-icon">🕸️</span>
+                    <span>知识图谱</span>
+                </a>
+                <a href="/chat" class="nav-item">
+                    <span class="nav-icon">💬</span>
+                    <span>智能问答</span>
+                </a>
+            </div>
+            <div class="sidebar-footer">
+                <div class="system-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">检测中...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧主内容区域 -->
+        <div class="main-content">
+            <!-- 控制栏 -->
+            <div class="control-bar">
+                <div class="control-group">
+                    <button id="buildGraphBtn" class="btn-primary">
+                        <i class="fas fa-sync-alt"></i> 构建/刷新图谱
+                    </button>
+                    <button id="rebuildGraphBtn" class="btn-secondary">
+                        <i class="fas fa-trash-alt"></i> 强制重建
+                    </button>
+                </div>
+                <div class="control-group">
+                    <span class="control-label">布局算法:</span>
+                    <select id="layoutType" class="config-input">
+                        <option value="force">力导向布局</option>
+                        <option value="circular">环形布局</option>
+                        <option value="radial">径向布局</option>
+                    </select>
+                    <span class="control-label">显示模式:</span>
+                    <select id="displayMode" class="config-input">
+                        <option value="entity">实体视图</option>
+                        <option value="community">社区视图</option>
+                    </select>
+                </div>
+                <div class="status-badge" id="graphStatus">
+                    <span class="status-dot" id="graphStatusDot"></span>
+                    <span id="graphStatusText">未加载</span>
+                </div>
+            </div>
+
+            <!-- 统计信息卡片标题栏 -->
+            <div class="stats-header" id="statsHeader">
+                <span class="stats-title">📊 统计信息</span>
+                <button id="collapseStatsBtn" class="btn-collapse-stats">收起</button>
+            </div>
+
+            <!-- 统计信息卡片 -->
+            <div class="stats-cards" id="statsCards" style="display: none;">
+                <div class="stat-card" data-stat-type="entity">
+                    <div class="stat-icon">🔷</div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="entityCount">0</div>
+                        <div class="stat-label">实体数量</div>
+                    </div>
+                </div>
+                <div class="stat-card" data-stat-type="relation">
+                    <div class="stat-icon">🔗</div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="relationCount">0</div>
+                        <div class="stat-label">关系数量</div>
+                    </div>
+                </div>
+                <div class="stat-card" data-stat-type="community">
+                    <div class="stat-icon">🏘️</div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="communityCount">0</div>
+                        <div class="stat-label">社区数量</div>
+                    </div>
+                </div>
+                <div class="stat-card" data-stat-type="doc">
+                    <div class="stat-icon">📄</div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="docCount">0</div>
+                        <div class="stat-label">文档数量</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图谱可视化区域 -->
+            <div class="graph-container">
+                <div id="graphCanvas" class="graph-canvas"></div>
+                <div class="graph-loading" id="graphLoading" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <div>正在构建知识图谱...</div>
+                </div>
+            </div>
+
+            <!-- 社区详情区域 -->
+            <div class="communities-panel" id="communitiesPanel" style="display: none;">
+                <div class="panel-header">
+                    <h3><i class="fas fa-users"></i> 社区详情 (Louvain 算法)</h3>
+                    <button id="toggleCommunitiesBtn" class="btn-icon">收起</button>
+                </div>
+                <div class="communities-list" id="communitiesList"></div>
+            </div>
+
+            <!-- 实体详情侧边栏 -->
+            <div class="entity-sidebar" id="entitySidebar" style="display: none;">
+                <div class="sidebar-header">
+                    <h3>实体详情</h3>
+                    <button id="closeSidebarBtn" class="btn-icon">✕</button>
+                </div>
+                <div class="entity-detail" id="entityDetail"></div>
+                <div class="related-entities" id="relatedEntities"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script type="module" src="/static/js/graph.js"></script>
+</body>
+</html>

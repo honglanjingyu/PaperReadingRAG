@@ -1,847 +1,106 @@
-/* app/web/css/upload.css */
-/* 上传页面专用样式 */
+/* app/web/css/upload.css - 合并导入 */
+/* upload.css - 合并所有子模块 */
 
-/* 上传区域 */
-.upload-area {
-    border: 2px dashed #ddd;
-    border-radius: 16px;
-    padding: 48px;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.3s;
-    background: #fafafa;
+@import url('upload/base.css');
+@import url('upload/sidebar.css');
+@import url('upload/content.css');
+@import url('upload/config.css');
+@import url('upload/progress.css');
+@import url('upload/file-list.css');
+@import url('upload/modal.css');
+
+/* 滚动条 */
+.main-content::-webkit-scrollbar,
+.pending-files-list::-webkit-scrollbar,
+.upload-progress-items::-webkit-scrollbar,
+.file-list::-webkit-scrollbar {
+    width: 6px;
 }
 
-.upload-area:hover {
-    border-color: #667eea;
-    background: #f5f3ff;
+.main-content::-webkit-scrollbar-track,
+.pending-files-list::-webkit-scrollbar-track,
+.upload-progress-items::-webkit-scrollbar-track,
+.file-list::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 3px;
 }
 
-.upload-area.dragover {
-    border-color: #667eea;
-    background: #ede9fe;
+.main-content::-webkit-scrollbar-thumb,
+.pending-files-list::-webkit-scrollbar-thumb,
+.upload-progress-items::-webkit-scrollbar-thumb,
+.file-list::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
 }
 
-.upload-icon {
-    font-size: 64px;
-    margin-bottom: 16px;
+.main-content::-webkit-scrollbar-thumb:hover,
+.pending-files-list::-webkit-scrollbar-thumb:hover,
+.upload-progress-items::-webkit-scrollbar-thumb:hover,
+.file-list::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
 }
 
-.upload-text {
-    font-size: 18px;
-    color: #666;
-    margin-bottom: 8px;
-}
-
-.upload-hint {
-    font-size: 14px;
-    color: #999;
-}
-
-.file-input {
-    display: none;
-}
-
-/* 配置面板 */
-.config-panel {
-    margin-top: 24px;
-    padding: 20px;
-    background: #f8f9fa;
-    border-radius: 16px;
-}
-
-.config-title {
-    font-size: 16px;
-    font-weight: bold;
-    color: #333;
-    margin-bottom: 16px;
-}
-
-.config-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-}
-
-.config-item {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.config-label {
-    font-size: 14px;
-    color: #666;
-}
-
-.config-input {
-    padding: 8px 12px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    font-size: 14px;
-}
-
-.config-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-direction: row;
-}
-
-/* 进度条 */
-.progress-container {
-    margin-top: 24px;
-}
-
-.progress-bar {
-    height: 8px;
-    background: #e0e0e0;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.progress-fill {
-    height: 100%;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    width: 0%;
-    transition: width 0.3s;
-    border-radius: 4px;
-}
-
-.progress-text {
-    margin-top: 12px;
-    font-size: 14px;
-    color: #666;
-    text-align: center;
-}
-
-/* 文件列表 */
-.file-list {
-    margin-top: 24px;
-}
-
-.file-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px;
-    border-bottom: 1px solid #eee;
-}
-
-.file-info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.file-icon {
-    font-size: 24px;
-}
-
-.file-name {
-    font-weight: 500;
-    color: #333;
-}
-
-.file-size {
-    font-size: 12px;
-    color: #999;
-}
-
-.delete-btn {
-    background: none;
-    border: none;
-    color: #dc3545;
-    cursor: pointer;
-    font-size: 18px;
-    padding: 4px 8px;
-    border-radius: 4px;
-}
-
-.delete-btn:hover {
-    background: #f8d7da;
-}
-
-/* app/web/css/upload.css - 添加等级徽章样式 */
-
-.file-level {
-    margin-top: 4px;
-}
-
-.level-badge {
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 10px;
-    display: inline-block;
-}
-
-.level-badge.normal {
-    background: #e8f4e8;
-    color: #28a745;
-}
-
-.level-badge.admin {
-    background: #e3f2fd;
-    color: #2196f3;
-}
-
-.level-badge.owner {
-    background: #fff3e0;
-    color: #ff9800;
-}
-
-/* app/web/css/upload.css - 修改批量删除按钮样式 */
-
-/* 批量删除按钮 - 对所有用户可见 */
-.btn-batch-delete {
-    background: #dc3545;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-weight: 500;
-}
-
-.btn-batch-delete:hover {
-    background: #c82333;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
-}
-
-.btn-batch-delete:active {
-    transform: translateY(0);
-}
-
-/* 删除进度对话框 - 美化 */
-.delete-progress {
+/* 提示消息 */
+.toast {
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.95);
-    color: white;
-    padding: 24px 32px;
-    border-radius: 16px;
-    z-index: 1001;
-    text-align: center;
-    min-width: 350px;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.delete-progress .progress-bar {
-    margin-top: 16px;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.delete-progress .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #4caf50, #8bc34a);
-    width: 0%;
-    transition: width 0.3s ease;
-    border-radius: 3px;
-}
-
-/* 文件项添加复选框样式增强 */
-.file-checkbox {
-    margin-right: 12px;
-    flex-shrink: 0;
-}
-
-.file-checkbox input {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    accent-color: #667eea;
-}
-
-.file-item.selected {
-    background: #f0f0ff;
-}
-
-/* app/web/css/upload.css - 添加复选框相关样式 */
-
-/* 文件项布局 - 使用 flex 布局 */
-.file-item {
-    display: flex;
-    align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid #eee;
-    transition: background 0.2s;
-}
-
-.file-item:hover {
-    background: #f8f9fa;
-}
-
-.file-item.selected {
-    background: #f0f0ff;
-}
-
-/* 复选框容器 */
-.file-checkbox {
-    margin-right: 12px;
-    flex-shrink: 0;
-}
-
-.file-checkbox input {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    accent-color: #667eea;
-}
-
-/* 文件信息区域 - 可点击 */
-.file-info-clickable {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    cursor: pointer;
-}
-
-/* 文件图标 */
-.file-icon {
-    font-size: 28px;
-}
-
-/* 文件详情 */
-.file-details {
-    flex: 1;
-}
-
-.file-name {
-    font-weight: 500;
-    color: #333;
-    margin-bottom: 4px;
-}
-
-.file-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    font-size: 12px;
-    color: #999;
-}
-
-.file-size, .file-date {
-    color: #999;
-}
-
-/* 等级徽章 */
-.file-level {
-    margin-top: 4px;
-}
-
-.level-badge {
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 10px;
-    display: inline-block;
-}
-
-.level-badge.normal {
-    background: #e8f4e8;
-    color: #28a745;
-}
-
-.level-badge.admin {
-    background: #e3f2fd;
-    color: #2196f3;
-}
-
-.level-badge.owner {
-    background: #fff3e0;
-    color: #ff9800;
-}
-
-/* 删除按钮 */
-.delete-btn {
-    background: none;
-    border: none;
-    color: #dc3545;
-    cursor: pointer;
-    font-size: 18px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    margin-left: 8px;
-    flex-shrink: 0;
-}
-
-.delete-btn:hover {
-    background: #f8d7da;
-}
-
-/* 全选栏 */
-.select-all-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 16px;
-    background: #f8f9fa;
+    bottom: 20px;
+    right: 20px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 12px 20px;
     border-radius: 8px;
-    margin-bottom: 12px;
+    animation: slideIn 0.3s ease;
+    z-index: 1000;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.select-all-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    font-size: 13px;
-    color: #666;
-}
-
-.empty-state {
-    text-align: center;
-    color: #999;
-    padding: 48px;
-}
-
-/* 批量删除按钮 */
-.btn-batch-delete {
-    background: #dc3545;
+.toast.success {
+    background: var(--success);
     color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-weight: 500;
 }
 
-.btn-batch-delete:hover {
-    background: #c82333;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
-}
-
-.btn-batch-delete:active {
-    transform: translateY(0);
-}
-
-.btn-batch-delete:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-    transform: none;
-}
-
-/* 删除进度对话框 */
-.delete-progress {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.95);
+.toast.error {
+    background: var(--danger);
     color: white;
-    padding: 24px 32px;
-    border-radius: 16px;
-    z-index: 1001;
-    text-align: center;
-    min-width: 350px;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.delete-progress .progress-bar {
-    margin-top: 16px;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.delete-progress .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #4caf50, #8bc34a);
-    width: 0%;
-    transition: width 0.3s ease;
-    border-radius: 3px;
-}
-
-/* app/web/css/upload.css - 添加批量上传相关样式 */
-
-/* 批量上传工具栏 */
-.batch-upload-toolbar {
-    margin-top: 16px;
-    padding: 12px 16px;
-    background: linear-gradient(135deg, #f0f7ff 0%, #e8f0fe 100%);
-    border-radius: 12px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
-}
-
-.batch-upload-info {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-}
-
-.batch-count {
-    font-weight: 600;
-    color: #667eea;
-    font-size: 14px;
-}
-
-.batch-total-size {
-    font-size: 12px;
-    color: #666;
-}
-
-.batch-upload-actions {
-    display: flex;
-    gap: 12px;
-}
-
-.btn-clear-batch {
-    padding: 6px 12px;
-    background: #f0f0f0;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: all 0.2s;
-}
-
-.btn-clear-batch:hover {
-    background: #e0e0e0;
-}
-
-.btn-upload-batch {
-    padding: 6px 16px;
-    background: linear-gradient(135deg, #28a745, #20c997);
-    border: none;
-    border-radius: 6px;
+.toast.warning {
+    background: var(--warning);
     color: white;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-    transition: all 0.2s;
 }
 
-.btn-upload-batch:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
 }
 
-/* 待上传文件列表 */
-.pending-files-container {
-    margin-top: 16px;
-    border: 1px solid #e0e0e0;
-    border-radius: 12px;
-    overflow: hidden;
-}
+/* 响应式 */
+@media (max-width: 768px) {
+    .container {
+        flex-direction: column;
+    }
 
-.pending-files-header {
-    background: #f8f9fa;
-    padding: 10px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    color: #666;
-    display: flex;
-    justify-content: space-between;
-    border-bottom: 1px solid #e0e0e0;
-}
+    .sidebar-nav {
+        width: 100%;
+        height: auto;
+    }
 
-.pending-files-hint {
-    font-size: 11px;
-    color: #999;
-}
+    .nav-menu {
+        flex-direction: row;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
 
-.pending-files-list {
-    max-height: 200px;
-    overflow-y: auto;
-}
+    .nav-item {
+        justify-content: center;
+    }
 
-.pending-file-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 16px;
-    border-bottom: 1px solid #f0f0f0;
-    cursor: pointer;
-    transition: background 0.2s;
-}
+    .main-content {
+        height: auto;
+    }
 
-.pending-file-item:hover {
-    background: #f8f9fa;
-}
-
-.pending-file-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex: 1;
-}
-
-.pending-file-icon {
-    font-size: 20px;
-}
-
-.pending-file-name {
-    font-size: 13px;
-    color: #333;
-}
-
-.pending-file-size {
-    font-size: 11px;
-    color: #999;
-    margin-left: 8px;
-}
-
-.pending-file-remove {
-    color: #dc3545;
-    font-size: 14px;
-    opacity: 0.6;
-    transition: opacity 0.2s;
-}
-
-.pending-file-item:hover .pending-file-remove {
-    opacity: 1;
-}
-
-/* 全局进度条 */
-.global-progress-container {
-    margin-top: 16px;
-    padding: 12px 16px;
-    background: #f8f9fa;
-    border-radius: 12px;
-}
-
-.global-progress-header {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    color: #666;
-    margin-bottom: 8px;
-}
-
-.global-progress-stats {
-    font-size: 11px;
-    color: #999;
-    margin-top: 6px;
-    text-align: right;
-}
-
-/* 上传进度列表 */
-.upload-progress-list {
-    margin-top: 16px;
-    border: 1px solid #e0e0e0;
-    border-radius: 12px;
-    overflow: hidden;
-}
-
-.upload-progress-header {
-    background: #f8f9fa;
-    padding: 10px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    display: flex;
-    justify-content: space-between;
-    border-bottom: 1px solid #e0e0e0;
-}
-
-.btn-collapse-progress {
-    background: none;
-    border: none;
-    color: #666;
-    cursor: pointer;
-    font-size: 11px;
-}
-
-.upload-progress-items {
-    max-height: 300px;
-    overflow-y: auto;
-}
-
-.upload-progress-item {
-    padding: 10px 16px;
-    border-bottom: 1px solid #f0f0f0;
-}
-
-.upload-progress-item.completed {
-    background: #f0fff4;
-}
-
-.upload-progress-item.failed {
-    background: #fff5f5;
-}
-
-.upload-progress-item .file-info {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 6px;
-    font-size: 12px;
-}
-
-.upload-progress-item .file-name {
-    font-weight: 500;
-    color: #333;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.upload-progress-item .file-status {
-    font-size: 11px;
-}
-
-.upload-progress-item .progress-bar-small {
-    height: 4px;
-    background: #e0e0e0;
-    border-radius: 2px;
-    overflow: hidden;
-}
-
-.upload-progress-item .progress-fill-small {
-    height: 100%;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    width: 0%;
-    transition: width 0.3s;
-}
-
-.upload-progress-item.completed .progress-fill-small {
-    background: #28a745;
-    width: 100%;
-}
-
-.upload-progress-item.failed .progress-fill-small {
-    background: #dc3545;
-    width: 100%;
-}
-
-/* 模态框样式 */
-.modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 2000;
-}
-
-.modal-content {
-    background: white;
-    border-radius: 16px;
-    width: 90%;
-    max-width: 500px;
-    max-height: 80vh;
-    overflow: hidden;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-}
-
-.modal-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #e0e0e0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-weight: 600;
-    background: #f8f9fa;
-}
-
-.modal-close {
-    background: none;
-    border: none;
-    font-size: 24px;
-    cursor: pointer;
-    color: #999;
-}
-
-.modal-body {
-    padding: 20px;
-    max-height: 400px;
-    overflow-y: auto;
-}
-
-.confirm-file-list {
-    margin: 12px 0;
-    max-height: 200px;
-    overflow-y: auto;
-    background: #f8f9fa;
-    border-radius: 8px;
-    padding: 8px;
-}
-
-.confirm-file-item {
-    padding: 4px 8px;
-    font-size: 12px;
-    color: #666;
-    display: flex;
-    justify-content: space-between;
-    border-bottom: 1px solid #eee;
-}
-
-.modal-warning {
-    margin-top: 12px;
-    font-size: 12px;
-    color: #ff9800;
-    background: #fff3e0;
-    padding: 8px;
-    border-radius: 6px;
-}
-
-.modal-footer {
-    padding: 16px 20px;
-    border-top: 1px solid #e0e0e0;
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-}
-
-.btn-cancel {
-    padding: 8px 20px;
-    background: #f0f0f0;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-.btn-confirm {
-    padding: 8px 20px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    border: none;
-    border-radius: 8px;
-    color: white;
-    cursor: pointer;
-}
-
-/* 配置提示 */
-.config-hint {
-    font-size: 10px;
-    color: #999;
-    margin-left: 4px;
-}
-
-/* app/web/css/upload.css - 添加 processing 样式 */
-
-.upload-progress-item.processing {
-    background: #fff8e1;
-}
-
-.upload-progress-item .progress-fill-small.processing {
-    background: #ffc107;
-}
-
-/* 添加等待中的样式 */
-.upload-progress-item.pending {
-    background: #fafafa;
-    opacity: 0.7;
+    .config-grid {
+        grid-template-columns: 1fr;
+    }
 }

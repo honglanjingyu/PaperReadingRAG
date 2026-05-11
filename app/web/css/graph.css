@@ -1,0 +1,46 @@
+/* app/web/css/graph.css - 合并导入 */
+/* graph.css - 合并所有子模块 */
+
+@import url('graph/base.css');
+@import url('graph/sidebar.css');
+@import url('graph/main.css');
+@import url('graph/stats.css');
+@import url('graph/graph.css');
+@import url('graph/communities.css');
+@import url('graph/sidebar-entity.css');
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .sidebar-nav {
+        width: 80px;
+        padding: 20px 12px;
+    }
+
+    .logo {
+        font-size: 0;
+        padding: 0;
+        margin-bottom: 20px;
+    }
+
+    .logo::before {
+        content: "📚";
+        font-size: 28px;
+    }
+
+    .nav-item span:not(.nav-icon) {
+        display: none;
+    }
+
+    .nav-item {
+        justify-content: center;
+        padding: 12px;
+    }
+
+    .entity-sidebar {
+        width: 100%;
+    }
+
+    .stats-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

@@ -1,19 +1,49 @@
 // app/web/js/chat.js
-// 聊天页面主入口 - 仅支持流式输出
+// 聊天页面主入口 - 支持 URL session 参数，添加模式切换功能
 
 import { elements, initElements, state, updateState } from './chat/config.js';
 import { loadSavedSession, newSession, saveSessionId, createAndSetNewSession } from './chat/session.js';
-import { sendMessageStream } from './chat/stream.js';
+import { sendMessageNormal, sendMessageStream } from './chat/stream.js';
 import { removeAllThinkingIndicators } from './chat/thinking.js';
 import { addMessage } from './chat/messages.js';
 import { showRetrievingStatus } from './chat/retrieval.js';
 import { showToast } from './chat/utils.js';
 
-// 发送消息 - 统一使用流式
+// 当前选中的模式
+let currentMode = 'advanced'; // 'advanced' 或 'graph'
+
+// 切换模式
+function switchMode(mode) {
+    if (state.isProcessing) {
+        showToast('请等待当前回答完成后再切换模式', 'warning');
+        return;
+    }
+
+    currentMode = mode;
+
+    // 更新按钮样式
+    const advancedBtn = document.getElementById('advancedModeBtn');
+    const graphBtn = document.getElementById('graphModeBtn');
+
+    if (advancedBtn && graphBtn) {
+        if (mode === 'advanced') {
+            advancedBtn.classList.add('active');
+            graphBtn.classList.remove('active');
+        } else {
+            advancedBtn.classList.remove('active');
+            graphBtn.classList.add('active');
+        }
+    }
+
+    // 保存模式到 localStorage（静默）
+    localStorage.setItem('rag_chat_mode', mode);
+}
+
+// 发送消息 - 主入口（确保 session_id 存在，并传递模式参数）
 async function sendMessage() {
     const question = elements.chatInput ? elements.chatInput.value.trim() : '';
 
-    console.log('sendMessage called, question:', question, 'isProcessing:', state.isProcessing);
+    console.log('sendMessage called, question:', question, 'isProcessing:', state.isProcessing, 'mode:', currentMode);
 
     if (!question || state.isProcessing) return;
 
@@ -39,7 +69,11 @@ async function sendMessage() {
     showRetrievingStatus();
 
     try {
-        await sendMessageStream(question);
+        if (state.useStreamMode) {
+            await sendMessageStream(question, currentMode);
+        } else {
+            await sendMessageNormal(question, currentMode);
+        }
     } catch (error) {
         console.error('发送消息失败:', error);
         removeAllThinkingIndicators();
@@ -103,53 +137,42 @@ function initEventListeners() {
     if (elements.newSessionBtn) {
         elements.newSessionBtn.addEventListener('click', newSession);
     }
-}
-// app/web/js/chat.js - 修改 DOMContentLoaded 部分
 
+    // ========== 模式切换按钮事件 ==========
+    const advancedModeBtn = document.getElementById('advancedModeBtn');
+    const graphModeBtn = document.getElementById('graphModeBtn');
+
+    if (advancedModeBtn) {
+        advancedModeBtn.addEventListener('click', () => switchMode('advanced'));
+    }
+
+    if (graphModeBtn) {
+        graphModeBtn.addEventListener('click', () => switchMode('graph'));
+    }
+}
+
+// 加载保存的模式
+function loadSavedMode() {
+    const savedMode = localStorage.getItem('rag_chat_mode');
+    if (savedMode === 'graph') {
+        switchMode('graph');
+    } else {
+        switchMode('advanced');
+    }
+}
+
+// 切换流式/非流式模式
+window.setStreamMode = function(enabled) {
+    updateState({ useStreamMode: enabled });
+    console.log(`流式模式: ${enabled ? '开启' : '关闭'}`);
+};
+
+// 页面加载时初始化
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOMContentLoaded 事件触发');
 
-    // 首先显示用户名
-    displayCurrentUser();
-
-    // 添加这行：显示用户等级
-    await displayUserRole();
-
-    // 检查登录状态 - 增强版
-    const token = localStorage.getItem('rag_token');
-    if (!token || token === 'null' || token === 'undefined') {
-        console.log('未找到 token，跳转到登录页');
-        window.location.href = '/login.html';
-        return;
-    }
-
-    // 验证 token 有效性
-    try {
-        console.log('验证 token 有效性...');
-        const isValid = await verifyToken();
-        if (!isValid) {
-            console.log('Token 无效，跳转到登录页');
-            logout();
-            return;
-        }
-        console.log('Token 验证通过');
-    } catch (error) {
-        console.error('验证失败:', error);
-        logout();
-        return;
-    }
-
-    // 确保用户名显示
-    displayCurrentUser();
-
-    // 初始化 DOM 元素
+    // 先初始化 DOM 元素
     initElements();
-
-    // 绑定退出登录按钮事件
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', handleLogout);
-    }
 
     // 检查 DOM 元素是否存在
     console.log('检查 DOM 元素:');
@@ -159,6 +182,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 初始化事件监听
     initEventListeners();
+
+    // 加载保存的模式
+    loadSavedMode();
 
     // 加载会话（从 URL 参数或 localStorage）
     await loadSavedSession();

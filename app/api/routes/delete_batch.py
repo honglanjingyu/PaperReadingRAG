@@ -459,6 +459,10 @@ async def delete_documents_batch(
             fail_count += 1
             logger.warning(f"批量删除失败: {filename}")
 
+    from app.service.core.graphrag import get_graph_rag_service
+    graph_service = get_graph_rag_service()
+    graph_service.invalidate_cache(user_level)
+
     return {
         "success": success_count > 0,
         "total": len(filenames),

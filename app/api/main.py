@@ -16,6 +16,7 @@ from app.api.routes.delete import router as delete_router  # 单个删除
 from app.api.routes.delete_batch import router as delete_batch_router  # 批量删除
 from app.api.config import settings
 from app.api.auth_routes import router as auth_router
+from app.api.routes.graph_rag import router as graph_rag_router
 
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix="/api", tags=["智能问答"])
     app.include_router(upload_batch.router, prefix="/api", tags=["批量上传"])
     app.include_router(auth_router)
+    app.include_router(graph_rag_router, prefix="/api", tags=["GraphRAG"])
 
     logger.info("FastAPI 应用创建完成")
     return app
@@ -104,6 +106,10 @@ def configure_static_routes(app: FastAPI):
         @app.get("/login.html")
         async def login_html():
             return FileResponse(str(web_dir / "login.html"))
+
+        @app.get("/graph")
+        async def graph_page():
+            return FileResponse(str(web_dir / "graph.html"))
 
 
 app = create_app()

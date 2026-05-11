@@ -1,10 +1,10 @@
-/* app/web/js/chat/retrieval.js */
-// 检索结果显示模块
+// app/web/js/chat/retrieval.js
+// 检索结果显示模块 - 恢复备份样式（简化的卡片形式）
 
 import { elements } from './config.js';
 import { escapeHtml, escapeJs } from './utils.js';
 
-// 显示检索结果
+// 显示检索结果（备份样式：简洁卡片）
 export function displayRetrievalResults(results, info) {
     if (!results || results.length === 0) {
         elements.retrievalResults.innerHTML = '<div style="text-align: center; color: #999; padding: 32px;">未找到相关文档</div>';

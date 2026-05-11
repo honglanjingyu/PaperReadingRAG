@@ -1,4 +1,4 @@
-<!-- app/web/chat.html - 修改后的版本 -->
+<!-- app/web/chat.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -7,6 +7,8 @@
     <title>智能问答 - RAG智能问答系统</title>
     <link rel="stylesheet" href="/static/css/common.css">
     <link rel="stylesheet" href="/static/css/chat.css">
+    <!-- ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -14,7 +16,7 @@
         <div class="sidebar-nav">
             <div class="logo">📚 RAG智能问答系统</div>
 
-            <!-- 用户信息区域 - 修改后的上下结构 -->
+            <!-- 用户信息区域 -->
             <div class="sidebar-user" id="sidebarUser">
                 <div class="user-info">
                     <i class="fas fa-user-circle"></i>
@@ -31,6 +33,10 @@
                 <a href="/upload" class="nav-item">
                     <span class="nav-icon">📤</span>
                     <span>上传文档</span>
+                </a>
+                <a href="/graph" class="nav-item">
+                    <span class="nav-icon">🕸️</span>
+                    <span>知识图谱</span>
                 </a>
                 <a href="/chat" class="nav-item active">
                     <span class="nav-icon">💬</span>
@@ -51,13 +57,24 @@
             <div class="chat-container">
                 <div class="chat-header">
                     <h2>💬 智能问答</h2>
-                    <div class="session-info" id="sessionInfo">
-                        <span class="session-badge" id="sessionBadge" title="会话ID">
-                            📝 新会话
-                        </span>
-                        <button class="new-session-btn" id="newSessionBtn" title="新建会话">
-                            ✨ 新建会话
-                        </button>
+                    <div class="header-actions">
+                        <!-- 模式切换 -->
+                        <div class="mode-switch">
+                            <button class="mode-btn" data-mode="advanced" id="advancedModeBtn">
+                                🔍 Advanced RAG
+                            </button>
+                            <button class="mode-btn" data-mode="graph" id="graphModeBtn">
+                                🕸️ GraphRAG
+                            </button>
+                        </div>
+                        <div class="session-info" id="sessionInfo">
+                            <span class="session-badge" id="sessionBadge" title="会话ID">
+                                📝 新会话
+                            </span>
+                            <button class="new-session-btn" id="newSessionBtn" title="新建会话">
+                                ✨ 新建会话
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -79,7 +96,7 @@
                 </div>
             </div>
 
-            <!-- 右侧边栏（检索结果和配置） -->
+            <!-- 右侧边栏 - 恢复备份样式 -->
             <div class="sidebar">
                 <div class="sidebar-header">
                     <h3>📄 相关文档片段</h3>
@@ -120,7 +137,7 @@
         </div>
     </div>
 
-    <!-- Font Awesome 6 (用于图标) -->
+    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <script src="/static/js/common.js"></script>
     <script type="module" src="/static/js/chat.js"></script>

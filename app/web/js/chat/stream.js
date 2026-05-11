@@ -1,7 +1,7 @@
-/* app/web/js/chat/stream.js */
+// app/web/js/chat/stream.js - 添加模式参数支持
 // 流式和非流式请求模块
 
-import { elements, state, API_BASE } from './config.js';
+import { elements, state, updateState, API_BASE } from './config.js';
 import {
     addMessage,
     createAssistantMessageContainer,
@@ -19,31 +19,18 @@ import { displayRetrievalResults, showRetrievingStatus } from './retrieval.js';
 import { saveSessionId } from './session.js';
 import { showToast } from './utils.js';
 
-// 获取认证头
-function getAuthHeaders() {
-    const token = localStorage.getItem('rag_token');
-    if (token && token !== 'null' && token !== 'undefined') {
-        return { 'Authorization': `Bearer ${token}` };
-    }
-    return {};
-}
-
-// 非流式模式
-export async function sendMessageNormal(question) {
+// 非流式模式（支持模式参数）
+export async function sendMessageNormal(question, mode = 'advanced') {
     const thinkingId = addThinkingMessage();
 
     try {
-        const headers = {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        };
-
         const response = await fetch(`${API_BASE}/chat/ask`, {
             method: 'POST',
-            headers: headers,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 question: question,
                 session_id: state.currentSessionId,
+                mode: mode,  // 添加模式参数
                 top_k: parseInt(elements.topKSelect?.value || 5),
                 similarity_threshold: parseFloat(elements.similarityThreshold?.value || 0.3),
                 enable_rerank: elements.enableRerank?.checked ?? true,
@@ -52,11 +39,6 @@ export async function sendMessageNormal(question) {
                 template_name: 'detailed'
             })
         });
-
-        if (response.status === 401) {
-            logout();
-            return;
-        }
 
         const data = await response.json();
 
@@ -87,8 +69,8 @@ export async function sendMessageNormal(question) {
     }
 }
 
-// 流式模式
-export async function sendMessageStream(question) {
+// 流式模式（支持模式参数）
+export async function sendMessageStream(question, mode = 'advanced') {
     const thinkingId = addThinkingMessage();
     let assistantMessageId = null;
     let fullResponse = '';
@@ -96,17 +78,13 @@ export async function sendMessageStream(question) {
     let newSessionId = null;
 
     try {
-        const headers = {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        };
-
         const response = await fetch(`${API_BASE}/chat/ask/stream`, {
             method: 'POST',
-            headers: headers,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 question: question,
                 session_id: state.currentSessionId,
+                mode: mode,  // 添加模式参数
                 history: getChatHistory(),
                 top_k: parseInt(elements.topKSelect?.value || 5),
                 recall_k: (parseInt(elements.topKSelect?.value || 5) * 2),
@@ -117,11 +95,6 @@ export async function sendMessageStream(question) {
                 template_name: 'detailed'
             })
         });
-
-        if (response.status === 401) {
-            logout();
-            return;
-        }
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -148,16 +121,6 @@ export async function sendMessageStream(question) {
                             if (data.session_id && data.session_id !== 'default') {
                                 newSessionId = data.session_id;
                             }
-                        } else if (data.type === 'retrieval_results') {
-                            // 显示检索结果
-                            if (elements.retrievalResults && data.results) {
-                                displayRetrievalResults(data.results, data.retrieval_info);
-
-                                // 如果没有检索结果，显示提示
-                                if (!data.results || data.results.length === 0) {
-                                    elements.retrievalResults.innerHTML = '<div style="text-align: center; color: #999; padding: 32px;">未找到相关文档</div>';
-                                }
-                            }
                         } else if (data.type === 'answer') {
                             const chunk = data.content;
                             if (chunk) {
@@ -179,6 +142,11 @@ export async function sendMessageStream(question) {
                                     找到 ${data.results_count} 个相关文档，正在生成回答...
                                 </div>`;
                             }
+                        }else if (data.type === 'retrieval_results') {
+                            // 处理检索结果
+                            if (elements.retrievalResults && data.results) {
+                                displayRetrievalResults(data.results, data.retrieval_info);
+                            }
                         } else if (data.type === 'end') {
                             if (data.session_id && data.session_id !== 'default') {
                                 saveSessionId(data.session_id);
@@ -192,11 +160,7 @@ export async function sendMessageStream(question) {
                                 stopThinkingAnimation();
                                 const thinkingDiv = document.getElementById(thinkingId);
                                 if (thinkingDiv) thinkingDiv.style.display = 'none';
-                                if (data.no_results) {
-                                    addMessage('assistant', '未找到与问题相关的文档内容，请尝试其他问题或上传更多相关文档。');
-                                } else {
-                                    addMessage('assistant', '未收到响应，请稍后重试。');
-                                }
+                                addMessage('assistant', '未收到响应，请稍后重试。');
                             }
                         } else if (data.type === 'error') {
                             const errorMsg = data.content || '未知错误';
@@ -207,9 +171,6 @@ export async function sendMessageStream(question) {
                                 const thinkingDiv = document.getElementById(thinkingId);
                                 if (thinkingDiv) thinkingDiv.style.display = 'none';
                                 addMessage('assistant', `错误: ${errorMsg}`);
-                            }
-                            if (elements.retrievalResults) {
-                                elements.retrievalResults.innerHTML = '<div style="text-align: center; color: #999; padding: 32px;">检索失败</div>';
                             }
                         }
                     } catch (e) {
@@ -223,6 +184,7 @@ export async function sendMessageStream(question) {
             stopThinkingAnimation();
             const thinkingDiv = document.getElementById(thinkingId);
             if (thinkingDiv) thinkingDiv.style.display = 'none';
+            addMessage('assistant', '未收到响应，请稍后重试。');
         }
 
     } catch (error) {
@@ -231,8 +193,5 @@ export async function sendMessageStream(question) {
         const thinkingDiv = document.getElementById(thinkingId);
         if (thinkingDiv) thinkingDiv.style.display = 'none';
         addMessage('assistant', `网络错误: ${error.message}`);
-        if (elements.retrievalResults) {
-            elements.retrievalResults.innerHTML = '<div style="text-align: center; color: #999; padding: 32px;">检索失败</div>';
-        }
     }
 }

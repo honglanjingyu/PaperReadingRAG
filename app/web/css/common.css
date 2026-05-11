@@ -1,5 +1,23 @@
-/* app/web/css/common.css */
+/* app/web/css/common.css - 更新为白色主题 */
 /* 公共样式 - 重置、变量、布局等 */
+
+:root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8f9fa;
+    --bg-tertiary: #f1f3f5;
+    --text-primary: #212529;
+    --text-secondary: #6c757d;
+    --text-muted: #adb5bd;
+    --border-color: #e9ecef;
+    --border-light: #f1f3f5;
+    --primary: #4263eb;
+    --primary-dark: #364fc7;
+    --primary-light: #748ffc;
+    --success: #40c057;
+    --warning: #fd7e14;
+    --danger: #fa5252;
+    --info: #339af0;
+}
 
 * {
     margin: 0;
@@ -9,7 +27,7 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--bg-secondary);
     min-height: 100vh;
 }
 
@@ -26,10 +44,10 @@ body {
 /* 左侧边栏导航 */
 .sidebar-nav {
     width: 280px;
-    background: white;
+    background: var(--bg-primary);
     border-radius: 24px;
     padding: 32px 20px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.05);
     display: flex;
     flex-direction: column;
     height: calc(100vh - 40px);
@@ -40,26 +58,26 @@ body {
 .logo {
     font-size: 24px;
     font-weight: bold;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     margin-bottom: 40px;
     text-align: center;
     padding-bottom: 20px;
-    border-bottom: 2px solid #f0f0f0;
+    border-bottom: 2px solid var(--border-color);
 }
 
-/* 侧边栏用户信息区域 - 修改为上下结构 */
+/* 侧边栏用户信息区域 */
 .sidebar-user {
     display: flex;
     flex-direction: column;
     align-items: stretch;
     padding: 16px;
     margin: 0 12px 20px 12px;
-    background: #f0f0ff;
+    background: var(--bg-tertiary);
     border-radius: 12px;
-    border: 1px solid rgba(102, 126, 234, 0.2);
+    border: 1px solid var(--border-color);
     gap: 12px;
 }
 
@@ -72,7 +90,7 @@ body {
 
 .user-info i {
     font-size: 1.2rem;
-    color: #667eea;
+    color: var(--primary);
     flex-shrink: 0;
 }
 
@@ -82,17 +100,15 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: #333;
+    color: var(--text-primary);
 }
 
-/* 用户名 - 允许适当缩短但保留完整显示 */
 #userNameDisplay {
     max-width: 100px;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-/* 用户等级徽章 */
 .user-role-badge {
     font-size: 10px;
     padding: 2px 8px;
@@ -102,29 +118,28 @@ body {
 }
 
 .user-role-badge.normal {
-    background: #e8f4e8;
-    color: #28a745;
+    background: rgba(64, 192, 87, 0.15);
+    color: var(--success);
 }
 
 .user-role-badge.admin {
-    background: #e3f2fd;
-    color: #2196f3;
+    background: rgba(52, 152, 219, 0.15);
+    color: var(--info);
 }
 
 .user-role-badge.owner {
-    background: #fff3e0;
-    color: #ff9800;
+    background: rgba(253, 126, 20, 0.15);
+    color: var(--warning);
 }
 
-/* 退出按钮 - 独立一行，宽度自适应 */
 .btn-logout {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
     background: transparent;
-    border: 1px solid #ddd;
-    color: #666;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
     cursor: pointer;
     padding: 8px 12px;
     border-radius: 8px;
@@ -138,9 +153,9 @@ body {
 }
 
 .btn-logout:hover {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: #dc2626;
-    color: #dc2626;
+    background: rgba(250, 82, 82, 0.1);
+    border-color: var(--danger);
+    color: var(--danger);
 }
 
 /* 导航菜单 */
@@ -158,7 +173,7 @@ body {
     padding: 14px 18px;
     border-radius: 12px;
     text-decoration: none;
-    color: #666;
+    color: var(--text-secondary);
     font-weight: 500;
     transition: all 0.3s;
 }
@@ -168,14 +183,14 @@ body {
 }
 
 .nav-item.active {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     color: white;
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    box-shadow: 0 4px 12px rgba(66, 99, 235, 0.3);
 }
 
 .nav-item:hover:not(.active) {
-    background: #f0f0f0;
-    color: #667eea;
+    background: var(--bg-tertiary);
+    color: var(--primary);
     transform: translateX(4px);
 }
 
@@ -183,13 +198,13 @@ body {
 .sidebar-footer {
     margin-top: auto;
     padding-top: 20px;
-    border-top: 1px solid #f0f0f0;
+    border-top: 1px solid var(--border-color);
     text-align: center;
 }
 
 .system-status {
     font-size: 12px;
-    color: #999;
+    color: var(--text-muted);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -199,7 +214,7 @@ body {
 .status-dot {
     width: 8px;
     height: 8px;
-    background: #4caf50;
+    background: var(--success);
     border-radius: 50%;
     animation: pulse 2s infinite;
 }
@@ -222,21 +237,21 @@ body {
 
 /* 卡片样式 */
 .card {
-    background: white;
+    background: var(--bg-primary);
     border-radius: 24px;
     padding: 32px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.05);
 }
 
 .card-title {
     font-size: 28px;
     font-weight: bold;
-    color: #333;
+    color: var(--text-primary);
     margin-bottom: 8px;
 }
 
 .card-subtitle {
-    color: #666;
+    color: var(--text-secondary);
     margin-bottom: 24px;
 }
 
@@ -252,13 +267,13 @@ body {
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     color: white;
 }
 
 .btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 4px 12px rgba(66, 99, 235, 0.4);
 }
 
 /* 提示消息 */
@@ -266,7 +281,7 @@ body {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    background: #333;
+    background: var(--text-primary);
     color: white;
     padding: 12px 24px;
     border-radius: 8px;
@@ -275,11 +290,11 @@ body {
 }
 
 .toast.success {
-    background: #28a745;
+    background: var(--success);
 }
 
 .toast.error {
-    background: #dc3545;
+    background: var(--danger);
 }
 
 @keyframes slideIn {
@@ -303,28 +318,21 @@ body {
 .main-content::-webkit-scrollbar-track,
 .messages-container::-webkit-scrollbar-track,
 .retrieval-results::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--bg-secondary);
     border-radius: 3px;
 }
 
 .main-content::-webkit-scrollbar-thumb,
 .messages-container::-webkit-scrollbar-thumb,
 .retrieval-results::-webkit-scrollbar-thumb {
-    background: #c1c1c1;
+    background: var(--border-color);
     border-radius: 3px;
 }
 
 .main-content::-webkit-scrollbar-thumb:hover,
 .messages-container::-webkit-scrollbar-thumb:hover,
 .retrieval-results::-webkit-scrollbar-thumb:hover {
-    background: #a8a8a8;
-}
-
-/* 用户详情区域 */
-.user-details {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    background: var(--primary-light);
 }
 
 /* 响应式 */
@@ -348,4 +356,15 @@ body {
     .main-content {
         height: auto;
     }
+}
+
+/* 确保三个导航项正常显示 */
+.nav-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.nav-item {
+    padding: 12px 16px;
 }

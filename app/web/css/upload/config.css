@@ -1,0 +1,66 @@
+/* app/web/css/upload/config.css - 上传页面配置面板样式 */
+/* 配置面板 */
+.config-panel {
+    margin-top: 24px;
+    padding: 20px;
+    background: var(--bg-secondary);
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+}
+
+.config-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+}
+
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.config-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.config-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.config-input {
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.config-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.config-checkbox {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+}
+
+.config-checkbox input {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+
+.config-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 8px;
+}

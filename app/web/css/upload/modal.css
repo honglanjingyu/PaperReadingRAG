@@ -1,0 +1,150 @@
+/* app/web/css/upload/modal.css - 模态框样式 */
+/* 模态框 */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.modal-content {
+    background: var(--bg-primary);
+    border-radius: 16px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+}
+
+.modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.modal-body {
+    padding: 20px;
+    max-height: 400px;
+    overflow-y: auto;
+    color: var(--text-primary);
+}
+
+.confirm-file-list {
+    margin: 12px 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.confirm-file-item {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.modal-warning {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--warning);
+    background: rgba(253, 126, 20, 0.1);
+    padding: 8px;
+    border-radius: 6px;
+}
+
+.modal-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    background: var(--bg-primary);
+}
+
+.btn-cancel {
+    padding: 8px 20px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.btn-cancel:hover {
+    background: var(--bg-tertiary);
+}
+
+.btn-confirm {
+    padding: 8px 20px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border: none;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+}
+
+.btn-confirm:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(66, 99, 235, 0.4);
+}
+
+/* 删除进度对话框 */
+.delete-progress {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 24px 32px;
+    border-radius: 16px;
+    z-index: 1001;
+    text-align: center;
+    min-width: 350px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+}
+
+.delete-progress .progress-bar {
+    margin-top: 16px;
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+.delete-progress .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--success), #8bc34a);
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 3px;
+}
