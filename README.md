@@ -1,6 +1,6 @@
 # 文档解析
-## mineru 的 vlm
-
+mineru 的 vlm
+批量上传异步并发
 # 分块
 固定 token 数
 语义分块
@@ -10,6 +10,7 @@
 # 向量化
 不同embedding模型对比
 # 向量化存储
+批量上传异步并发
 es->milvus 效果提升:
 
 # Query改写
