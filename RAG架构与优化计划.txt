@@ -1,8 +1,8 @@
 优化:
 前端显示阶段: 正在检索文档->正在生成回复
-评估系统 检索层Hit@K MRR   输出层Faithfulness、Answer Relevancy、Context Recall 和 ContextPrecision 用户点赞与点踩 面经
+异步并发,支持批量上传
 幻觉  面经
-文档权限->登录鉴权(postgres)
+
 过长文档自动拆分
 chunk优化 表格不切块 标题和下面的文档一起返回
 去重

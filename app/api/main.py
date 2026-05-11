@@ -9,20 +9,43 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import logging
+from contextlib import asynccontextmanager
 
-from app.api.routes import health, upload, chat
+from app.api.routes import health, upload, chat, upload_batch
+from app.api.routes.delete import router as delete_router  # 单个删除
+from app.api.routes.delete_batch import router as delete_batch_router  # 批量删除
 from app.api.config import settings
 from app.api.auth_routes import router as auth_router
 
-# 获取日志器（不在这里初始化，让 run_api.py 处理）
+
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时
+    logger.info("应用启动中...")
+
+    # 初始化异步处理器
+    from app.service.core.rag.async_processor import init_async_processor, shutdown_async_processor
+    await init_async_processor()
+    logger.info("异步文档处理器已启动")
+
+    yield
+
+    # 关闭时
+    logger.info("应用关闭中...")
+    await shutdown_async_processor()
+    logger.info("异步文档处理器已关闭")
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="RAG文档问答系统",
         description="支持文档上传、智能分块、向量检索和智能问答",
-        version="1.0.0"
+        version="1.0.0",
+        lifespan=lifespan
     )
 
     # CORS 配置
@@ -37,8 +60,11 @@ def create_app() -> FastAPI:
     # 注册路由
     app.include_router(health.router, prefix="/api", tags=["健康检查"])
     app.include_router(upload.router, prefix="/api", tags=["文档上传"])
+    app.include_router(delete_router, prefix="/api", tags=["文档删除"])  # 单个删除
+    app.include_router(delete_batch_router, prefix="/api", tags=["文档批量删除"])  # 批量删除
     app.include_router(chat.router, prefix="/api", tags=["智能问答"])
-    app.include_router(auth_router)  # 添加认证路由
+    app.include_router(upload_batch.router, prefix="/api", tags=["批量上传"])
+    app.include_router(auth_router)
 
     logger.info("FastAPI 应用创建完成")
     return app
@@ -49,15 +75,12 @@ def configure_static_routes(app: FastAPI):
     web_dir = Path(__file__).parent.parent / "web"
 
     if web_dir.exists():
-        # 挂载静态文件目录
         app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
 
-        # 挂载 CSS 目录
         css_dir = web_dir / "css"
         if css_dir.exists():
             app.mount("/css", StaticFiles(directory=str(css_dir)), name="css")
 
-        # 挂载 JS 目录
         js_dir = web_dir / "js"
         if js_dir.exists():
             app.mount("/js", StaticFiles(directory=str(js_dir)), name="js")
@@ -83,7 +106,6 @@ def configure_static_routes(app: FastAPI):
             return FileResponse(str(web_dir / "login.html"))
 
 
-# 创建应用实例
 app = create_app()
 configure_static_routes(app)
 

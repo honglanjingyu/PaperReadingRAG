@@ -113,6 +113,22 @@ class VectorStorageService:
             return False
         return self.store.index_exists(index_name)
 
+    def batch_delete_by_files(self, index_name: str, filenames: List[str]) -> Dict[str, int]:
+        """
+        批量删除指定文件的所有文档
+
+        Args:
+            index_name: 索引名称
+            filenames: 文件名列表
+
+        Returns:
+            Dict[str, int]: 每个文件删除的记录数
+        """
+        if self.store is None:
+            logger.error("向量存储未初始化")
+            return {filename: 0 for filename in filenames}
+
+        return self.store.batch_delete_by_docnm(index_name, filenames)
 
 # 全局单例
 _vector_storage_service = None

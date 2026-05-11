@@ -11,9 +11,13 @@ from typing import List, Optional, Dict
 from dotenv import load_dotenv
 from app.service.core.deepdoc.parser.remote_pdf_parser import save_chunked_report, RemotePDFParser,is_remote_parse_enabled
 import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+_mineru_executor = None
 
 # 导入 deepdoc 模块
 from app.service.core.deepdoc import (
@@ -42,9 +46,13 @@ from app.service.core.vector_store import (
     VectorStorageService, get_vector_storage_service, get_vector_search_service,
 )
 
-
-# app/service/core/rag/processor.py
-# 替换原有的 process_document 函数
+def get_mineru_executor():
+    """获取 MinerU API 调用的专用线程池"""
+    global _mineru_executor
+    if _mineru_executor is None:
+        max_workers = int(os.getenv("ASYNC_PROCESSOR_MAX_WORKERS", "3"))
+        _mineru_executor = ThreadPoolExecutor(max_workers=max_workers)
+    return _mineru_executor
 
 def process_document(
         file_path: str,

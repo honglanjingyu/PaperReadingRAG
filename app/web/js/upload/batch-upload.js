@@ -4,6 +4,7 @@
 import { elements, state, updateSelectedFiles } from './config.js';
 import { getAuthHeaders, showToast, escapeHtml, formatFileSize, logout } from './utils.js';
 import { loadFileList } from './file-list.js';
+import { API_BASE } from './config.js';
 
 // 待上传文件队列
 let pendingFiles = [];
@@ -260,9 +261,6 @@ function getFileIconByName(filename) {
     return icons[ext] || '📄';
 }
 
-// ========== 批量上传核心逻辑 ==========
-
-// 开始批量上传（串行模式）
 export async function startBatchUpload() {
     if (pendingFiles.length === 0) return;
     if (isUploading) {
@@ -272,47 +270,118 @@ export async function startBatchUpload() {
 
     isUploading = true;
     uploadResults = { completed: [], failed: [] };
-    currentUploadTasks = [];
 
     // 显示进度界面
     showProgressUI();
 
-    // 初始化进度项（所有文件初始状态为等待中）
-    initProgressItems();
+    // 获取配置参数
+    const chunkSize = document.getElementById('chunkSize')?.value || 256;
+    const fromPage = document.getElementById('fromPage')?.value || 0;
+    const toPage = document.getElementById('toPage')?.value || 100000;
+    const enableVectorization = document.getElementById('enableVectorization')?.checked ?? true;
+    const enableStorage = document.getElementById('enableStorage')?.checked ?? true;
 
     const filesToUpload = [...pendingFiles];
     const total = filesToUpload.length;
-    let completedCount = 0;
 
-    // 更新全局进度
-    updateGlobalProgress(0, total, '准备上传...');
+    // 初始化进度项
+    initProgressItems(filesToUpload);
 
-    // ========== 串行上传，逐个处理 ==========
-    for (let i = 0; i < filesToUpload.length; i++) {
-        const file = filesToUpload[i];
+    updateGlobalProgress(0, total, '正在上传文件...');
 
-        // 更新全局状态
-        updateGlobalProgress(completedCount, total, `正在上传第 ${i + 1}/${total} 个文件: ${file.name.substring(0, 30)}`);
+    // ========== 用于追踪每个文件的状态 ==========
+    const uploadedFiles = [];  // 上传成功的文件
+    const uploadedCountMap = { completed: 0, failed: 0 };
 
-        // 上传单个文件（等待完成）
-        const result = await uploadSingleFileSerial(file, i);
+    // 存储每个文件的轮询控制器（用于可选的中止功能）
+    const pollControllers = [];
 
-        if (result.success) {
-            completedCount++;
-            uploadResults.completed.push(result);
-        } else {
-            uploadResults.failed.push({ name: result.name, error: result.error });
+    // ========== 为每个文件创建独立的上传和轮询任务 ==========
+    const uploadTasks = filesToUpload.map(async (fileItem) => {
+        const file = fileItem.file;
+        const fileName = fileItem.name;
+
+        updateProgressItem(fileName, 'uploading', 0, '📤 上传中 0%');
+
+        try {
+            // 1. 上传文件
+            const result = await uploadSingleFile(file, {
+                chunk_size: parseInt(chunkSize),
+                from_page: parseInt(fromPage),
+                to_page: parseInt(toPage),
+                enable_vectorization: enableVectorization,
+                enable_storage: enableStorage
+            });
+
+            if (!result.success) {
+                // 上传失败
+                uploadedCountMap.failed++;
+                updateProgressItem(fileName, 'failed', 100, `✗ ${result.error}`);
+                uploadResults.failed.push({
+                    name: fileName,
+                    error: result.error
+                });
+                updateGlobalProgress(
+                    uploadedCountMap.completed + uploadedCountMap.failed,
+                    total,
+                    `上传完成: ${uploadedCountMap.completed}/${total}`
+                );
+                return;
+            }
+
+            // 2. 上传成功，立即开始轮询处理状态
+            uploadedCountMap.completed++;
+            updateProgressItem(fileName, 'completed', 100, '✓ 上传成功，处理中...');
+
+            // 记录上传成功的文件
+            uploadedFiles.push({
+                name: fileName,
+                process_id: result.process_id
+            });
+
+            updateGlobalProgress(
+                uploadedCountMap.completed + uploadedCountMap.failed,
+                total,
+                `上传完成: ${uploadedCountMap.completed}/${total}`
+            );
+
+            // 3. 立即开始轮询这个文件的处理状态（不等待其他文件）
+            await pollSingleFileStatus({
+                name: fileName,
+                process_id: result.process_id
+            });
+
+        } catch (error) {
+            uploadedCountMap.failed++;
+            updateProgressItem(fileName, 'failed', 100, `✗ ${error.message}`);
+            uploadResults.failed.push({
+                name: fileName,
+                error: error.message
+            });
+            updateGlobalProgress(
+                uploadedCountMap.completed + uploadedCountMap.failed,
+                total,
+                `上传完成: ${uploadedCountMap.completed}/${total}`
+            );
         }
+    });
 
-        // 更新全局进度
-        updateGlobalProgress(completedCount, total);
+    // 等待所有上传和轮询任务完成
+    await Promise.all(uploadTasks);
+
+    // ========== 全部完成 ==========
+    isUploading = false;
+
+    const succeededCount = uploadResults.completed.length;
+    const finalFailedCount = uploadResults.failed.length;
+
+    if (finalFailedCount > 0) {
+        let errorMsg = `${succeededCount} 个文件处理成功，${finalFailedCount} 个失败`;
+        const failedFiles = uploadResults.failed.map(f => `  • ${f.name}: ${f.error}`).join('\n');
+        showToast(`${errorMsg}\n\n失败的文件:\n${failedFiles}`, 'error', 8000);
+    } else if (succeededCount > 0) {
+        showToast(`✅ 成功处理 ${succeededCount} 个文件`, 'success');
     }
-
-    // 更新最终结果
-    updateGlobalProgress(total, total, '上传完成！');
-
-    // 显示完成结果
-    showUploadComplete();
 
     // 清空待上传队列
     pendingFiles = [];
@@ -322,194 +391,293 @@ export async function startBatchUpload() {
     // 刷新文件列表
     await loadFileList();
 
-    // 多次刷新以确保数据同步
-    if (uploadResults.completed.length > 0) {
-        setTimeout(async () => {
-            await loadFileList();
-            console.log('批量上传完成，刷新文件列表');
-        }, 1000);
-        setTimeout(async () => {
-            await loadFileList();
-            console.log('批量上传完成，二次刷新文件列表');
-        }, 3000);
-    }
-
-    isUploading = false;
+    // 延迟隐藏进度详情
+    setTimeout(() => {
+        hideProgressUI();
+    }, 3000);
 }
+// app/web/js/upload/batch-upload.js
 
-// 串行上传单个文件（带模拟进度）
-async function uploadSingleFileSerial(fileItem, index) {
-    const { file, name } = fileItem;
+async function pollSingleFileStatus(file) {
+    const fileName = file.name;
+    const processId = file.process_id;
 
     return new Promise((resolve) => {
+        let pollCount = 0;
+        let isCompleted = false;
+
+        const interval = setInterval(async () => {
+            if (isCompleted) return;
+
+            try {
+                // 修复：使用正确的接口路径
+                const statusUrl = `/api/upload/task/${processId}`;
+                console.log(`轮询状态 [${fileName}]: ${statusUrl}`);
+
+                const response = await fetch(statusUrl, {
+                    headers: getAuthHeaders()
+                });
+
+                console.log(`状态响应状态码 [${fileName}]:`, response.status);
+
+                if (!response.ok) {
+                    console.warn(`状态接口返回 ${response.status}: ${fileName}`);
+                    pollCount++;
+                    if (pollCount >= 15) { // 30秒超时
+                        clearInterval(interval);
+                        updateProgressItem(fileName, 'failed', 100, '✗ 状态查询超时');
+                        uploadResults.failed.push({
+                            name: fileName,
+                            error: '状态查询超时'
+                        });
+                        isCompleted = true;
+                        resolve();
+                    }
+                    return;
+                }
+
+                const statusData = await response.json();
+                console.log(`${fileName} 状态数据:`, statusData);
+
+                // 修复：检查 statusData.status 字段
+                if (statusData.status === 'completed') {
+                    clearInterval(interval);
+                    updateProgressItem(fileName, 'completed', 100, '✓ 处理完成');
+                    uploadResults.completed.push({
+                        name: fileName,
+                        result: statusData.result
+                    });
+                    isCompleted = true;
+                    resolve();
+
+                } else if (statusData.status === 'failed') {
+                    clearInterval(interval);
+                    const errorMsg = statusData.error || statusData.message || '处理失败';
+                    updateProgressItem(fileName, 'failed', 100, `✗ ${errorMsg}`);
+                    uploadResults.failed.push({
+                        name: fileName,
+                        error: errorMsg
+                    });
+                    isCompleted = true;
+                    resolve();
+
+                } else if (statusData.status === 'processing') {
+                    // 处理中，更新进度
+                    const progressPercent = statusData.progress || 50;
+                    updateProgressItem(fileName, 'processing', progressPercent, `⚙️ ${statusData.message || '处理中...'}`);
+                    pollCount = 0; // 重置计数
+                } else {
+                    // 未知状态
+                    pollCount++;
+                    if (pollCount >= 15) {
+                        clearInterval(interval);
+                        updateProgressItem(fileName, 'failed', 100, '✗ 状态查询超时');
+                        uploadResults.failed.push({
+                            name: fileName,
+                            error: '状态查询超时'
+                        });
+                        isCompleted = true;
+                        resolve();
+                    }
+                }
+
+            } catch (error) {
+                console.error(`获取 ${fileName} 状态失败:`, error);
+                pollCount++;
+                if (pollCount >= 15) {
+                    clearInterval(interval);
+                    updateProgressItem(fileName, 'failed', 100, `✗ ${error.message}`);
+                    uploadResults.failed.push({
+                        name: fileName,
+                        error: error.message
+                    });
+                    isCompleted = true;
+                    resolve();
+                }
+            }
+        }, 2000); // 每2秒轮询
+
+        // 设置总超时（5分钟）
+        setTimeout(() => {
+            if (!isCompleted) {
+                console.log(`${fileName} 轮询超时`);
+                clearInterval(interval);
+                updateProgressItem(fileName, 'failed', 100, '✗ 处理超时');
+                uploadResults.failed.push({
+                    name: fileName,
+                    error: '处理超时'
+                });
+                isCompleted = true;
+                resolve();
+            }
+        }, 300000);
+    });
+}
+async function pollProcessingStatus(uploadedFiles) {
+    const total = uploadedFiles.length;
+    let completed = 0;
+    let failed = 0;
+
+    // 记录每个文件的状态
+    const fileStatus = {};
+    for (const file of uploadedFiles) {
+        fileStatus[file.name] = {
+            process_id: file.process_id,
+            status: 'processing',
+            pollCount: 0,
+            lastStatus: null
+        };
+    }
+
+    return new Promise((resolve) => {
+        const checkInterval = setInterval(async () => {
+            let allDone = true;
+
+            for (const file of uploadedFiles) {
+                const status = fileStatus[file.name];
+                if (status.status !== 'completed' && status.status !== 'failed') {
+                    allDone = false;
+
+                    try {
+                        // 使用正确的状态接口
+                        const statusUrl = `/api/upload/task/${status.process_id}`;
+                        console.log(`轮询状态: ${file.name} -> ${statusUrl}`);
+
+                        const response = await fetch(statusUrl, {
+                            headers: getAuthHeaders()
+                        });
+
+                        if (!response.ok) {
+                            console.warn(`状态接口返回 ${response.status}: ${file.name}`);
+                            continue;
+                        }
+
+                        const statusData = await response.json();
+                        console.log(`${file.name} 状态数据:`, statusData);
+
+                        if (statusData.status === 'completed') {
+                            if (status.status !== 'completed') {
+                                status.status = 'completed';
+                                completed++;
+                                updateProgressItem(file.name, 'completed', 100, '✓ 处理完成');
+                                uploadResults.completed.push({
+                                    name: file.name,
+                                    result: statusData.result
+                                });
+                                console.log(`✅ ${file.name} 处理完成`);
+                            }
+                        } else if (statusData.status === 'failed') {
+                            if (status.status !== 'failed') {
+                                status.status = 'failed';
+                                failed++;
+                                const errorMsg = statusData.error || statusData.message || '处理失败';
+                                updateProgressItem(file.name, 'failed', 100, `✗ ${errorMsg}`);
+                                uploadResults.failed.push({
+                                    name: file.name,
+                                    error: errorMsg
+                                });
+                                console.log(`❌ ${file.name} 处理失败: ${errorMsg}`);
+                            }
+                        } else {
+                            // 处理中，更新进度显示
+                            status.pollCount++;
+                            let progressPercent = 50;
+                            if (statusData.progress && statusData.progress > 0) {
+                                progressPercent = Math.min(95, 50 + Math.floor(statusData.progress * 0.45));
+                            } else {
+                                progressPercent = Math.min(95, 50 + Math.floor(status.pollCount * 0.5));
+                            }
+                            updateProgressItem(file.name, 'processing', progressPercent, `⚙️ ${statusData.message || '处理中...'}`);
+                            console.log(`🔄 ${file.name} 处理中: ${statusData.message || ''} (${status.pollCount}次轮询)`);
+                        }
+                    } catch (error) {
+                        console.error(`获取 ${file.name} 状态失败:`, error);
+                    }
+                }
+            }
+
+            // 更新全局进度
+            updateGlobalProgress(completed + failed, total, `处理进度: ${completed + failed}/${total}`);
+
+            // 日志输出当前进度
+            console.log(`轮询进度: 完成=${completed}, 失败=${failed}, 总计=${total}`);
+
+            // 检查是否全部完成
+            if (allDone) {
+                console.log('所有文件处理完成，停止轮询');
+                clearInterval(checkInterval);
+                resolve();
+            }
+        }, 2000); // 每2秒轮询一次
+
+        // 设置总超时（5分钟）
+        setTimeout(() => {
+            console.log('轮询超时，强制停止');
+            clearInterval(checkInterval);
+            resolve();
+        }, 300000);
+    });
+}
+async function getTaskStatus(taskId) {
+    // 使用 API_BASE
+    const response = await fetch(`${API_BASE}/upload/task/${taskId}`, {
+        headers: getAuthHeaders()
+    });
+    if (!response.ok) return null;
+    return await response.json();
+}
+// 新增：上传单个文件的函数
+async function uploadSingleFile(file, options) {
+    return new Promise((resolve) => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // 添加配置参数
+        formData.append('chunk_size', options.chunk_size);
+        formData.append('from_page', options.from_page);
+        formData.append('to_page', options.to_page);
+        formData.append('enable_vectorization', options.enable_vectorization);
+        formData.append('enable_storage', options.enable_storage);
+
         const xhr = new XMLHttpRequest();
-        let uploadComplete = false;
-        let simulatedProgress = 0;
-        let progressInterval = null;
-        let processId = null;
-        let statusInterval = null;
-
-        // 模拟缓慢增加的进度（0% -> 90%）
-        const startSimulatedProgress = () => {
-            simulatedProgress = 0;
-            progressInterval = setInterval(() => {
-                if (!uploadComplete && simulatedProgress < 90) {
-                    // 缓慢增加，每秒增加 2-4%
-                    const increment = Math.random() * 2 + 2;
-                    simulatedProgress = Math.min(90, simulatedProgress + increment);
-                    updateProgressItem(name, 'uploading', Math.floor(simulatedProgress), `📤 上传中 ${Math.floor(simulatedProgress)}%`);
-                }
-            }, 300);
-        };
-
-        const stopSimulatedProgress = () => {
-            if (progressInterval) {
-                clearInterval(progressInterval);
-                progressInterval = null;
-            }
-        };
-
-        // 真实上传进度
-        xhr.upload.addEventListener('progress', (e) => {
-            if (e.lengthComputable) {
-                const realPercent = Math.min(Math.round((e.loaded / e.total) * 100), 90);
-                // 如果真实进度大于模拟进度，使用真实进度
-                if (realPercent > simulatedProgress) {
-                    simulatedProgress = realPercent;
-                    updateProgressItem(name, 'uploading', realPercent, `📤 上传中 ${realPercent}%`);
-                }
-            }
-        });
 
         xhr.onload = () => {
-            stopSimulatedProgress();
-
             if (xhr.status === 401) {
-                updateProgressItem(name, 'failed', 100, '✗ 登录已过期');
-                resolve({ success: false, name, error: '登录已过期' });
-                return;
-            }
-
-            if (xhr.status === 413) {
-                updateProgressItem(name, 'failed', 100, '✗ 文件过大');
-                resolve({ success: false, name, error: '文件过大' });
+                resolve({ success: false, error: '登录已过期' });
                 return;
             }
 
             if (xhr.status < 200 || xhr.status >= 300) {
-                updateProgressItem(name, 'failed', 100, `✗ HTTP ${xhr.status}`);
-                resolve({ success: false, name, error: `HTTP ${xhr.status}` });
+                resolve({ success: false, error: `HTTP ${xhr.status}` });
                 return;
             }
 
             try {
                 const data = JSON.parse(xhr.responseText);
                 if (data.success) {
-                    processId = data.process_id;
-                    updateProgressItem(name, 'processing', 95, '⚙️ 后端处理中...');
-
-                    // 开始轮询后端处理状态
-                    let pollCount = 0;
-                    statusInterval = setInterval(async () => {
-                        pollCount++;
-                        try {
-                            const headers = getAuthHeaders();
-                            const statusResponse = await fetch(`/api/upload/status/${processId}`, {
-                                headers: headers
-                            });
-
-                            if (statusResponse.ok) {
-                                const statusData = await statusResponse.json();
-
-                                if (statusData.status === 'completed') {
-                                    // 处理完成
-                                    clearInterval(statusInterval);
-                                    updateProgressItem(name, 'completed', 100, '✓ 处理完成');
-                                    resolve({ success: true, name, data: statusData });
-                                } else if (statusData.status === 'failed') {
-                                    clearInterval(statusInterval);
-                                    updateProgressItem(name, 'failed', 100, `✗ ${statusData.error || '处理失败'}`);
-                                    resolve({ success: false, name, error: statusData.error || '处理失败' });
-                                } else {
-                                    // 更新进度（根据轮询次数和时间估计）
-                                    let progressPercent = 95;
-                                    if (statusData.progress && statusData.progress > 0) {
-                                        // 使用后端返回的进度
-                                        progressPercent = Math.min(99, 40 + Math.floor(statusData.progress * 0.59));
-                                    } else {
-                                        // 根据轮询次数估算（最多轮询60次约120秒）
-                                        progressPercent = Math.min(99, 95 + Math.floor(pollCount * 0.1));
-                                    }
-                                    updateProgressItem(name, 'processing', progressPercent, `⚙️ ${statusData.message || '处理中...'}`);
-                                }
-                            }
-                        } catch (e) {
-                            console.error('轮询状态失败:', e);
-                            // 轮询失败次数过多，标记为失败
-                            if (pollCount > 30) {
-                                clearInterval(statusInterval);
-                                updateProgressItem(name, 'failed', 100, '✗ 状态查询超时');
-                                resolve({ success: false, name, error: '状态查询超时' });
-                            }
-                        }
-                    }, 2000);
-
-                    // 设置总超时（120秒）
-                    setTimeout(() => {
-                        if (statusInterval) {
-                            clearInterval(statusInterval);
-                            if (!uploadResults.completed.some(r => r.name === name)) {
-                                updateProgressItem(name, 'failed', 100, '✗ 后端处理超时');
-                                resolve({ success: false, name, error: '后端处理超时' });
-                            }
-                        }
-                    }, 120000);
-
+                    resolve({
+                        success: true,
+                        process_id: data.task_id,
+                        filename: file.name
+                    });
                 } else {
-                    updateProgressItem(name, 'failed', 100, `✗ ${data.detail || data.message || '上传失败'}`);
-                    resolve({ success: false, name, error: data.detail || '上传失败' });
+                    resolve({ success: false, error: data.detail || data.message || '上传失败' });
                 }
             } catch (e) {
-                updateProgressItem(name, 'failed', 100, '✗ 解析响应失败');
-                resolve({ success: false, name, error: '解析响应失败' });
+                resolve({ success: false, error: '解析响应失败' });
             }
         };
 
         xhr.onerror = () => {
-            stopSimulatedProgress();
-            updateProgressItem(name, 'failed', 100, '✗ 网络错误');
-            resolve({ success: false, name, error: '网络错误' });
+            resolve({ success: false, error: '网络错误' });
         };
 
         xhr.ontimeout = () => {
-            stopSimulatedProgress();
-            updateProgressItem(name, 'failed', 100, '✗ 请求超时');
-            resolve({ success: false, name, error: '请求超时' });
+            resolve({ success: false, error: '请求超时' });
         };
 
-        // 启动模拟进度
-        startSimulatedProgress();
-
-        // 构建 FormData
-        const formData = new FormData();
-        formData.append('file', file);
-
-        // 添加配置参数
-        const chunkSizeElem = document.getElementById('chunkSize');
-        const fromPageElem = document.getElementById('fromPage');
-        const toPageElem = document.getElementById('toPage');
-        const enableVectorizationElem = document.getElementById('enableVectorization');
-        const enableStorageElem = document.getElementById('enableStorage');
-
-        if (chunkSizeElem) formData.append('chunk_size', chunkSizeElem.value);
-        if (fromPageElem) formData.append('from_page', fromPageElem.value);
-        if (toPageElem) formData.append('to_page', toPageElem.value);
-        if (enableVectorizationElem) formData.append('enable_vectorization', enableVectorizationElem.checked);
-        if (enableStorageElem) formData.append('enable_storage', enableStorageElem.checked);
-
-        // 发送请求
         const headers = getAuthHeaders();
-        xhr.open('POST', '/api/upload');
+        xhr.open('POST', '/api/upload/async');
         if (headers.Authorization) {
             xhr.setRequestHeader('Authorization', headers.Authorization);
         }
@@ -517,7 +685,6 @@ async function uploadSingleFileSerial(fileItem, index) {
         xhr.send(formData);
     });
 }
-
 // 显示进度 UI
 function showProgressUI() {
     if (globalProgressContainer) {
@@ -538,18 +705,18 @@ function hideProgressUI() {
     if (uploadProgressList) uploadProgressList.style.display = 'none';
 }
 
-// 初始化进度项（所有文件初始状态为等待中）
-function initProgressItems() {
+// 修改 initProgressItems 函数（用于批量上传）
+function initProgressItems(files) {
     if (!uploadProgressItems) return;
 
     let html = '';
-    for (let i = 0; i < pendingFiles.length; i++) {
-        const file = pendingFiles[i];
-        const fileId = escapeHtml(file.name).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+    for (const file of files) {
+        const fileName = file.name;
+        const fileId = escapeHtml(fileName).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
         html += `
-            <div class="upload-progress-item pending" id="upload-item-${fileId}" data-filename="${escapeHtml(file.name)}">
+            <div class="upload-progress-item pending" id="upload-item-${fileId}" data-filename="${escapeHtml(fileName)}">
                 <div class="file-info">
-                    <span class="file-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name.length > 30 ? file.name.substring(0, 27) + '...' : file.name)}</span>
+                    <span class="file-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName.length > 30 ? fileName.substring(0, 27) + '...' : fileName)}</span>
                     <span class="file-status" id="upload-status-${fileId}">⏳ 等待中</span>
                 </div>
                 <div class="progress-bar-small">

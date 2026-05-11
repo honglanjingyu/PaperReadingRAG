@@ -2,50 +2,30 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="分级用户">
-      <change afterPath="$PROJECT_DIR$/app/service/core/chunking/chunk_types.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/service/core/retrieval/base.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/api/routes/delete.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/api/routes/delete_batch.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/api/routes/upload_batch.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/service/core/rag/async_processor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/RAG架构与优化计划.txt" beforeDir="false" afterPath="$PROJECT_DIR$/RAG架构与优化计划.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/api/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/services/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/services/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/services/logging_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/services/logging_config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/chunking/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/chunking/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/chunking/chunk_factory.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/chunking/chunk_factory.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/chunking/chunk_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/chunking/chunk_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/chunking/chunk_strategies.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/chunking/chunk_strategies.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/chunking/recursive_chunker.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/cross_page_connector.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/cross_page_connector.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/layout_recognizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/layout_recognizer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/routes/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/routes/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/routes/upload.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/routes/upload.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/loader.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/parser/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/docx_parser.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/excel_parser.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/html_parser.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/json_parser.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/markdown_parser.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/pdf_parser.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/ppt_parser.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/remote_pdf_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/deepdoc/parser/remote_pdf_parser.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/txt_parser.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/deepdoc/parser/utils.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/embedding_manager.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/embedding_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/embedding_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/vector_processor.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/vector_retriever.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/vector_types.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/vectorization_service.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/app/service/core/rag/processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/processor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/rag/search.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/search.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/retrieval/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/retrieval/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/retrieval/hybrid_retriever.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/retrieval/hybrid_retriever.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/retrieval/query_rewriter.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/retrieval/query_rewriter.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/retrieval/reranker.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/retrieval/reranker.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/logging_config.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/配置/elasticsearch配置.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/配置/milvus配置" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/run_api.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_api.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/milvus_vector_store.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/milvus_vector_store.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/vector_store/vector_storage_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/vector_store/vector_storage_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/web/js/upload/batch-upload.js" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/js/upload/batch-upload.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docparselist/20260510_133926_管理员用户.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docparselist/20260510_133931_管理员用户.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docparselist/20260510_134151_所有者用户.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docparselist/20260510_134154_所有者用户.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docparselist/20260510_134522_普通用户.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docparselist/20260510_134525_普通用户.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/批量上传效果较差.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/逐个上传效果很好.txt" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -240,6 +220,7 @@
       <workItem from="1778386067011" duration="9867000" />
       <workItem from="1778397493240" duration="11212000" />
       <workItem from="1778417019849" duration="5681000" />
+      <workItem from="1778463303400" duration="10405000" />
     </task>
     <task id="LOCAL-00001" summary="First Commit">
       <option name="closed" value="true" />
@@ -556,16 +537,16 @@
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_bm25.coverage" NAME="demo_bm25 覆盖结果" MODIFIED="1777946847662" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/test" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$main.coverage" NAME="main 覆盖结果" MODIFIED="1778155582286" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_fix_a2a.coverage" NAME="demo_fix_a2a 覆盖结果" MODIFIED="1778303316769" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$demo.coverage" NAME="demo 覆盖结果" MODIFIED="1778161759121" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$demo.coverage" NAME="demo 覆盖结果" MODIFIED="1778458395766" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG1_.coverage" NAME="RAG1-数据清洗 覆盖结果" MODIFIED="1777606611791" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$milvus_demo.coverage" NAME="milvus_demo 覆盖结果" MODIFIED="1777728934140" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_milvus.coverage" NAME="demo_milvus 覆盖结果" MODIFIED="1777946923889" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/test" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$milvus_demo.coverage" NAME="milvus_demo 覆盖结果" MODIFIED="1777728934140" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_create_pdf.coverage" NAME="demo_create_pdf 覆盖结果" MODIFIED="1778376522281" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$rerank_test.coverage" NAME="rerank_test 覆盖结果" MODIFIED="1777706882591" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG2_.coverage" NAME="RAG2-向量存储 覆盖结果" MODIFIED="1777639463730" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_remote_parse.coverage" NAME="demo_remote_parse 覆盖结果" MODIFIED="1778389813535" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/demo" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG4.coverage" NAME="RAG4 覆盖结果" MODIFIED="1777942866986" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$run_api.coverage" NAME="run_api 覆盖结果" MODIFIED="1778422352561" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$run_api.coverage" NAME="run_api 覆盖结果" MODIFIED="1778477088651" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$vector_test.coverage" NAME="vector_test 覆盖结果" MODIFIED="1777769328809" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$clear_all_data.coverage" NAME="clear_all_data 覆盖结果" MODIFIED="1778373415030" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG1.coverage" NAME="RAG1 覆盖结果" MODIFIED="1777642924854" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
@@ -578,7 +559,7 @@
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG2.coverage" NAME="RAG2 覆盖结果" MODIFIED="1777643461163" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$remote_pdf_parser.coverage" NAME="remote_pdf_parser 覆盖结果" MODIFIED="1777854337981" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/service/core/deepdoc/parser" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$elasticsearch_test.coverage" NAME="elasticsearch_test 覆盖结果" MODIFIED="1777630382564" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$stop_api.coverage" NAME="stop_api 覆盖结果" MODIFIED="1778421421385" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$stop_api.coverage" NAME="stop_api 覆盖结果" MODIFIED="1778477368551" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$delete_index.coverage" NAME="delete_index 覆盖结果" MODIFIED="1777770637217" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG3_.coverage" NAME="RAG3-增强搜索 覆盖结果" MODIFIED="1777702304481" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$milvus_test.coverage" NAME="milvus_test 覆盖结果" MODIFIED="1777770054509" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

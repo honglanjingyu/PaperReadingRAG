@@ -5,7 +5,7 @@ import os
 import re
 from typing import Dict, Any, List
 import logging
-
+import asyncio
 from .parser.remote_pdf_parser import RemotePDFParser, is_remote_parse_enabled
 
 logger = logging.getLogger(__name__)

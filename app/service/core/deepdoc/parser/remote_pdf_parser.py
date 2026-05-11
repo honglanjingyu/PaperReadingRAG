@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 import requests
 import zipfile
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 

@@ -289,6 +289,60 @@ class MilvusVectorStore:
             logger.error(f"集合删除失败: {e}")
             return False
 
+    # app/service/core/vector_store/milvus_vector_store.py
+
+    def batch_delete_by_docnm(self, index_name: str, filenames: List[str]) -> Dict[str, int]:
+        """
+        批量删除多个文档的所有分块
+
+        Args:
+            index_name: 索引名称
+            filenames: 文件名列表
+
+        Returns:
+            Dict[str, int]: 每个文件删除的记录数
+        """
+        self._ensure_connected()
+
+        if not filenames:
+            return {}
+
+        try:
+            if not utility.has_collection(index_name):
+                logger.warning(f"集合不存在: {index_name}")
+                return {filename: 0 for filename in filenames}
+
+            collection = Collection(index_name)
+            collection.load()
+
+            # 构建 OR 条件: docnm == 'file1' or docnm == 'file2' or docnm == 'file3'
+            expr_parts = [f"docnm == '{filename}'" for filename in filenames]
+            expr = " or ".join(expr_parts)
+
+            logger.info(f"批量删除文档: 条件 {expr}")
+
+            # 先查询每个文件有多少条记录
+            result_counts = {}
+            for filename in filenames:
+                count_expr = f"docnm == '{filename}'"
+                result = collection.query(
+                    expr=count_expr,
+                    output_fields=["docnm"],
+                    limit=10000
+                )
+                result_counts[filename] = len(result)
+
+            # 执行批量删除
+            collection.delete(expr)
+            collection.flush()
+
+            logger.info(f"批量删除完成: {result_counts}")
+            return result_counts
+
+        except Exception as e:
+            logger.error(f"Milvus 批量删除失败: {e}")
+            return {filename: 0 for filename in filenames}
+
     def search(self, query_vector: List[float], index_name: str, top_k: int = 5,
                filter_condition: Optional[Dict] = None, similarity_threshold: float = 0.5,
                user_level: str = None) -> List[Dict]:
@@ -424,6 +478,7 @@ class MilvusVectorStore:
                 logger.info("Milvus 连接已关闭")
             except Exception as e:
                 logger.error(f"关闭 Milvus 连接失败: {e}")
+
 
 
 __all__ = ['MilvusVectorStore']
