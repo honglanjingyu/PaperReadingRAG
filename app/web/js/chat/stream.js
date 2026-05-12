@@ -24,13 +24,18 @@ export async function sendMessageNormal(question, mode = 'advanced') {
     const thinkingId = addThinkingMessage();
 
     try {
-        const response = await fetch(`${API_BASE}/chat/ask`, {
+        // 根据模式选择不同的 API 端点
+        const apiEndpoint = mode === 'graph'
+            ? `${API_BASE}/chat/graph/ask`
+            : `${API_BASE}/chat/ask`;
+
+        const response = await fetch(apiEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 question: question,
                 session_id: state.currentSessionId,
-                mode: mode,  // 添加模式参数
+                mode: mode,
                 top_k: parseInt(elements.topKSelect?.value || 5),
                 similarity_threshold: parseFloat(elements.similarityThreshold?.value || 0.3),
                 enable_rerank: elements.enableRerank?.checked ?? true,
@@ -46,11 +51,21 @@ export async function sendMessageNormal(question, mode = 'advanced') {
             if (data.session_id && data.session_id !== 'default') {
                 saveSessionId(data.session_id);
             }
-            replaceThinkingWithContent(thinkingId, data.answer);
-            if (elements.retrievalResults) {
+
+            let finalAnswer = data.answer;
+
+            // GraphRAG 模式：添加推理路径
+            if (mode === 'graph' && data.reasoning_path) {
+                finalAnswer = data.reasoning_path + '\n\n' + data.answer;
+            }
+
+            replaceThinkingWithContent(thinkingId, finalAnswer);
+
+            if (elements.retrievalResults && data.results) {
                 displayRetrievalResults(data.results, data.retrieval_info);
             }
-            if (data.rewritten_query && data.rewritten_query !== question) {
+
+            if (data.rewritten_query && data.rewritten_query !== question && mode !== 'graph') {
                 addMessage('system', `✨ Query改写: "${data.rewritten_query}"`, true);
             }
             if (data.has_history) {
@@ -76,15 +91,21 @@ export async function sendMessageStream(question, mode = 'advanced') {
     let fullResponse = '';
     let hasReceivedFirstChunk = false;
     let newSessionId = null;
+    let reasoningPath = '';
+
+    // 根据模式选择不同的 API 端点
+    const apiEndpoint = mode === 'graph'
+        ? `${API_BASE}/chat/graph/ask/stream`
+        : `${API_BASE}/chat/ask/stream`;
 
     try {
-        const response = await fetch(`${API_BASE}/chat/ask/stream`, {
+        const response = await fetch(apiEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 question: question,
                 session_id: state.currentSessionId,
-                mode: mode,  // 添加模式参数
+                mode: mode,
                 history: getChatHistory(),
                 top_k: parseInt(elements.topKSelect?.value || 5),
                 recall_k: (parseInt(elements.topKSelect?.value || 5) * 2),
@@ -121,6 +142,23 @@ export async function sendMessageStream(question, mode = 'advanced') {
                             if (data.session_id && data.session_id !== 'default') {
                                 newSessionId = data.session_id;
                             }
+                        } else if (data.type === 'reasoning_path') {
+                            // GraphRAG 模式的推理路径
+                            reasoningPath = data.content;
+                            if (mode === 'graph') {
+                                const pathDiv = document.createElement('div');
+                                pathDiv.className = 'reasoning-path';
+                                pathDiv.innerHTML = `<details>
+                                    <summary>🔗 推理路径</summary>
+                                    <div style="padding: 12px; background: #f0f4ff; border-radius: 8px; margin: 8px 0; font-family: monospace;">
+                                        ${formatContent(reasoningPath)}
+                                    </div>
+                                </details>`;
+                                const thinkingDiv = document.getElementById(thinkingId);
+                                if (thinkingDiv) {
+                                    thinkingDiv.insertAdjacentElement('afterend', pathDiv);
+                                }
+                            }
                         } else if (data.type === 'answer') {
                             const chunk = data.content;
                             if (chunk) {
@@ -130,6 +168,23 @@ export async function sendMessageStream(question, mode = 'advanced') {
                                     const thinkingDiv = document.getElementById(thinkingId);
                                     if (thinkingDiv) thinkingDiv.style.display = 'none';
                                     assistantMessageId = createAssistantMessageContainer();
+
+                                    // 如果有推理路径，添加到消息中
+                                    if (reasoningPath && mode === 'graph') {
+                                        const msgDiv = document.getElementById(assistantMessageId);
+                                        const reasoningDiv = document.createElement('div');
+                                        reasoningDiv.className = 'reasoning-path-block';
+                                        reasoningDiv.innerHTML = `<details style="margin-bottom: 12px;">
+                                            <summary style="cursor: pointer; color: #4263eb; font-weight: 500;">🔗 推理路径</summary>
+                                            <div style="padding: 12px; background: #f0f4ff; border-radius: 8px; margin-top: 8px; font-family: monospace; font-size: 13px;">
+                                                ${formatContent(reasoningPath)}
+                                            </div>
+                                        </details>`;
+                                        const contentDiv = msgDiv?.querySelector('.message-content');
+                                        if (contentDiv) {
+                                            contentDiv.insertBefore(reasoningDiv, contentDiv.firstChild);
+                                        }
+                                    }
                                 }
                                 if (assistantMessageId) {
                                     fullResponse += chunk;
@@ -138,12 +193,11 @@ export async function sendMessageStream(question, mode = 'advanced') {
                             }
                         } else if (data.type === 'info') {
                             if (elements.retrievalResults && data.results_count !== undefined) {
-                                elements.retrievalResults.innerHTML = `<div style="font-size: 12px; color: #667eea; padding: 8px; text-align: center;">
-                                    找到 ${data.results_count} 个相关文档，正在生成回答...
+                                elements.retrievalResults.innerHTML = `<div style="font-size: 12px; color: #4263eb; padding: 8px; text-align: center;">
+                                    🔍 ${data.content || '正在检索...'}
                                 </div>`;
                             }
-                        }else if (data.type === 'retrieval_results') {
-                            // 处理检索结果
+                        } else if (data.type === 'retrieval_results') {
                             if (elements.retrievalResults && data.results) {
                                 displayRetrievalResults(data.results, data.retrieval_info);
                             }

@@ -292,3 +292,40 @@
     margin-top: 6px;
     text-align: right;
 }
+
+/* 推理路径样式 */
+.reasoning-path {
+    background: #f0f4ff;
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    border-left: 4px solid #4263eb;
+}
+
+.reasoning-path summary {
+    color: #4263eb;
+    font-weight: 500;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.reasoning-path-block {
+    margin-bottom: 12px;
+}
+
+.reasoning-path-block summary {
+    color: #4263eb;
+    font-weight: 500;
+    cursor: pointer;
+    font-size: 13px;
+    user-select: none;
+}
+
+.reasoning-path-block summary:hover {
+    color: #364fc7;
+}
+
+/* GraphRAG 模式标识 */
+.mode-badge.graph-mode {
+    background: linear-gradient(135deg, #4263eb, #9c27b0);
+}

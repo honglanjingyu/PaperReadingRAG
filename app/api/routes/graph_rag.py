@@ -149,7 +149,7 @@ async def graph_rag_ask_stream(
                 for r in results[:request.top_k]:
                     formatted_results.append({
                         "content": r.get("content", r.get("content_with_weight", ""))[:300],
-                        "score": r.get("_score", 0),
+                        "score": r.get("score", 0),
                         "document_name": r.get("docnm", ""),
                         "source": r.get("_source", "unknown")
                     })

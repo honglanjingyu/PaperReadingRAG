@@ -1,0 +1,72 @@
+# 实体类型模式配置
+# 用于从文本中提取命名实体
+
+entity_patterns:
+  PERSON:
+    description: "人物/人名"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,4})(?:先生|女士|博士|教授|经理|CEO|总裁|董事长|总经理|创始人)"
+      - "([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)?)(?:先生|女士)"
+      - "([\\u4e00-\\u9fff]{2,4})(?:院长|主任|部长|局长|书记)"
+
+  ORGANIZATION:
+    description: "组织机构/公司"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:公司|集团|有限公司|股份有限公司|银行|基金|协会|政府|研究院|实验室)"
+      - "([\\u4e00-\\u9fff]{2,})(?:大学|学院|学校|医院|中心)"
+      - "([A-Z][a-z]+(?:Inc|Corp|Ltd|Company|Group|University))"
+
+  LOCATION:
+    description: "地理位置"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:省|市|区|县|国家|地区|城市|园区|开发区|新区)"
+      - "([\\u4e00-\\u9fff]{2,})(?:路|街道|大厦|广场|产业园)"
+
+  PRODUCT:
+    description: "产品/服务"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:产品|服务|平台|系统|软件|APP|应用|解决方案)"
+      - "([A-Z][a-z0-9]+)(?:\\s+[0-9]+)?"
+
+  TECHNOLOGY:
+    description: "技术/概念"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:技术|算法|框架|模型|架构|方案|引擎|工具)"
+      - "([A-Z]+(?:-[A-Z]+)?)(?:技术|框架)"
+
+  DATE:
+    description: "日期时间"
+    patterns:
+      - "(\\d{4})年"
+      - "(\\d{4}-\\d{1,2}-\\d{1,2})"
+      - "(\\d{4}年\\d{1,2}月)"
+
+  NUMBER:
+    description: "数值指标"
+    patterns:
+      - "(\\d+(?:\\.\\d+)?)亿元"
+      - "(\\d+(?:\\.\\d+)?)万元"
+      - "(\\d+(?:\\.\\d+)?)%"
+      - "(\\d+(?:\\.\\d+)?)倍"
+
+  CONCEPT:
+    description: "核心概念"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:概念|理论|方法|策略|模式|机制)"
+
+# 实体类型优先级（用于类型推断冲突时）
+type_priority:
+  - "ORGANIZATION"
+  - "TECHNOLOGY"
+  - "PERSON"
+  - "PRODUCT"
+  - "LOCATION"
+  - "CONCEPT"
+  - "DATE"
+  - "NUMBER"
+
+# 实体最小长度
+min_entity_length: 2
+
+# 实体最大长度
+max_entity_length: 50

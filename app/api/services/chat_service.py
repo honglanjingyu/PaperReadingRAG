@@ -9,6 +9,8 @@ import asyncio
 import random
 import os
 from concurrent.futures import ThreadPoolExecutor
+import logging
+
 
 from app.service.core.rag import (
     enhanced_search_with_hybrid_and_rerank,
@@ -28,6 +30,7 @@ except ImportError as e:
     MEMORY_AVAILABLE = False
     RedisSessionMemory = None
 
+logger = logging.getLogger(__name__)
 
 class ChatService:
     """聊天服务 - 支持会话记忆"""
@@ -49,19 +52,12 @@ class ChatService:
 
         if self._eval_enabled and MEMORY_AVAILABLE:
             self._evaluator = get_evaluator() if MEMORY_AVAILABLE else None
-            if self._evaluator and self._evaluator.is_eval_available():
-                print(f"✅ 评估模块已启用（采样率: {self._eval_sample_rate * 100}%）")
-            elif self._evaluator:
-                print("⚠️ 评估模块已初始化，但 LLM 评估不可用（将使用简单评估）")
-        else:
-            print("ℹ️ 评估模块已禁用")
 
     def _init_memory(self):
         """初始化记忆组件"""
         try:
             self._memory_manager = get_memory_manager()
             self._memory_injector = MemoryInjector(self._memory_manager)
-            print("✅ 短期记忆已启用")
         except Exception as e:
             print(f"⚠️ 短期记忆初始化失败: {e}")
 
@@ -119,14 +115,6 @@ class ChatService:
                     ),
                     timeout=self._eval_timeout
                 )
-
-                # 可选：在控制台打印简要评估结果（调试用）
-                if eval_result.get("generation_metrics"):
-                    gm = eval_result["generation_metrics"]
-                    print(f"\n📊 评估 [{session_id[:8]}]: "
-                          f"Faith={gm.get('faithfulness', 0):.2f}, "
-                          f"Rel={gm.get('answer_relevancy', 0):.2f}, "
-                          f"耗时={eval_result.get('eval_time', 0):.2f}s")
 
             except asyncio.TimeoutError:
                 print(f"⚠️ 评估超时 [{session_id[:8]}]: 超过 {self._eval_timeout} 秒")
@@ -243,8 +231,15 @@ class ChatService:
 
         # 更新会话记忆
         if enable_memory and self._memory_manager and actual_session_id and actual_session_id != "default" and answer:
-            self._memory_manager.add_message(actual_session_id, "user", question)
-            self._memory_manager.add_message(actual_session_id, "assistant", answer)
+            logger.info(f"保存对话到记忆: session={actual_session_id}")
+            user_msg_result = self._memory_manager.add_message(actual_session_id, "user", question)
+            assistant_msg_result = self._memory_manager.add_message(actual_session_id, "assistant", answer)
+            logger.info(f"保存结果: user={user_msg_result}, assistant={assistant_msg_result}")
+
+            # 验证保存
+            key = f"rag:session:{actual_session_id}"
+            msg_count = self._memory_manager.redis_client.llen(key) if self._memory_manager.redis_client else 0
+            logger.info(f"验证保存: key={key}, 消息数={msg_count}")
 
         # ========== 返回结果（不包含评估指标） ==========
         return {

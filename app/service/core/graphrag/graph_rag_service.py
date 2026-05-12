@@ -18,7 +18,7 @@ from .neo4j_store import (
     Neo4jStore, get_neo4j_store,
     StoredEntity, StoredRelation
 )
-from .graph_cache import get_graph_cache  # 新增导入
+from .graph_cache import get_graph_cache
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,8 @@ def get_graph_config() -> Dict[str, Any]:
         "min_community_size": int(os.getenv("COMMUNITY_MIN_SIZE", "2")),
         "max_hierarchy_levels": int(os.getenv("HIERARCHICAL_MAX_LEVELS", "3")),
         "use_louvain": os.getenv("COMMUNITY_USE_LOUVAIN", "true").lower() == "true",
-        "enable_cache": os.getenv("ENABLE_GRAPH_CACHE", "true").lower() == "true",  # 新增
+        "enable_cache": os.getenv("ENABLE_GRAPH_CACHE", "true").lower() == "true",
+        "max_entities": int(os.getenv("GRAPH_MAX_ENTITIES", "100")),  # 新增
     }
 
 
@@ -88,7 +89,8 @@ class GraphRAGService:
         self.entity_extractor = EntityExtractor(
             use_llm=self.config["use_llm_entity_extract"],
             llm_service=self.llm_service,
-            min_frequency=self.config["min_entity_frequency"]
+            min_frequency=self.config["min_entity_frequency"],
+            max_entities=self.config["max_entities"]  # 添加 max_entities 参数
         )
 
         self.community_detector = CommunityDetector(
@@ -107,11 +109,29 @@ class GraphRAGService:
             neo4j_store=self.neo4j
         )
 
+        # 加载 GraphRAG 配置（用于查询替换）
+        self._load_graphrag_config()
+
         self._is_initialized = True
 
         # 打印统计信息
         stats = self.neo4j.get_statistics()
         logger.info(f"GraphRAGService 初始化完成, Neo4j 统计: {stats}")
+
+    def _load_graphrag_config(self):
+        """加载 GraphRAG 配置文件"""
+        try:
+            from app.service.graphrag_configs import get_graphrag_config
+            self.graphrag_config = get_graphrag_config()
+            self.query_replacements = self.graphrag_config.get_query_replacements()
+            self.query_replacement_enabled = self.graphrag_config.is_query_replacement_enabled()
+            logger.info(f"加载 GraphRAG 配置: query_replacement_enabled={self.query_replacement_enabled}, "
+                        f"replacements={len(self.query_replacements)}")
+        except Exception as e:
+            logger.warning(f"加载 GraphRAG 配置失败: {e}")
+            self.graphrag_config = None
+            self.query_replacements = []
+            self.query_replacement_enabled = False
 
     def _get_documents_version(self, user_level: str = None) -> str:
         """
@@ -326,7 +346,7 @@ class GraphRAGService:
                 }
                 for cid, s in summaries.items()
             },
-            "_documents_version": self._get_documents_version(user_level),  # 添加版本号
+            "_documents_version": self._get_documents_version(user_level),
             "_cached_at": datetime.now().isoformat()
         }
 
@@ -393,8 +413,8 @@ class GraphRAGService:
         # 4. 获取实体关系图
         entity_graph = self.neo4j.get_entity_graph()
 
-        # 5. 执行混合图检索
-        results, metadata = self.retriever.hybrid_graph_search(
+        # 5. 执行混合图检索（使用带推理路径的版本）
+        results, metadata = self.retriever.hybrid_graph_search_with_paths(
             question=question,
             entities=entities,
             communities=communities,
@@ -406,6 +426,7 @@ class GraphRAGService:
 
         metadata["graph_enabled"] = True
         metadata["graph_statistics"] = self.neo4j.get_statistics()
+        metadata["entities_extracted"] = entities
 
         return results, metadata
 
@@ -437,6 +458,270 @@ class GraphRAGService:
 
         return results, metadata
 
+    def _apply_query_replacements(self, question: str) -> str:
+        """
+        应用查询替换规则
+
+        Args:
+            question: 原始问题
+
+        Returns:
+            替换后的问题
+        """
+        if not self.query_replacement_enabled or not self.query_replacements:
+            return question
+
+        expanded_question = question
+        for alias, replacement in self.query_replacements:
+            if alias in expanded_question and replacement not in expanded_question:
+                expanded_question = expanded_question.replace(alias, replacement)
+
+        if expanded_question != question:
+            logger.info(f"问题已扩展: {question} -> {expanded_question}")
+
+        return expanded_question
+
+    def graph_rag_ask(
+            self,
+            question: str,
+            index_name: str = None,
+            top_k: int = 8,
+            user_level: str = None
+    ) -> Dict[str, Any]:
+        """
+        GraphRAG 问答：结合向量检索和图检索
+        """
+        if not self.config["enabled"]:
+            return {
+                "success": False,
+                "error": "GraphRAG 未启用",
+                "fallback_to_advanced": True
+            }
+
+        index_name = index_name or os.getenv("VECTOR_INDEX_NAME", "rag_documents")
+
+        # 应用查询替换（别名扩展）
+        question = self._apply_query_replacements(question)
+
+        # 1. 执行混合图检索（向量+图谱）
+        graph_results, graph_metadata = self.graph_search(
+            question=question,
+            index_name=index_name,
+            top_k=top_k
+        )
+
+        # 2. 如果没有检索结果或者检索结果太少，尝试扩展查询
+        if not graph_results or len(graph_results) < 3:
+            logger.info(f"GraphRAG 初始检索结果不足 ({len(graph_results)} 条)，尝试扩展查询...")
+
+            # 从问题中提取更干净的实体
+            import re
+            # 移除多余的中文说明
+            clean_question = re.sub(r'并说明.*$', '', question)
+            clean_question = re.sub(r'以及.*$', '', clean_question)
+
+            # 重新检索
+            graph_results, graph_metadata = self.graph_search(
+                question=clean_question,
+                index_name=index_name,
+                top_k=top_k
+            )
+
+        # 3. 构建带关系路径的上下文
+        context = self._build_graph_context_with_paths(graph_results, graph_metadata)
+
+        # 4. 生成答案
+        answer, reasoning_path = self._generate_answer_with_paths(question, context, graph_metadata)
+
+        # 5. 确保答案不为空
+        if not answer or len(answer) < 50:
+            # 降级到普通 RAG
+            logger.warning("GraphRAG 生成答案质量不佳，降级到 Advanced RAG")
+            from app.service.core.rag.search import enhanced_search_with_hybrid_and_rerank
+            from app.service.core.rag.generation import generate_answer
+
+            retrieval_result = enhanced_search_with_hybrid_and_rerank(
+                question=question,
+                index_name=index_name,
+                top_k=top_k,
+                recall_k=top_k * 2,
+                user_level=user_level
+            )
+
+            if retrieval_result.get("success"):
+                gen_result = generate_answer(
+                    question=retrieval_result.get("rewritten_query", question),
+                    results=retrieval_result.get("results", []),
+                    template_name="detailed"
+                )
+                if gen_result.get("answer"):
+                    answer = gen_result.get("answer")
+
+        return {
+            "success": True,
+            "answer": answer or "抱歉，未能找到相关信息。",
+            "reasoning_path": reasoning_path,
+            "results": graph_results[:top_k],
+            "graph_info": {
+                "search_sources": graph_metadata.get("search_sources", []),
+                "entities_extracted": graph_metadata.get("entities_extracted", []),
+                "graph_statistics": graph_metadata.get("graph_statistics", {}),
+                "reasoning_path": reasoning_path
+            }
+        }
+
+    def _build_graph_context_with_paths(
+            self,
+            results: List[Dict],
+            metadata: Dict
+    ) -> str:
+        """构建带关系路径的上下文"""
+        context_parts = []
+
+        # 添加实体关系路径
+        if metadata.get("reasoning_paths"):
+            context_parts.append("## 🔗 实体关系路径")
+            for path in metadata["reasoning_paths"][:3]:
+                path_str = " → ".join([f"「{node}」" for node in path["nodes"]])
+                context_parts.append(f"- {path_str} ({path.get('relation', '关联')})")
+
+        # 添加检索到的文档
+        if results:
+            context_parts.append("\n## 📄 相关文档内容")
+            for i, r in enumerate(results[:5], 1):
+                content = r.get("content", r.get("content_with_weight", ""))[:800]
+                doc_name = r.get("docnm", "未知文档")
+                source = r.get("_source", "检索")
+                context_parts.append(f"\n### [{i}] 来自「{doc_name}」({source})\n{content}")
+
+        # 添加社区摘要（使用 metadata 中的 relevant_summaries）
+        if metadata.get("relevant_summaries"):
+            context_parts.append("\n## 📊 知识社区摘要")
+            for s in metadata["relevant_summaries"][:2]:
+                title = s.get('title', '社区主题')
+                summary = s.get('summary', '')
+                if summary:
+                    context_parts.append(f"\n### {title}\n{summary}")
+
+        return "\n".join(context_parts)
+
+    def _generate_answer_with_paths(
+            self,
+            question: str,
+            context: str,
+            metadata: Dict
+    ) -> Tuple[str, str]:
+        """生成带推理路径的答案"""
+
+        # 提取推理路径描述
+        reasoning_path_str = ""
+        if metadata.get("reasoning_paths"):
+            paths_desc = []
+            for path in metadata["reasoning_paths"][:3]:
+                path_desc = " → ".join([f"「{node}」" for node in path["nodes"]])
+                if path.get("relation"):
+                    paths_desc.append(f"{path_desc} ({path['relation']})")
+                else:
+                    paths_desc.append(path_desc)
+
+            if paths_desc:
+                reasoning_path_str = "## 🧠 推理路径\n" + "\n".join([f"- {p}" for p in paths_desc]) + "\n"
+
+        # 构建系统提示
+        system_prompt = """你是一个专业的知识图谱问答助手。回答问题时，请遵循以下要求：
+
+1. **标注出处**：引用文档内容时，请使用【文档名】标注来源
+2. **展示推理路径**：如果答案涉及多个实体之间的关系，请明确指出推理路径
+3. **路径格式**：使用「实体A」 → (关系) → 「实体B」的格式
+
+示例：
+根据文档内容，推理路径为：
+「RAG技术」 → (核心技术) → 「向量检索」 → (应用) → 「智能问答」
+
+答案：...（具体内容）"""
+
+        # 构建用户提示
+        user_prompt = f"""
+{reasoning_path_str}
+
+## 参考文档和知识图谱
+{context}
+
+## 用户问题
+{question}
+
+## 回答要求
+1. 如果有推理路径，请先展示路径再给出答案
+2. 每处引用都要标注文档出处
+3. 答案要准确、完整
+
+## 回答
+"""
+
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+
+            answer = self.llm_service.generate(messages)
+
+            # 如果没有推理路径但 answer 中也没有，添加一个说明
+            if not reasoning_path_str and answer and "推理路径" not in answer:
+                # 从实体中构建简单路径
+                entities = metadata.get("entities_extracted", [])
+                if len(entities) >= 2:
+                    simple_path = " → ".join([f"「{e}」" for e in entities[:3]])
+                    reasoning_path_str = f"## 🧠 推理路径\n- {simple_path} (相关关系)\n\n"
+                    answer = reasoning_path_str + answer
+
+            return answer or "抱歉，无法生成答案。", reasoning_path_str
+
+        except Exception as e:
+            logger.error(f"GraphRAG 生成答案失败: {e}")
+            return f"生成答案时出错: {e}", ""
+
+    def extract_reasoning_paths(
+            self,
+            question: str,
+            entities: List[str],
+            max_depth: int = 2
+    ) -> List[Dict]:
+        """
+        提取实体之间的推理路径
+        """
+        paths = []
+
+        if len(entities) < 2:
+            return paths
+
+        # 获取实体之间的连接路径
+        for i in range(len(entities) - 1):
+            source = entities[i]
+            target = entities[i + 1]
+
+            # 查找最短路径
+            path_result = self.neo4j.get_path_between(source, target, max_depth)
+
+            if path_result:
+                for path in path_result:
+                    paths.append({
+                        "nodes": path.get("nodes", []),
+                        "relations": path.get("relations", []),
+                        "length": path.get("length", 0)
+                    })
+
+        # 去重
+        unique_paths = []
+        seen = set()
+        for p in paths:
+            key = "→".join(p["nodes"])
+            if key not in seen:
+                seen.add(key)
+                unique_paths.append(p)
+
+        return unique_paths[:5]
+
     def get_related_entities(
             self,
             entity_names: List[str],
@@ -460,7 +745,7 @@ class GraphRAGService:
     def delete_graph(self):
         """删除所有图谱数据并清理缓存"""
         self.neo4j.delete_graph()
-        self.invalidate_cache()  # 清理缓存
+        self.invalidate_cache()
         logger.info("图谱数据已清空，缓存已失效")
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -476,7 +761,7 @@ class GraphRAGService:
         self.neo4j.close()
 
 
-def get_graph_rag_service() -> GraphRAGService:
+def get_graph_rag_service() -> "GraphRAGService":
     """获取 GraphRAG 服务单例"""
     return GraphRAGService()
 

@@ -33,45 +33,69 @@ class GraphRetriever:
         self.llm_service = llm_service or get_llm_service()
         self.neo4j = neo4j_store or get_neo4j_store()
 
+        # 加载配置
+        self._load_config()
+
         logger.info("GraphRetriever 初始化完成 (使用 Neo4j)")
+
+    def _load_config(self):
+        """从配置文件加载别名映射"""
+        try:
+            from app.service.graphrag_configs import get_graphrag_config
+            self.config = get_graphrag_config()
+            self.entity_aliases = self.config.get_all_aliases()
+            logger.info(f"GraphRetriever 加载别名映射: {len(self.entity_aliases)} 个")
+        except Exception as e:
+            logger.warning(f"加载 GraphRAG 配置失败: {e}，将使用空别名映射")
+            self.entity_aliases = {}
 
     def extract_entities_from_question(self, question: str) -> List[str]:
         """
-        从用户问题中提取实体
+        从用户问题中提取实体（支持别名匹配）
 
         Args:
             question: 用户问题
 
         Returns:
-            实体列表
+            实体名称列表
         """
-        entities = []
+        entities = set()
 
-        # 尝试从 Neo4j 中匹配实体
-        all_entities = self.neo4j.get_all_entities(limit=100)
-        entity_names = [e.name for e in all_entities]
+        # 1. 获取所有已知实体名称
+        all_entities = self.neo4j.get_all_entities(limit=200)
+        entity_names = sorted([e.name for e in all_entities], key=len, reverse=True)
 
-        # 在问题中查找已知实体
+        # 2. 精确匹配
         for entity in entity_names:
             if entity and entity in question:
-                entities.append(entity)
+                entities.add(entity)
 
-        # 使用正则提取额外实体
+        # 3. 别名匹配（从配置加载）
+        for alias, full_name in self.entity_aliases.items():
+            if alias in question:
+                # 检查完整名称是否在实体列表中
+                if full_name in entity_names:
+                    entities.add(full_name)
+                else:
+                    # 如果完整名称不在实体列表中，添加别名本身
+                    entities.add(alias)
+
+        # 4. 从问题中提取可能的新实体（简单提取）
+        # 提取常见模式：XXX公司、XXX技术等
         patterns = [
-            r"关于([\u4e00-\u9fff]{2,})",
-            r"([\u4e00-\u9fff]{2,})(?:公司|产品|技术|方案|策略)",
-            r"什么是([\u4e00-\u9fff]{2,})",
-            r"([\u4e00-\u9fff]{2,})的(?:业绩|表现|情况)",
+            r'([\u4e00-\u9fff]{2,})公司',
+            r'([\u4e00-\u9fff]{2,})技术',
+            r'([\u4e00-\u9fff]{2,})算法',
+            r'([\u4e00-\u9fff]{2,})模型',
         ]
-
         for pattern in patterns:
             matches = re.findall(pattern, question)
             for match in matches:
-                if match not in entities and len(match) >= 2:
-                    entities.append(match)
+                if match and len(match) >= 2:
+                    entities.add(match)
 
-        logger.info(f"从问题中提取实体: {entities[:10]}")
-        return entities[:10]
+        logger.info(f"从问题中提取实体: {list(entities)}")
+        return list(entities)
 
     def entity_search(
             self,
@@ -112,6 +136,9 @@ class GraphRetriever:
         )
 
         logger.info(f"实体检索完成: {len(entities)} 个实体 -> {len(results)} 个结果")
+        for r in results:
+            if "score" not in r:
+                r["score"] = r.get("_score", 0)
         return results
 
     def expand_with_entity_relations(
@@ -340,6 +367,8 @@ class GraphRetriever:
             doc_id = r.get("_id", r.get("id", ""))
             if doc_id and doc_id not in seen_ids:
                 seen_ids.add(doc_id)
+                if "score" not in r:
+                    r["score"] = r.get("_score", 0)
                 unique_results.append(r)
 
         # 按分数排序
@@ -347,11 +376,91 @@ class GraphRetriever:
                 x.get("_score", 0) * (1.2 if x.get("_source") == "global" else 1.0)
         ), reverse=True)
 
+        # 构建相关社区摘要列表
+        relevant_summaries = []
+        if entities and summaries:
+            for comm_id, summary in summaries.items():
+                if comm_id in communities:
+                    comm_entities = communities[comm_id].get("entities", [])
+                    if any(e in entities for e in comm_entities):
+                        relevant_summaries.append({
+                            "title": f"Community {comm_id}",
+                            "summary": summary,
+                            "entities": comm_entities[:10]
+                        })
+
         metadata = {
             "search_sources": search_sources,
             "total_recalled": len(unique_results),
             "entities_extracted": entities,
-            "graph_enabled": True
+            "graph_enabled": True,
+            "relevant_summaries": relevant_summaries[:5]  # 添加相关社区摘要
         }
 
         return unique_results[:top_k], metadata
+
+    def hybrid_graph_search_with_paths(
+            self,
+            question: str,
+            entities: List[str],
+            communities: Dict,
+            summaries: Dict[int, str],
+            entity_graph: Dict[str, Set[str]],
+            index_name: str,
+            top_k: int = 8
+    ) -> Tuple[List[Dict], Dict]:
+        """
+        混合图检索（带推理路径）
+
+        Args:
+            question: 用户问题
+            entities: 实体列表
+            communities: 社区数据
+            summaries: 社区摘要
+            entity_graph: 实体关系图
+            index_name: 索引名称
+            top_k: 返回数量
+
+        Returns:
+            (results, metadata): 检索结果和元数据
+        """
+        # 1. 执行原有检索
+        results, metadata = self.hybrid_graph_search(
+            question=question,
+            entities=entities,
+            communities=communities,
+            summaries=summaries,
+            entity_graph=entity_graph,
+            index_name=index_name,
+            top_k=top_k
+        )
+
+        # 2. 提取推理路径
+        reasoning_paths = []
+        if len(entities) >= 2:
+            for i in range(len(entities) - 1):
+                path_result = self.neo4j.get_path_between(entities[i], entities[i + 1], max_depth=3)
+                if path_result:
+                    for path in path_result:
+                        reasoning_paths.append({
+                            "nodes": path.get("nodes", []),
+                            "relations": path.get("relations", []),
+                            "length": path.get("length", 0),
+                            "relation": " → ".join(path.get("relations", [])) if path.get("relations") else "相关"
+                        })
+
+        # 去重
+        unique_paths = []
+        seen = set()
+        for p in reasoning_paths:
+            key = "→".join(p["nodes"])
+            if key not in seen:
+                seen.add(key)
+                unique_paths.append(p)
+
+        metadata["reasoning_paths"] = unique_paths[:5]
+
+        return results, metadata
+
+
+__all__ = ['GraphRetriever']

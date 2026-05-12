@@ -9,15 +9,21 @@ export function initCollapsiblePanels() {
 
 function initCommunityPanelCollapse() {
     const toggleBtn = document.getElementById('toggleCommunitiesBtn');
+    const communitiesPanel = document.getElementById('communitiesPanel');
     const communitiesList = document.getElementById('communitiesList');
 
-    if (!toggleBtn || !communitiesList) {
+    if (!toggleBtn || !communitiesPanel || !communitiesList) {
         console.warn('社区面板元素未找到');
         return;
     }
 
-    // 初始状态：展开
-    let isCollapsed = false;
+    // 初始状态：收起
+    let isCollapsed = true;  // 改为 true
+
+    // 确保初始状态为收起
+    communitiesPanel.classList.add('collapsed');
+    communitiesList.style.display = 'none';
+    toggleBtn.textContent = '展开';
 
     // 移除旧监听器，避免重复
     const newToggleBtn = toggleBtn.cloneNode(true);
@@ -28,9 +34,11 @@ function initCommunityPanelCollapse() {
         isCollapsed = !isCollapsed;
 
         if (isCollapsed) {
+            communitiesPanel.classList.add('collapsed');
             communitiesList.style.display = 'none';
             newToggleBtn.textContent = '展开';
         } else {
+            communitiesPanel.classList.remove('collapsed');
             communitiesList.style.display = 'grid';
             newToggleBtn.textContent = '收起';
         }
@@ -75,7 +83,7 @@ function initStatsCardsCollapse() {
         return;
     }
 
-    // 初始状态：展开
+    // 初始状态：展开（统计卡片默认展开）
     let isCollapsed = false;
 
     // 移除旧监听器
@@ -102,8 +110,8 @@ function initStatsCardsCollapse() {
 }
 
 export function isCommunityPanelCollapsed() {
-    const communitiesList = document.getElementById('communitiesList');
-    return communitiesList ? communitiesList.style.display === 'none' : false;
+    const communitiesPanel = document.getElementById('communitiesPanel');
+    return communitiesPanel ? communitiesPanel.classList.contains('collapsed') : true;
 }
 
 export function isStatsCardsCollapsed() {
@@ -112,13 +120,15 @@ export function isStatsCardsCollapsed() {
 }
 
 export function expandAllPanels() {
-    const communitiesList = document.getElementById('communitiesList');
+    const communitiesPanel = document.getElementById('communitiesPanel');
     const statsCards = document.getElementById('statsCards');
     const toggleBtn = document.getElementById('toggleCommunitiesBtn');
     const collapseStatsBtn = document.getElementById('collapseStatsBtn');
 
-    if (communitiesList && communitiesList.style.display === 'none') {
-        communitiesList.style.display = 'grid';
+    if (communitiesPanel && communitiesPanel.classList.contains('collapsed')) {
+        communitiesPanel.classList.remove('collapsed');
+        const communitiesList = document.getElementById('communitiesList');
+        if (communitiesList) communitiesList.style.display = 'grid';
         if (toggleBtn) toggleBtn.textContent = '收起';
     }
 
@@ -133,13 +143,15 @@ export function expandAllPanels() {
 }
 
 export function collapseAllPanels() {
-    const communitiesList = document.getElementById('communitiesList');
+    const communitiesPanel = document.getElementById('communitiesPanel');
     const statsCards = document.getElementById('statsCards');
     const toggleBtn = document.getElementById('toggleCommunitiesBtn');
     const collapseStatsBtn = document.getElementById('collapseStatsBtn');
 
-    if (communitiesList && communitiesList.style.display !== 'none') {
-        communitiesList.style.display = 'none';
+    if (communitiesPanel && !communitiesPanel.classList.contains('collapsed')) {
+        communitiesPanel.classList.add('collapsed');
+        const communitiesList = document.getElementById('communitiesList');
+        if (communitiesList) communitiesList.style.display = 'none';
         if (toggleBtn) toggleBtn.textContent = '展开';
     }
 

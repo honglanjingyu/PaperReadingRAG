@@ -16,6 +16,7 @@ from app.api.dependencies import get_chat_service
 from app.service.core.rag import enhanced_search_with_hybrid_and_rerank
 from app.auth.jwt_utils import get_user_id_from_token
 from app.db.database import get_db_manager
+from app.service.core.memory import get_memory_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -519,5 +520,206 @@ async def conversation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"对话处理失败: {str(e)}")
 
+
+@router.post("/chat/graph/ask")
+async def graph_rag_ask(
+        request: ChatRequest,
+        authorization: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """GraphRAG 问答接口 - 参考 Advanced RAG 记忆保存方式"""
+    from app.service.core.graphrag import get_graph_rag_service
+    from app.service.core.memory import get_memory_manager
+
+    # 获取用户等级
+    user_level = "normal"
+    if authorization:
+        token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+        user_id = get_user_id_from_token(token)
+        if user_id:
+            db = get_db_manager()
+            user = db.get_user_by_id(user_id)
+            if user:
+                user_level = user.role.value
+
+    top_k = request.top_k or 8
+    index_name = settings.index_name
+
+    try:
+        graph_service = get_graph_rag_service()
+        memory_manager = get_memory_manager()
+
+        # 获取或创建会话（与 Advanced RAG 逻辑一致）
+        actual_session_id = None
+        if request.enable_memory and memory_manager:
+            actual_session_id = memory_manager.get_or_create_session(request.session_id)
+            logger.info(f"GraphRAG 非流式会话: {actual_session_id}, enable_memory={request.enable_memory}")
+        else:
+            actual_session_id = request.session_id or "default"
+
+        # 执行 GraphRAG 问答
+        result = graph_service.graph_rag_ask(
+            question=request.question,
+            index_name=index_name,
+            top_k=top_k,
+            user_level=user_level
+        )
+
+        # ========== 参考 Advanced RAG 方式保存记忆 ==========
+        if result.get("success") and result.get(
+                "answer") and request.enable_memory and memory_manager and actual_session_id and actual_session_id != "default":
+            try:
+                logger.info(f"GraphRAG 非流式保存对话到记忆: session={actual_session_id}")
+                memory_manager.add_message(actual_session_id, "user", request.question)
+                memory_manager.add_message(actual_session_id, "assistant", result.get("answer"))
+                logger.info(f"GraphRAG 非流式记忆保存成功: session={actual_session_id}")
+            except Exception as e:
+                logger.error(f"GraphRAG 非流式保存记忆失败: {e}")
+
+        result["session_id"] = actual_session_id
+        return result
+
+    except Exception as e:
+        logger.error(f"GraphRAG 问答失败: {e}")
+        raise HTTPException(status_code=500, detail=f"GraphRAG 问答失败: {str(e)}")
+
+
+@router.post("/chat/graph/ask/stream")
+async def graph_rag_ask_stream(
+        request: ChatRequest,
+        authorization: Optional[str] = Header(None)
+):
+    """GraphRAG 流式问答 - 参考 Advanced RAG 记忆保存方式"""
+    from app.service.core.graphrag import get_graph_rag_service
+    from app.service.core.memory import get_memory_manager
+
+    user_level = "normal"
+    if authorization:
+        token = authorization[7:] if authorization.startswith("Bearer ") else authorization
+        user_id = get_user_id_from_token(token)
+        if user_id:
+            db = get_db_manager()
+            user = db.get_user_by_id(user_id)
+            if user:
+                user_level = user.role.value
+
+    graph_service = get_graph_rag_service()
+    memory_manager = get_memory_manager()
+    index_name = settings.index_name
+
+    # 获取或创建会话（与 Advanced RAG 逻辑一致）
+    actual_session_id = None
+    if request.enable_memory and memory_manager:
+        actual_session_id = memory_manager.get_or_create_session(request.session_id)
+        logger.info(f"GraphRAG 会话: {actual_session_id}, enable_memory={request.enable_memory}")
+    else:
+        actual_session_id = request.session_id or "default"
+
+    async def generate():
+        try:
+            # 发送开始标记
+            yield json.dumps({"type": "start", "content": "", "session_id": actual_session_id}) + "\n"
+            yield json.dumps({
+                "type": "info",
+                "content": "正在使用知识图谱检索...",
+                "mode": "graph"
+            }) + "\n"
+
+            # 执行 GraphRAG 问答
+            result = graph_service.graph_rag_ask(
+                question=request.question,
+                index_name=index_name,
+                top_k=request.top_k or 8,
+                user_level=user_level
+            )
+
+            if result.get("success"):
+                answer = result.get("answer", "")
+
+                # 发送推理路径
+                if result.get("reasoning_path"):
+                    yield json.dumps({
+                        "type": "reasoning_path",
+                        "content": result["reasoning_path"]
+                    }) + "\n"
+
+                # 发送检索结果
+                if result.get("results"):
+                    formatted_results = []
+                    for r in result["results"][:5]:
+                        formatted_results.append({
+                            "content": r.get("content", "")[:300],
+                            "score": r.get("score", 0),
+                            "document_name": r.get("docnm", "")
+                        })
+                    yield json.dumps({
+                        "type": "retrieval_results",
+                        "results": formatted_results
+                    }) + "\n"
+
+                # ========== 参考 Advanced RAG 方式保存记忆 ==========
+                if request.enable_memory and memory_manager and actual_session_id and actual_session_id != "default" and answer:
+                    try:
+                        logger.info(f"GraphRAG 保存对话到记忆: session={actual_session_id}")
+                        memory_manager.add_message(actual_session_id, "user", request.question)
+                        memory_manager.add_message(actual_session_id, "assistant", answer)
+                        logger.info(f"GraphRAG 记忆保存成功: session={actual_session_id}")
+                    except Exception as e:
+                        logger.error(f"GraphRAG 保存记忆失败: {e}")
+
+                # 流式输出答案
+                for i in range(0, len(answer), 5):
+                    chunk = answer[i:i + 5]
+                    yield json.dumps({"type": "answer", "content": chunk}) + "\n"
+                    await asyncio.sleep(0.02)
+            else:
+                # 降级到 Advanced RAG
+                yield json.dumps({
+                    "type": "info",
+                    "content": "知识图谱服务不可用，切换到 Advanced RAG 模式...",
+                    "fallback": True
+                }) + "\n"
+
+                from app.service.core.rag import enhanced_search_with_hybrid_and_rerank, generate_answer_stream
+
+                retrieval_result = enhanced_search_with_hybrid_and_rerank(
+                    question=request.question,
+                    index_name=index_name,
+                    recall_k=request.recall_k or settings.similarity_top_k,
+                    top_k=request.top_k or settings.rerank_top_k,
+                    similarity_threshold=request.similarity_threshold or settings.similarity_threshold,
+                    enable_rerank=request.enable_rerank if request.enable_rerank is not None else settings.enable_rerank,
+                    enable_query_rewrite=request.enable_query_rewrite if request.enable_query_rewrite is not None else settings.enable_query_rewrite,
+                    user_level=user_level
+                )
+
+                results = retrieval_result.get("results", [])
+                full_answer = ""
+                if results:
+                    rewritten_query = retrieval_result.get("rewritten_query", request.question)
+                    for chunk in generate_answer_stream(
+                            question=rewritten_query,
+                            results=results,
+                            template_name=request.template_name
+                    ):
+                        if chunk:
+                            full_answer += chunk
+                            yield json.dumps({"type": "answer", "content": chunk}) + "\n"
+
+                    # 降级模式也保存记忆
+                    if request.enable_memory and memory_manager and actual_session_id and actual_session_id != "default" and full_answer:
+                        try:
+                            memory_manager.add_message(actual_session_id, "user", request.question)
+                            memory_manager.add_message(actual_session_id, "assistant", full_answer)
+                            logger.info(f"GraphRAG 降级模式保存记忆: session={actual_session_id}")
+                        except Exception as e:
+                            logger.error(f"降级模式保存记忆失败: {e}")
+
+            yield json.dumps({"type": "end", "session_id": actual_session_id}) + "\n"
+
+        except Exception as e:
+            logger.error(f"GraphRAG 流式问答失败: {e}", exc_info=True)
+            yield json.dumps({"type": "error", "content": str(e)}) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 __all__ = ['router']

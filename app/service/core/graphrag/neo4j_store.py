@@ -389,8 +389,9 @@ class Neo4jStore:
         获取实体的邻居（广度优先）
         Returns: [(entity_name, depth, relation_type), ...]
         """
-        query = """
-        MATCH path = shortestPath((start:Entity {name: $name})-[*1..$max_depth]-(neighbor:Entity))
+        # 修复：使用 Cypher 的变量长度路径，不使用 dynamic parameter for max_depth
+        query = f"""
+        MATCH path = (start:Entity {{name: $name}})-[*1..{max_depth}]-(neighbor:Entity)
         WHERE start <> neighbor
         WITH neighbor, length(path) AS depth
         OPTIONAL MATCH (start)-[r:RELATION]-(neighbor)
@@ -399,7 +400,7 @@ class Neo4jStore:
         """
         try:
             with self._get_session() as session:
-                results = session.run(query, {"name": entity_name, "max_depth": max_depth})
+                results = session.run(query, {"name": entity_name})
                 return [(r["name"], r["depth"], r.get("relation_type") or "RELATED_TO") for r in results]
         except Exception as e:
             logger.error(f"获取邻居失败 {entity_name}: {e}")
@@ -407,15 +408,16 @@ class Neo4jStore:
 
     def get_path_between(self, source: str, target: str, max_depth: int = 3) -> List[Dict]:
         """获取两个实体之间的路径"""
-        query = """
-        MATCH path = shortestPath((source:Entity {name: $source})-[*1..$max_depth]-(target:Entity {name: $target}))
+        # 修复：使用 f-string 嵌入 max_depth
+        query = f"""
+        MATCH path = shortestPath((source:Entity {{name: $source}})-[*1..{max_depth}]-(target:Entity {{name: $target}}))
         RETURN [node in nodes(path) | node.name] AS nodes,
                [rel in relationships(path) | rel.type] AS relations,
                length(path) AS length
         """
         try:
             with self._get_session() as session:
-                result = session.run(query, {"source": source, "target": target, "max_depth": max_depth}).single()
+                result = session.run(query, {"source": source, "target": target}).single()
                 if result:
                     return [{
                         "nodes": result["nodes"],

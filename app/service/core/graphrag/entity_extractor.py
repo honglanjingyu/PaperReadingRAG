@@ -1,15 +1,13 @@
-# app/service/core/graphrag/entity_extractor.py
-"""
-实体关系提取器 - 从文档中提取实体和关系
-使用 LLM + 规则进行命名实体识别
-"""
+# app/service/core/graphrag/entity_extractor.py - 修改后
 
 import re
 import logging
-import os
 from typing import List, Dict, Any, Set, Tuple
 from collections import defaultdict
 from dataclasses import dataclass, field
+
+# 导入配置加载器
+from app.service.graphrag_configs import get_graphrag_config
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +16,7 @@ logger = logging.getLogger(__name__)
 class Entity:
     """实体数据结构"""
     name: str
-    type: str  # PERSON, ORGANIZATION, LOCATION, CONCEPT, PRODUCT, DATE, etc.
+    type: str
     mentions: List[str] = field(default_factory=list)
     frequency: int = 1
 
@@ -36,7 +34,7 @@ class Relation:
     """关系数据结构"""
     source: str
     target: str
-    relation_type: str  # 关系类型: WORKS_FOR, LOCATED_IN, PRODUCES, RELATED_TO, etc.
+    relation_type: str
     weight: float = 1.0
     evidence: str = ""
 
@@ -51,98 +49,47 @@ class Relation:
 
 
 class EntityExtractor:
-    """
-    实体关系提取器
-    结合 LLM 和规则从文档中提取命名实体和关系
-    """
-
-    # 实体类型模式（中文）
-    ENTITY_PATTERNS = {
-        "PERSON": [
-            r"([\u4e00-\u9fff]{2,4})(?:先生|女士|博士|教授|经理|CEO)",
-            r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?:先生|女士)",
-        ],
-        "ORGANIZATION": [
-            r"([\u4e00-\u9fff]{2,})(?:公司|集团|有限公司|股份有限公司|银行|基金|协会|政府)",
-            r"([A-Z][a-z]+(?:Inc|Corp|Ltd|Company|Group))",
-        ],
-        "LOCATION": [
-            r"([\u4e00-\u9fff]{2,})(?:省|市|区|县|国家|地区|城市|园区)",
-        ],
-        "PRODUCT": [
-            r"([\u4e00-\u9fff]{2,})(?:产品|服务|平台|系统|软件|APP)",
-        ],
-        "DATE": [
-            r"(\d{4})年",
-            r"(\d{4}-\d{1,2}-\d{1,2})",
-        ],
-        "NUMBER": [
-            r"(\d+(?:\.\d+)?)亿元",
-            r"(\d+(?:\.\d+)?)万元",
-            r"(\d+(?:\.\d+)?)%",
-        ]
-    }
-
-    # 常见关系模式
-    RELATION_PATTERNS = [
-        (r"(.+?)(?:是|为)(.+?)的?(?:子|分|母)?公司", "SUBSIDIARY_OF"),
-        (r"(.+?)(?:位于|坐落于|地处)(.+)", "LOCATED_IN"),
-        (r"(.+?)(?:成立|创办|创建)于(.+?)年", "FOUNDED_IN"),
-        (r"(.+?)CEO(?:是|为)(.+)", "CEO_OF"),
-        (r"(.+?)员工(?:数|数量)为(.+?)人", "HAS_EMPLOYEES"),
-        (r"(.+?)营收(?:为|达到)(.+?)亿元", "REVENUE_OF"),
-        (r"(.+?)(?:与|和)(.+?)(?:合作|达成合作)", "COOPERATES_WITH"),
-    ]
+    """实体关系提取器 - 使用外置配置"""
 
     def __init__(self, use_llm: bool = True, llm_service=None, min_frequency: int = 1, max_entities: int = 100):
-        """
-        初始化实体提取器
-
-        Args:
-            use_llm: 是否使用 LLM 增强提取
-            llm_service: LLM 服务实例
-            min_frequency: 最小出现频率阈值（低于此值的实体将被过滤，默认1）
-            max_entities: 最大实体数量限制（默认100）
-        """
         self.use_llm = use_llm
         self.llm_service = llm_service
-        self.min_frequency = min_frequency  # 新增
-        self.max_entities = max_entities  # 新增
+        self.min_frequency = min_frequency
+        self.max_entities = max_entities
 
-        # 编译正则表达式
-        self._compile_patterns()
+        # 加载配置
+        self.config = get_graphrag_config()
+
+        # 从配置加载实体模式
+        self.ENTITY_PATTERNS = self.config.get_entity_patterns()
+        self.compiled_entity_patterns = self.config.get_compiled_entity_patterns()
+
+        # 从配置加载关系模式
+        self.compiled_relations = self.config.get_compiled_relation_patterns()
+        self.RELATION_PATTERNS = self.config.get_relation_patterns()
+
+        # 获取实体长度限制
+        self.min_entity_length, self.max_entity_length = self.config.get_entity_length_limits()
+
+        # 获取别名配置
+        self.entity_aliases = self.config.get_entity_aliases()
 
         # 实体和关系存储
         self.entities: Dict[str, Entity] = {}
         self.relations: List[Relation] = []
         self.entity_graph: Dict[str, Set[str]] = defaultdict(set)
 
-        logger.info(
-            f"EntityExtractor 初始化, use_llm={use_llm}, min_frequency={min_frequency}, max_entities={max_entities}")
+        logger.info(f"EntityExtractor 初始化完成: use_llm={use_llm}, "
+                    f"min_frequency={min_frequency}, max_entities={max_entities}, "
+                    f"实体类型数={len(self.ENTITY_PATTERNS)}, "
+                    f"关系模式数={len(self.RELATION_PATTERNS)}")
 
-    def _compile_patterns(self):
-        """编译正则表达式"""
-        self.compiled_patterns = {}
-        for entity_type, patterns in self.ENTITY_PATTERNS.items():
-            self.compiled_patterns[entity_type] = [
-                re.compile(p) for p in patterns
-            ]
-
-        self.compiled_relations = [
-            (re.compile(p), rel_type) for p, rel_type in self.RELATION_PATTERNS
-        ]
+    def normalize_entity_name(self, name: str) -> str:
+        """将实体名称标准化（使用配置中的别名映射）"""
+        return self.config.normalize_entity_name(name)
 
     def extract_from_text(self, text: str, doc_name: str = "") -> Tuple[List[Entity], List[Relation]]:
-        """
-        从文本中提取实体和关系
-
-        Args:
-            text: 文档文本
-            doc_name: 文档名称
-
-        Returns:
-            (entities, relations): 实体列表和关系列表
-        """
+        """从文本中提取实体和关系"""
         if not text:
             return [], []
 
@@ -162,6 +109,10 @@ class EntityExtractor:
         merged_entities = self._deduplicate_entities(rule_entities)
         merged_relations = self._deduplicate_relations(rule_relations)
 
+        # 5. 标准化实体名称
+        for e in merged_entities:
+            e.name = self.normalize_entity_name(e.name)
+
         logger.info(f"实体提取完成: {len(merged_entities)} 个实体, {len(merged_relations)} 个关系")
 
         # 存储到实例变量
@@ -177,12 +128,13 @@ class EntityExtractor:
         """使用规则提取实体"""
         entities = []
 
-        for entity_type, patterns in self.compiled_patterns.items():
+        for entity_type, patterns in self.compiled_entity_patterns.items():
             for pattern in patterns:
                 matches = pattern.finditer(text)
                 for match in matches:
                     entity_name = match.group(1).strip()
-                    if entity_name and len(entity_name) >= 2:
+                    # 应用长度限制
+                    if entity_name and self.min_entity_length <= len(entity_name) <= self.max_entity_length:
                         entities.append(Entity(
                             name=entity_name,
                             type=entity_type,
