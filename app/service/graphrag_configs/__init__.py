@@ -54,6 +54,7 @@ class GraphRAGConfigLoader:
             'relation_patterns': self.config_dir / 'relation_patterns.yaml',
             'entity_aliases': self.config_dir / 'entity_aliases.yaml',
             'query_replacements': self.config_dir / 'query_replacements.yaml',
+            'entity_extraction': self.config_dir / 'entity_extraction.yaml',  # 新增
         }
 
         for name, file_path in config_files.items():
@@ -75,38 +76,58 @@ class GraphRAGConfigLoader:
         """重新加载配置"""
         self._load_all()
 
-    def check_configs_exist(self) -> Dict[str, bool]:
-        """检查所有配置文件是否存在"""
-        config_files = [
-            'entity_patterns.yaml',
-            'relation_patterns.yaml',
-            'entity_aliases.yaml',
-            'query_replacements.yaml'
-        ]
-        result = {}
-        for f in config_files:
-            result[f] = (self.config_dir / f).exists()
-        return result
+    # ========== 实体提取相关（从 entity_extraction.yaml） ==========
 
-    def validate_configs(self) -> Tuple[bool, List[str]]:
-        """验证所有配置文件是否有效"""
-        errors = []
+    def get_entity_extraction_patterns(self) -> List[str]:
+        """
+        获取从问题中提取实体的正则表达式模式列表
 
-        if not self.get_entity_patterns():
-            errors.append("entity_patterns.yaml 为空或格式错误")
+        Returns:
+            正则表达式模式列表
+        """
+        config = self._configs.get('entity_extraction', {})
+        patterns = config.get('entity_extraction_patterns', [])
 
-        if not self.get_relation_patterns():
-            errors.append("relation_patterns.yaml 为空或格式错误")
+        return patterns
 
-        if not self.get_entity_aliases():
-            logger.warning("entity_aliases.yaml 为空")
+    def get_entity_length_limits(self) -> Tuple[int, int]:
+        """
+        获取实体长度限制（用于 entity_extractor）
 
-        if not self.get_query_replacements():
-            logger.warning("query_replacements.yaml 为空")
+        Returns:
+            (min_entity_length, max_entity_length): 最小和最大实体长度
+        """
+        config = self._configs.get('entity_extraction', {})
+        min_length = config.get('min_entity_length', 2)
+        max_length = config.get('max_entity_length', 50)
+        return min_length, max_length
 
-        return len(errors) == 0, errors
+    def get_min_entity_length(self) -> int:
+        """获取最小实体长度"""
+        config = self._configs.get('entity_extraction', {})
+        return config.get('min_entity_length', 2)
 
-    # ========== 实体模式相关 ==========
+    def get_max_entity_length(self) -> int:
+        """获取最大实体长度"""
+        config = self._configs.get('entity_extraction', {})
+        return config.get('max_entity_length', 50)
+
+    def get_max_extracted_entities(self) -> int:
+        """获取最大提取实体数量"""
+        config = self._configs.get('entity_extraction', {})
+        return config.get('max_extracted_entities', 20)
+
+    def is_alias_matching_enabled(self) -> bool:
+        """是否启用别名匹配"""
+        config = self._configs.get('entity_extraction', {})
+        return config.get('enable_alias_matching', True)
+
+    def is_new_entity_extraction_enabled(self) -> bool:
+        """是否启用新实体提取"""
+        config = self._configs.get('entity_extraction', {})
+        return config.get('enable_new_entity_extraction', True)
+
+    # ========== 实体模式相关（从 entity_patterns.yaml） ==========
 
     def get_entity_patterns(self) -> Dict[str, List[str]]:
         """获取实体类型模式"""
@@ -114,24 +135,13 @@ class GraphRAGConfigLoader:
         return patterns.get('entity_patterns', {})
 
     def _compile_pattern(self, pattern_str: str) -> re.Pattern:
-        """
-        编译正则表达式，处理 YAML 中的转义
-
-        Args:
-            pattern_str: 原始正则表达式字符串
-
-        Returns:
-            编译后的正则对象
-        """
+        """编译正则表达式，处理 YAML 中的转义"""
         try:
-            # 方法1：处理 YAML 中的双重转义
             pattern_str = pattern_str.replace('\\\\', '\\')
-            # 方法2：处理 Unicode 转义（如 \u4e00）
             pattern_str = pattern_str.encode('utf-8').decode('unicode_escape')
             return re.compile(pattern_str)
         except re.error as e:
             logger.error(f"编译正则失败: {pattern_str} -> {e}")
-            # 返回一个匹配任何内容的正则作为降级
             return re.compile(r'.*')
 
     def get_compiled_entity_patterns(self) -> Dict[str, List[re.Pattern]]:
@@ -151,15 +161,12 @@ class GraphRAGConfigLoader:
         config = self._configs.get('entity_patterns', {})
         return config.get('type_priority', ['ORGANIZATION', 'TECHNOLOGY', 'PERSON'])
 
-    def get_entity_length_limits(self) -> Tuple[int, int]:
-        """获取实体长度限制"""
+    def get_max_entities(self) -> int:
+        """获取最大实体数量限制"""
         config = self._configs.get('entity_patterns', {})
-        return (
-            config.get('min_entity_length', 2),
-            config.get('max_entity_length', 50)
-        )
+        return config.get('max_entities', 100)
 
-    # ========== 关系模式相关 ==========
+    # ========== 关系模式相关（从 relation_patterns.yaml） ==========
 
     def get_relation_patterns(self) -> List[Tuple[str, str]]:
         """获取关系模式列表 [(pattern_str, relation_type), ...]"""
@@ -182,7 +189,7 @@ class GraphRAGConfigLoader:
             return re.compile(pattern_str)
         except re.error as e:
             logger.error(f"编译关系正则失败: {pattern_str} -> {e}")
-            return re.compile(r'(.*?)')  # 降级正则
+            return re.compile(r'(.*?)')
 
     def get_compiled_relation_patterns(self) -> List[Tuple[re.Pattern, str]]:
         """获取编译后的关系模式"""
@@ -207,14 +214,13 @@ class GraphRAGConfigLoader:
             'max_weight': config.get('max_relation_weight', 5.0)
         }
 
-    # ========== 实体别名相关 ==========
+    # ========== 实体别名相关（从 entity_aliases.yaml） ==========
 
     def get_entity_aliases(self) -> Dict[str, str]:
         """获取实体别名映射 {alias: full_name}"""
         config = self._configs.get('entity_aliases', {})
         aliases = config.get('entity_aliases', {})
 
-        # 按别名长度排序（长别名优先匹配）
         if aliases:
             return dict(sorted(aliases.items(), key=lambda x: len(x[0]), reverse=True))
         return aliases
@@ -229,28 +235,18 @@ class GraphRAGConfigLoader:
         }
 
     def normalize_entity_name(self, name: str) -> str:
-        """
-        标准化实体名称（将别名转换为标准名）
-
-        Args:
-            name: 原始实体名称
-
-        Returns:
-            标准化后的实体名称
-        """
+        """标准化实体名称（将别名转换为标准名）"""
         aliases = self.get_entity_aliases()
         config = self.get_alias_matching_config()
         case_insensitive = config.get('case_insensitive', True)
 
         compare_name = name.lower() if case_insensitive else name
 
-        # 精确匹配（优先）
         for alias, full_name in aliases.items():
             alias_compare = alias.lower() if case_insensitive else alias
             if alias_compare == compare_name:
                 return full_name
 
-        # 包含匹配
         for alias, full_name in aliases.items():
             alias_compare = alias.lower() if case_insensitive else alias
             if alias_compare in compare_name:
@@ -262,7 +258,7 @@ class GraphRAGConfigLoader:
         """获取所有别名映射（用于图检索器）"""
         return self.get_entity_aliases()
 
-    # ========== 查询替换相关 ==========
+    # ========== 查询替换相关（从 query_replacements.yaml） ==========
 
     def get_query_replacements(self) -> List[Tuple[str, str]]:
         """获取查询替换规则 [(alias, replacement), ...]"""
@@ -272,7 +268,6 @@ class GraphRAGConfigLoader:
         result = [(item.get('alias', ''), item.get('replacement', ''))
                   for item in replacements if item.get('alias') and item.get('replacement')]
 
-        # 按别名长度排序（长别名优先）
         if config.get('sort_by_length', True):
             result.sort(key=lambda x: len(x[0]), reverse=True)
 
@@ -289,11 +284,6 @@ class GraphRAGConfigLoader:
         """获取原始配置"""
         return self._configs.get(name, {})
 
-    def get_max_entities(self) -> int:
-        """获取最大实体数量限制"""
-        config = self._configs.get('entity_patterns', {})
-        return config.get('max_entities', 100)
-
 
 # 全局单例
 _config_loader = None
@@ -307,4 +297,32 @@ def get_graphrag_config() -> GraphRAGConfigLoader:
     return _config_loader
 
 
-__all__ = ['GraphRAGConfigLoader', 'get_graphrag_config']
+# 便捷函数
+def get_entity_extraction_patterns() -> List[str]:
+    """获取实体提取模式"""
+    return get_graphrag_config().get_entity_extraction_patterns()
+
+
+def get_min_entity_length() -> int:
+    """获取最小实体长度"""
+    return get_graphrag_config().get_min_entity_length()
+
+
+def get_max_entity_length() -> int:
+    """获取最大实体长度"""
+    return get_graphrag_config().get_max_entity_length()
+
+
+def get_max_extracted_entities() -> int:
+    """获取最大提取实体数量"""
+    return get_graphrag_config().get_max_extracted_entities()
+
+
+__all__ = [
+    'GraphRAGConfigLoader',
+    'get_graphrag_config',
+    'get_entity_extraction_patterns',
+    'get_min_entity_length',
+    'get_max_entity_length',
+    'get_max_extracted_entities'
+]

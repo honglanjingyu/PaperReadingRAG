@@ -1,10 +1,10 @@
 # app/service/core/retrieval/base.py
-"""检索模块基类 - 提供公共功能"""
 
 import logging
 import os
 import numpy as np
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -14,17 +14,7 @@ class BaseRetriever:
 
     @staticmethod
     def normalize_scores(scores: List[float], min_val: float = 0.05, max_val: float = 0.95) -> List[float]:
-        """
-        归一化分数到 [min_val, max_val] 范围
-
-        Args:
-            scores: 原始分数列表
-            min_val: 最小值
-            max_val: 最大值
-
-        Returns:
-            归一化后的分数列表
-        """
+        """归一化分数到 [min_val, max_val] 范围"""
         if not scores:
             return []
 
@@ -54,7 +44,6 @@ class BaseRetriever:
         tokens = BaseRetriever.estimate_tokens(text)
         if tokens <= max_tokens:
             return text
-        # 简单截断
         ratio = max_tokens / tokens
         new_len = int(len(text) * ratio)
         return text[:new_len] + "..."
@@ -69,7 +58,7 @@ class BaseRetriever:
 class ScoreMerger:
     """
     分数融合器 - 支持多种融合策略
-    从 hybrid_retriever.py 和 reranker.py 提取公共逻辑
+    主要使用 RRF (Reciprocal Rank Fusion)
     """
 
     @staticmethod
@@ -82,18 +71,50 @@ class ScoreMerger:
 
         Args:
             results_lists: 多个检索结果列表，每个列表包含文档
+            k: RRF 常数，通常为 60
+
+        Returns:
+            文档ID到融合分数的映射
+        """
+        scores = defaultdict(float)
+
+        for results in results_lists:
+            for rank, result in enumerate(results, 1):
+                doc_id = result.get('_id', result.get('id', ''))
+                if doc_id:
+                    scores[doc_id] += 1.0 / (k + rank)
+
+        return dict(scores)
+
+    @staticmethod
+    def reciprocal_rank_fusion_with_weights(
+            results_lists: List[List[Dict]],
+            weights: List[float],
+            k: int = 60
+    ) -> Dict[str, float]:
+        """
+        带权重的 RRF 融合算法
+
+        Args:
+            results_lists: 多个检索结果列表
+            weights: 对应每个结果列表的权重
             k: RRF 常数
 
         Returns:
             文档ID到融合分数的映射
         """
-        scores = {}
-        for results in results_lists:
+        if len(results_lists) != len(weights):
+            raise ValueError("results_lists 和 weights 长度必须相等")
+
+        scores = defaultdict(float)
+
+        for results, weight in zip(results_lists, weights):
             for rank, result in enumerate(results, 1):
                 doc_id = result.get('_id', result.get('id', ''))
                 if doc_id:
-                    scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + rank)
-        return scores
+                    scores[doc_id] += weight / (k + rank)
+
+        return dict(scores)
 
     @staticmethod
     def weighted_sum_fusion(
@@ -103,7 +124,7 @@ class ScoreMerger:
             keyword_weight: float
     ) -> Dict[str, float]:
         """
-        加权和融合
+        加权和融合（备用方案）
 
         Args:
             vector_scores: 向量检索分数（已归一化）
@@ -135,90 +156,83 @@ class ScoreMerger:
         return fused
 
     @staticmethod
-    def normalize_results(
+    def rrf_normalize_results(
             vector_results: List[Dict],
             keyword_results: List[Dict],
-            vector_weight: float,
-            keyword_weight: float
+            vector_weight: float = 1.0,
+            keyword_weight: float = 1.0,
+            k: int = 60
     ) -> List[Dict]:
         """
-        归一化并融合两个检索结果列表
+        使用 RRF 算法归一化并融合两个检索结果列表
 
         Args:
-            vector_results: 向量检索结果
-            keyword_results: 关键词检索结果
-            vector_weight: 向量权重
-            keyword_weight: 关键词权重
+            vector_results: 向量检索结果（按分数降序排列）
+            keyword_results: 关键词检索结果（按分数降序排列）
+            vector_weight: 向量检索权重
+            keyword_weight: 关键词检索权重
+            k: RRF 常数
 
         Returns:
             融合后的结果列表（已排序）
         """
-        from .base import BaseRetriever
+        # 构建 RRF 分数
+        rrf_scores = defaultdict(float)
 
-        if not vector_results and not keyword_results:
-            return []
-        if not vector_results:
-            return keyword_results
-        if not keyword_results:
-            return vector_results
-
-        # 归一化向量分数
-        vector_scores_raw = [r.get('_score', 0) for r in vector_results if r.get('_score', 0) > 0]
-        norm_vector_scores = BaseRetriever.normalize_scores(vector_scores_raw)
-
-        # 创建文档ID到归一化分数的映射
-        vec_score_map = {}
-        for i, result in enumerate([r for r in vector_results if r.get('_score', 0) > 0]):
+        # 向量检索结果按原始顺序添加排名
+        for rank, result in enumerate(vector_results, 1):
             doc_id = result.get('_id', result.get('id', ''))
             if doc_id:
-                vec_score_map[doc_id] = norm_vector_scores[i] if i < len(norm_vector_scores) else 0.05
+                rrf_scores[doc_id] += vector_weight / (k + rank)
 
-        # 处理关键词结果
-        kw_score_map = {}
-        for result in keyword_results:
+        # 关键词检索结果按原始顺序添加排名
+        for rank, result in enumerate(keyword_results, 1):
             doc_id = result.get('_id', result.get('id', ''))
-            if not doc_id:
-                continue
+            if doc_id:
+                rrf_scores[doc_id] += keyword_weight / (k + rank)
 
-            raw_score = result.get('keyword_score', result.get('_score', 0))
-            # 简单归一化：假设 BM25 分数范围 0-10
-            kw_score = min(0.95, raw_score / 10.0) if raw_score > 0 else 0.05
-            kw_score = max(0.05, kw_score)
-            kw_score_map[doc_id] = kw_score
+        if not rrf_scores:
+            return []
 
-        # 融合分数
-        fused_scores = ScoreMerger.weighted_sum_fusion(
-            vec_score_map, kw_score_map, vector_weight, keyword_weight
-        )
-
-        # 构建结果
+        # 构建结果映射
         result_map = {}
+
+        # 处理向量结果
         for doc in vector_results:
             doc_id = doc.get('_id', doc.get('id', ''))
-            if doc_id and doc_id in fused_scores:
+            if doc_id and doc_id in rrf_scores:
                 result_map[doc_id] = {
                     **doc,
-                    'vector_score': vec_score_map.get(doc_id, 0),
-                    'keyword_score': kw_score_map.get(doc_id, 0),
-                    'final_score': fused_scores[doc_id],
+                    'vector_score': doc.get('_score', 0),
+                    'keyword_score': 0,
+                    'rrf_score': rrf_scores[doc_id],
                     '_search_types': ['vector']
                 }
 
+        # 处理关键词结果
         for doc in keyword_results:
             doc_id = doc.get('_id', doc.get('id', ''))
             if doc_id:
                 if doc_id in result_map:
-                    result_map[doc_id]['keyword_score'] = kw_score_map.get(doc_id, 0)
+                    result_map[doc_id]['keyword_score'] = doc.get('_score', 0)
                     result_map[doc_id]['_search_types'].append('bm25')
-                elif doc_id in fused_scores:
+                    # 更新 RRF 分数（已包含在之前计算中）
+                    result_map[doc_id]['rrf_score'] = rrf_scores[doc_id]
+                elif doc_id in rrf_scores:
                     result_map[doc_id] = {
                         **doc,
                         'vector_score': 0,
-                        'keyword_score': kw_score_map.get(doc_id, 0),
-                        'final_score': fused_scores[doc_id],
+                        'keyword_score': doc.get('_score', 0),
+                        'rrf_score': rrf_scores[doc_id],
                         '_search_types': ['bm25']
                     }
 
+        # 转换为列表并按 RRF 分数排序
         results = list(result_map.values())
-        results.sort(key=lambda x: x.get('final_score', 0), reverse=True)
+        results.sort(key=lambda x: x.get('rrf_score', 0), reverse=True)
+
+        logger.debug(f"RRF 融合完成: 向量结果数={len(vector_results)}, "
+                     f"关键词结果数={len(keyword_results)}, "
+                     f"融合后={len(results)}")
+
         return results

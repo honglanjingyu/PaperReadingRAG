@@ -8,6 +8,9 @@ import re
 from typing import List, Dict, Any, Optional, Set, Tuple
 from collections import defaultdict
 
+# 添加 RRF 融合的导入
+from app.service.core.retrieval.base import ScoreMerger
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,6 +35,19 @@ class GraphRetriever:
         self.vector_search = vector_search_service or get_vector_search_service()
         self.llm_service = llm_service or get_llm_service()
         self.neo4j = neo4j_store or get_neo4j_store()
+
+        # RRF 参数
+        self._rrf_k = int(os.getenv("RRF_K", "60"))
+
+        # 检索源权重配置
+        self._source_weights = {
+            "entity": float(os.getenv("GRAPH_RRF_ENTITY_WEIGHT", "1.0")),
+            "expanded_entity": float(os.getenv("GRAPH_RRF_EXPANDED_WEIGHT", "0.8")),
+            "community": float(os.getenv("GRAPH_RRF_COMMUNITY_WEIGHT", "0.9")),
+            "global": float(os.getenv("GRAPH_RRF_GLOBAL_WEIGHT", "1.0")),
+        }
+
+        logger.info(f"GraphRetriever RRF 配置: k={self._rrf_k}, weights={self._source_weights}")
 
         # 加载配置
         self._load_config()
@@ -59,6 +75,7 @@ class GraphRetriever:
         Returns:
             实体名称列表
         """
+        import re
         entities = set()
 
         # 1. 获取所有已知实体名称
@@ -73,26 +90,41 @@ class GraphRetriever:
         # 3. 别名匹配（从配置加载）
         for alias, full_name in self.entity_aliases.items():
             if alias in question:
-                # 检查完整名称是否在实体列表中
                 if full_name in entity_names:
                     entities.add(full_name)
                 else:
-                    # 如果完整名称不在实体列表中，添加别名本身
                     entities.add(alias)
 
-        # 4. 从问题中提取可能的新实体（简单提取）
-        # 提取常见模式：XXX公司、XXX技术等
-        patterns = [
-            r'([\u4e00-\u9fff]{2,})公司',
-            r'([\u4e00-\u9fff]{2,})技术',
-            r'([\u4e00-\u9fff]{2,})算法',
-            r'([\u4e00-\u9fff]{2,})模型',
-        ]
+        # 4. ========== 从 entity_extraction.yaml 加载实体提取模式 ==========
+        try:
+            from app.service.graphrag_configs import get_graphrag_config
+            config = get_graphrag_config()
+            patterns = config.get_entity_extraction_patterns()
+            min_length = config.get_min_entity_length()
+            max_entities = config.get_max_extracted_entities()
+        except Exception as e:
+            logger.debug(f"从配置加载实体提取模式失败: {e}")
+            min_length = 2
+            max_entities = 20
+
+        # 应用配置的模式提取实体
         for pattern in patterns:
-            matches = re.findall(pattern, question)
-            for match in matches:
-                if match and len(match) >= 2:
-                    entities.add(match)
+            try:
+                matches = re.findall(pattern, question)
+                for match in matches:
+                    if match and len(match) >= min_length:
+                        entities.add(match)
+            except re.error as e:
+                logger.warning(f"正则表达式错误: {pattern}, 错误: {e}")
+                continue
+
+        # 5. 限制实体数量
+        if len(entities) > max_entities:
+            # 优先保留长度较短的实体（更可能是精确实体）
+            entities = set(sorted(entities, key=len)[:max_entities])
+
+        # 6. 过滤太短的实体
+        entities = {e for e in entities if len(e) >= min_length}
 
         logger.info(f"从问题中提取实体: {list(entities)}")
         return list(entities)
@@ -101,7 +133,8 @@ class GraphRetriever:
             self,
             entities: List[str],
             index_name: str,
-            top_k: int = 10
+            top_k: int = 10,
+            user_level: str = None
     ) -> List[Dict]:
         """
         基于实体的检索
@@ -110,6 +143,7 @@ class GraphRetriever:
             entities: 实体列表
             index_name: 索引名称
             top_k: 返回数量
+            user_level: 用户等级
 
         Returns:
             相关文档列表
@@ -132,13 +166,19 @@ class GraphRetriever:
             query_vector=query_vector,
             index_name=index_name,
             top_k=top_k,
-            similarity_threshold=0.3
+            similarity_threshold=0.3,
+            user_level=user_level
         )
 
-        logger.info(f"实体检索完成: {len(entities)} 个实体 -> {len(results)} 个结果")
-        for r in results:
+        # 标记检索源和原始排名（用于 RRF）
+        for rank, r in enumerate(results, 1):
+            r["_source"] = "entity"
+            r["_source_name"] = "entity"
+            r["_original_rank"] = rank
             if "score" not in r:
                 r["score"] = r.get("_score", 0)
+
+        logger.info(f"实体检索完成: {len(entities)} 个实体 -> {len(results)} 个结果")
         return results
 
     def expand_with_entity_relations(
@@ -174,7 +214,8 @@ class GraphRetriever:
             self,
             entities: List[str],
             index_name: str,
-            top_k: int = 5
+            top_k: int = 5,
+            user_level: str = None
     ) -> List[Dict]:
         """
         基于社区的检索（使用 Neo4j 社区数据）
@@ -183,6 +224,7 @@ class GraphRetriever:
             entities: 实体列表
             index_name: 索引名称
             top_k: 返回数量
+            user_level: 用户等级
 
         Returns:
             相关文档列表
@@ -222,8 +264,17 @@ class GraphRetriever:
                     query_vector=query_vector,
                     index_name=index_name,
                     top_k=top_k,
-                    similarity_threshold=0.3
+                    similarity_threshold=0.3,
+                    user_level=user_level
                 )
+
+                # 标记检索源和原始排名（用于 RRF）
+                for rank, r in enumerate(results, 1):
+                    r["_source"] = "community"
+                    r["_source_name"] = "community"
+                    r["_original_rank"] = rank
+                    r["_community_score"] = community_scores[0][1]
+
                 logger.info(f"社区检索完成: community_id={top_community.get('community_id')} -> {len(results)} 个结果")
                 return results
 
@@ -233,7 +284,8 @@ class GraphRetriever:
             self,
             question: str,
             index_name: str,
-            top_k: int = 8
+            top_k: int = 8,
+            user_level: str = None
     ) -> List[Dict]:
         """
         全局检索（基于社区摘要，使用 Neo4j）
@@ -242,6 +294,7 @@ class GraphRetriever:
             question: 用户问题
             index_name: 索引名称
             top_k: 返回数量
+            user_level: 用户等级
 
         Returns:
             相关文档列表
@@ -294,19 +347,26 @@ class GraphRetriever:
                         query_vector=query_vector,
                         index_name=index_name,
                         top_k=top_k // 2,
-                        similarity_threshold=0.25
+                        similarity_threshold=0.25,
+                        user_level=user_level
                     )
 
                     for r in results:
                         doc_id = r.get("_id", r.get("id", ""))
                         if doc_id and doc_id not in seen_ids:
                             seen_ids.add(doc_id)
+                            r["_source"] = "global"
+                            r["_source_name"] = "global"
                             r["_community_score"] = score
-                            all_results.append(r)
 
-        all_results.sort(key=lambda x: x.get("_score", 0), reverse=True)
+        # 标记原始排名（用于 RRF）
+        for rank, r in enumerate(all_results, 1):
+            r["_original_rank"] = rank
+
         logger.info(f"全局检索完成: 返回 {len(all_results[:top_k])} 个结果")
         return all_results[:top_k]
+
+    # ========== RRF 融合的核心方法 ==========
 
     def hybrid_graph_search(
             self,
@@ -316,65 +376,97 @@ class GraphRetriever:
             summaries: Dict[int, str],
             entity_graph: Dict[str, Set[str]],
             index_name: str,
-            top_k: int = 8
+            top_k: int = 8,
+            user_level: str = None
     ) -> Tuple[List[Dict], Dict]:
         """
-        混合图检索（结合实体、社区和全局检索）
+        混合图检索 - 使用 RRF 融合（结合实体、扩展实体、社区和全局检索）
 
         Returns:
             (results, metadata): 检索结果和元数据
         """
-        all_results = []
-        search_sources = []
+        results_lists = []
+        source_names = []
+        source_weights = []
 
         # 1. 实体检索
         if entities:
-            entity_results = self.entity_search(entities, index_name, top_k * 2)
-            for r in entity_results:
-                r["_source"] = "entity"
-            all_results.extend(entity_results)
-            search_sources.append(f"entity({len(entities)})")
+            entity_results = self.entity_search(entities, index_name, top_k * 3, user_level)
+            if entity_results:
+                results_lists.append(entity_results)
+                source_names.append("entity")
+                source_weights.append(self._source_weights["entity"])
 
         # 2. 扩展实体检索（使用 Neo4j 关系）
         if entities:
             expanded_entities = self.expand_with_entity_relations(entities)
             if len(expanded_entities) > len(entities):
-                expanded_results = self.entity_search(expanded_entities, index_name, top_k)
-                for r in expanded_results:
-                    r["_source"] = "expanded_entity"
-                all_results.extend(expanded_results)
-                search_sources.append(f"expanded_entity({len(expanded_entities)})")
+                expanded_results = self.entity_search(expanded_entities, index_name, top_k * 2, user_level)
+                if expanded_results:
+                    results_lists.append(expanded_results)
+                    source_names.append("expanded_entity")
+                    source_weights.append(self._source_weights["expanded_entity"])
 
         # 3. 社区检索
         if entities:
-            community_results = self.community_search(entities, index_name, top_k)
-            for r in community_results:
-                r["_source"] = "community"
-            all_results.extend(community_results)
-            search_sources.append("community")
+            community_results = self.community_search(entities, index_name, top_k * 2, user_level)
+            if community_results:
+                results_lists.append(community_results)
+                source_names.append("community")
+                source_weights.append(self._source_weights["community"])
 
         # 4. 全局检索（基于摘要）
-        global_results = self.global_search(question, index_name, top_k)
-        for r in global_results:
-            r["_source"] = "global"
-        all_results.extend(global_results)
-        search_sources.append("global")
+        global_results = self.global_search(question, index_name, top_k * 2, user_level)
+        if global_results:
+            results_lists.append(global_results)
+            source_names.append("global")
+            source_weights.append(self._source_weights["global"])
 
-        # 去重
-        seen_ids = set()
-        unique_results = []
-        for r in all_results:
-            doc_id = r.get("_id", r.get("id", ""))
-            if doc_id and doc_id not in seen_ids:
-                seen_ids.add(doc_id)
-                if "score" not in r:
-                    r["score"] = r.get("_score", 0)
-                unique_results.append(r)
+        # 如果没有结果，返回空
+        if not results_lists:
+            logger.warning("GraphRAG RRF 检索: 无任何检索结果")
+            return [], {"search_sources": [], "total_recalled": 0}
 
-        # 按分数排序
-        unique_results.sort(key=lambda x: (
-                x.get("_score", 0) * (1.2 if x.get("_source") == "global" else 1.0)
-        ), reverse=True)
+        # 使用 RRF 融合所有结果
+        rrf_scores = ScoreMerger.reciprocal_rank_fusion_with_weights(
+            results_lists, source_weights, self._rrf_k
+        )
+
+        # 收集文档详情
+        doc_map = {}
+        for results, source_name in zip(results_lists, source_names):
+            for doc in results:
+                doc_id = doc.get("_id", doc.get("id", ""))
+                if not doc_id:
+                    continue
+
+                if doc_id not in doc_map:
+                    doc_map[doc_id] = {
+                        **doc,
+                        "rrf_score": 0.0,
+                        "_search_types": [source_name],
+                        "_source_names": [source_name]
+                    }
+                else:
+                    if source_name not in doc_map[doc_id]["_search_types"]:
+                        doc_map[doc_id]["_search_types"].append(source_name)
+                        doc_map[doc_id]["_source_names"].append(source_name)
+
+        # 应用 RRF 分数
+        for doc_id, rrf_score in rrf_scores.items():
+            if doc_id in doc_map:
+                doc_map[doc_id]["rrf_score"] = rrf_score
+                doc_map[doc_id]["score"] = rrf_score  # 统一 score 字段
+
+        # 转换为列表并按 RRF 分数排序
+        results = list(doc_map.values())
+        results.sort(key=lambda x: x.get("rrf_score", 0), reverse=True)
+
+        # 过滤低分结果
+        min_rrf_score = float(os.getenv("RRF_MIN_SCORE", "0.005"))
+        filtered = [r for r in results if r.get("rrf_score", 0) >= min_rrf_score]
+
+        logger.info(f"RRF 混合检索完成: {len(filtered)} 个结果 (来自 {len(results_lists)} 个源)")
 
         # 构建相关社区摘要列表
         relevant_summaries = []
@@ -390,14 +482,20 @@ class GraphRetriever:
                         })
 
         metadata = {
-            "search_sources": search_sources,
-            "total_recalled": len(unique_results),
+            "search_sources": source_names,
+            "source_weights": source_weights,
+            "total_recalled": len(filtered),
             "entities_extracted": entities,
             "graph_enabled": True,
-            "relevant_summaries": relevant_summaries[:5]  # 添加相关社区摘要
+            "rrf_k": self._rrf_k,
+            "relevant_summaries": relevant_summaries[:5],
+            "rrf_scores_top": [
+                {"id": r.get("_id", "")[:16], "score": r.get("rrf_score", 0)}
+                for r in filtered[:5]
+            ] if filtered else []
         }
 
-        return unique_results[:top_k], metadata
+        return filtered[:top_k], metadata
 
     def hybrid_graph_search_with_paths(
             self,
@@ -407,10 +505,11 @@ class GraphRetriever:
             summaries: Dict[int, str],
             entity_graph: Dict[str, Set[str]],
             index_name: str,
-            top_k: int = 8
+            top_k: int = 8,
+            user_level: str = None
     ) -> Tuple[List[Dict], Dict]:
         """
-        混合图检索（带推理路径）
+        混合图检索（带推理路径）- 使用 RRF 融合
 
         Args:
             question: 用户问题
@@ -420,11 +519,12 @@ class GraphRetriever:
             entity_graph: 实体关系图
             index_name: 索引名称
             top_k: 返回数量
+            user_level: 用户等级
 
         Returns:
             (results, metadata): 检索结果和元数据
         """
-        # 1. 执行原有检索
+        # 1. 执行 RRF 检索
         results, metadata = self.hybrid_graph_search(
             question=question,
             entities=entities,
@@ -432,7 +532,8 @@ class GraphRetriever:
             summaries=summaries,
             entity_graph=entity_graph,
             index_name=index_name,
-            top_k=top_k
+            top_k=top_k,
+            user_level=user_level
         )
 
         # 2. 提取推理路径
