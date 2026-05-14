@@ -92,11 +92,11 @@ def setup_file_logging():
 
 def setup_console_logging():
     """
-    配置控制台日志 - 只输出 WARNING 及以上级别，同时保留 uvicorn 访问日志
+    配置控制台日志 - 只输出 INFO 及以上级别，同时保留 uvicorn 访问日志
     """
-    # 创建控制台处理器 - 输出 WARNING 及以上
+    # 创建控制台处理器 - 输出 INFO 及以上
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.WARNING)
+    console_handler.setLevel(logging.INFO)
 
     # 简洁格式
     console_formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
@@ -131,6 +131,11 @@ def suppress_noisy_loggers():
         'requests.packages.urllib3',
         'httpcore.connection',
         'httpcore.http11',
+        # 添加以下日志器
+        'elastic_transport.transport',
+        'elasticsearch',
+        'neo4j',
+        'neo4j.notifications',
     ]
 
     for logger_name in noisy_loggers:

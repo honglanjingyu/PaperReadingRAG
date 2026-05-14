@@ -385,7 +385,9 @@ class GraphRAGService:
             index_name: str = None,
             top_k: int = None
     ) -> Tuple[List[Dict], Dict]:
-        """使用知识图谱进行检索"""
+        """使用知识图谱进行检索 - 使用父子查询"""
+        from app.service.core.retrieval.parent_child_retriever import get_parent_child_retriever
+
         if not self.config["enabled"]:
             return self._fallback_search(question, index_name, top_k)
 
@@ -395,7 +397,20 @@ class GraphRAGService:
         # 1. 从问题中提取实体
         entities = self.retriever.extract_entities_from_question(question)
 
-        # 2. 获取社区数据
+        # 2. 使用父子查询进行检索
+        parent_child_retriever = get_parent_child_retriever()
+        retrieval_result = parent_child_retriever.search_with_query_rewrite(
+            question=question,
+            index_name=index_name,
+            top_k=top_k,
+            recall_k=top_k * 3,
+            enable_rerank=True,
+            enable_query_rewrite=True
+        )
+
+        vector_docs = retrieval_result.get("results", [])
+
+        # 3. 获取社区数据
         communities = {}
         for comm in self.neo4j.get_all_communities():
             communities[comm["community_id"]] = {
@@ -404,16 +419,16 @@ class GraphRAGService:
                 "density": comm.get("density", 0)
             }
 
-        # 3. 获取摘要
+        # 4. 获取摘要
         summaries = {}
         for comm in self.neo4j.get_all_communities():
             if comm.get("summary"):
                 summaries[comm["community_id"]] = comm["summary"]
 
-        # 4. 获取实体关系图
+        # 5. 获取实体关系图
         entity_graph = self.neo4j.get_entity_graph()
 
-        # 5. 执行混合图检索（使用带推理路径的版本）
+        # 6. 执行图检索
         results, metadata = self.retriever.hybrid_graph_search_with_paths(
             question=question,
             entities=entities,
@@ -424,11 +439,28 @@ class GraphRAGService:
             top_k=top_k
         )
 
+        # 7. 合并向量检索结果（去重）
+        existing_ids = {r.get("parent_id", r.get("_id", "")) for r in results}
+        for doc in vector_docs:
+            doc_id = doc.get("parent_id", doc.get("chunk_id", ""))
+            if doc_id not in existing_ids:
+                results.append({
+                    "content": doc.get("content", ""),
+                    "score": doc.get("score", 0),
+                    "docnm": doc.get("document_name", ""),
+                    "_source": "vector_parent"
+                })
+                existing_ids.add(doc_id)
+
+        # 按分数排序
+        results.sort(key=lambda x: x.get("score", 0), reverse=True)
+
         metadata["graph_enabled"] = True
         metadata["graph_statistics"] = self.neo4j.get_statistics()
         metadata["entities_extracted"] = entities
+        metadata["parent_child_enabled"] = True
 
-        return results, metadata
+        return results[:top_k], metadata
 
     def _fallback_search(
             self,

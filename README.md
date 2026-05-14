@@ -35,8 +35,8 @@ PaperReadingRAG 是一个生产级的 RAG（Retrieval-Augmented Generation）文
 ┌─────────────────────────────────────────────────────────────────┐
 │                      API 网关层 (FastAPI)                        │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐            │
-│  │文档管理API│ │ 问答API   │ │GraphRAG  │ │  A2A协议  │           │
-│  │认证/权限  │ │会话管理   │ │知识图谱   │ │Agent发现  │            │
+│  │文档管理API│ │ 问答API   │ │GraphRAG  │ │  A2A协议 │            │
+│  │认证/权限  │ │会话管理   │ │知识图谱    │ │Agent发现 │            │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘            │
 └─────────────────────────────────────────────────────────────────┘
                                 │
@@ -44,17 +44,17 @@ PaperReadingRAG 是一个生产级的 RAG（Retrieval-Augmented Generation）文
         ▼           ▼           ▼           ▼           ▼
    ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
    │ Milvus  │ │   ES    │ │  Redis  │ │  Neo4j  │ │PostgreSQL│
-   │向量数据库 │ │BM25检索  │ │会话/缓存│ │知识图谱  │ │用户/会话  │
+   │向量数据库 │ │BM25检索 │ │会话/缓存 │ │知识图谱  │ │用户/会话  │
    └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘
 ```
 
 ### 文档处理流程
 
 ```
-  上传文档      MinerU       智能分块       向量化       Milvus+ES
+  上传文档      MinerU       智能分块         向量化        Milvus+ES
  ┌────────┐   ┌────────┐    ┌────────┐    ┌────────┐    ┌────────┐
- │ PDF/   │ → │ 远程    │ →  │ 递归    │ →   │Embed-│ →  │ 向量    │
- │ DOCX等 │    │ 解析   │    │ 分块    │    │ ding  │    │ + BM25  │
+ │ PDF/   │ → │ 远程    │ →  │ 父子   │ →   │Embed- │ →  │ 向量    │
+ │ DOCX等 │    │ 解析   │    │ 分块    │    │ ding   │   │ + BM25  │
  └────────┘   └────────┘    └────────┘    └────────┘    └────────┘
 ```
 
@@ -106,13 +106,13 @@ PaperReadingRAG 是一个生产级的 RAG（Retrieval-Augmented Generation）文
 ```
   用户提问      实体提取       图检索        结果融合
  ┌────────┐   ┌────────┐    ┌────────┐    ┌────────┐
- │ 问题   │ → │ 从问题  │ →  │ 实体   │ →   │ RRF    │
- │ 输入   │   │ 提取    │    │ 邻居   │     │ 融合   │
+ │ 问题   │ → │ 从问题  │ →  │ 实体    │ →  │ RRF    │
+ │ 输入   │   │ 提取    │    │ 邻居    │    │ 融合   │
  └────────┘   └────────┘    └────────┘    └────────┘
-                              │
-                              ▼
- ┌────────┐   ┌────────┐    ┌────────┐
- │ 推理   │ ←  │ 上下文 │ ←  │ 社区    │
+                                              │
+                                              │
+ ┌────────┐   ┌────────┐    ┌────────┐        │
+ │ 推理   │ ←  │ 上下文 │ ←  │ 社区    │ <──────┘
  │ 路径   │    │ 构建   │    │ 检索    │
  └────────┘   └────────┘    └────────┘
                               │
@@ -306,87 +306,6 @@ curl http://localhost:8001/a2a/health
 
 ---
 
-## 💡 使用示例
-
-### 1. 用户注册与登录
-
-```bash
-# 注册
-curl -X POST http://localhost:8001/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin_user", "password": "123456"}'
-
-# 登录（admin 前缀自动获得 admin 权限）
-curl -X POST http://localhost:8001/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin_user", "password": "123456"}'
-```
-
-### 2. 上传文档
-
-```bash
-curl -X POST http://localhost:8001/api/upload \
-  -H "Authorization: Bearer <your-token>" \
-  -F "file=@/path/to/document.pdf"
-```
-
-### 3. 流式问答
-
-```javascript
-// JavaScript 示例
-const response = await fetch('/api/chat/ask/stream', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    question: '这个文档的主要内容是什么？',
-    session_id: 'my-session',
-    enable_memory: true
-  })
-});
-
-const reader = response.body.getReader();
-const decoder = new TextDecoder();
-
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-
-  const lines = decoder.decode(value).split('\n');
-  for (const line of lines) {
-    if (line.trim()) {
-      const data = JSON.parse(line);
-      if (data.type === 'retrieval_results') {
-        console.log('检索结果:', data.results);
-      } else if (data.type === 'answer') {
-        process.stdout.write(data.content);
-      }
-    }
-  }
-}
-```
-
-### 4. GraphRAG 问答
-
-```bash
-curl -X POST http://localhost:8001/api/chat/graph/ask \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "文档中提到了哪些公司及其关系？",
-    "top_k": 8
-  }'
-```
-
-### 5. 批量删除文档
-
-```bash
-curl -X POST http://localhost:8001/api/upload/delete-batch \
-  -H "Authorization: Bearer <admin-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"filenames": ["doc1.pdf", "doc2.pdf", "doc3.pdf"]}'
-```
-
----
-
 ## 🔧 核心模块详解
 
 ### Advanced RAG 流程
@@ -454,16 +373,3 @@ tail -f logs/evaluation_$(date +%Y%m%d).log
 ```
 
 ---
-
-## 🧪 测试
-
-```bash
-# 运行测试
-pytest tests/
-
-# 测试 A2A 协议
-curl http://localhost:8001/.well-known/agent.json | jq .
-
-# 测试 GraphRAG 状态
-curl http://localhost:8001/api/chat/graph/status
-```

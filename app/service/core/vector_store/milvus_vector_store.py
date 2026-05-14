@@ -64,7 +64,7 @@ class MilvusVectorStore:
 
     def create_index(self, index_name: str, vector_dim: int = None,
                      metric_type: str = "COSINE", **kwargs) -> bool:
-        """创建集合 - 确保索引正确创建"""
+        """创建集合 - 修复索引问题"""
         self._ensure_connected()
 
         if vector_dim is None:
@@ -73,10 +73,9 @@ class MilvusVectorStore:
         # 检查集合是否存在
         if utility.has_collection(index_name):
             logger.info(f"集合已存在: {index_name}")
-            # 关键修复：即使集合存在，也要检查索引是否存在
             collection = Collection(index_name)
             try:
-                # 检查索引是否存在
+                # 确保索引存在
                 collection.index()
                 logger.info(f"索引已存在，跳过创建")
             except Exception as e:
@@ -88,7 +87,8 @@ class MilvusVectorStore:
                     "params": {"nlist": 128}
                 }
                 collection.create_index("vector", index_params)
-                logger.info(f"索引创建成功")
+                collection.load()  # 重要：加载集合到内存
+                logger.info(f"索引创建成功并已加载")
             return True
 
         # 定义字段
@@ -97,6 +97,11 @@ class MilvusVectorStore:
             FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=200, is_primary=True),
             FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
             FieldSchema(name="content_with_weight", dtype=DataType.VARCHAR, max_length=65535),
+            FieldSchema(name="parent_id", dtype=DataType.VARCHAR, max_length=200),
+            FieldSchema(name="parent_content", dtype=DataType.VARCHAR, max_length=65535),
+            FieldSchema(name="chunk_type", dtype=DataType.VARCHAR, max_length=20),
+            FieldSchema(name="parent_chunk_index", dtype=DataType.INT32),
+            FieldSchema(name="child_chunk_index", dtype=DataType.INT32),
             FieldSchema(name="docnm", dtype=DataType.VARCHAR, max_length=500),
             FieldSchema(name="docnm_kwd", dtype=DataType.VARCHAR, max_length=500),
             FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=200),
@@ -111,7 +116,7 @@ class MilvusVectorStore:
         schema = CollectionSchema(fields, description=f"RAG 文档集合: {index_name}")
         collection = Collection(index_name, schema)
 
-        # 关键修复：创建索引（必须在插入数据之前，或者插入之后但搜索之前）
+        # 创建索引
         index_params = {
             "metric_type": metric_type,
             "index_type": "IVF_FLAT",
@@ -119,14 +124,14 @@ class MilvusVectorStore:
         }
         collection.create_index("vector", index_params)
 
+        # 重要：加载集合到内存，使其立即可搜索
+        collection.load()
+
         logger.info(f"集合创建成功: {index_name} (维度:{vector_dim})")
         return True
 
-    # app/service/core/vector_store/milvus_vector_store.py
-    # 修改 insert 方法
-
     def insert(self, documents: List[Dict[str, Any]], index_name: str, user_level: str = "normal") -> int:
-        """批量插入文档（添加用户等级）"""
+        """批量插入文档 - 确保插入后集合可搜索"""
         self._ensure_connected()
 
         if not documents:
@@ -143,25 +148,26 @@ class MilvusVectorStore:
             if "vector" in doc and isinstance(doc["vector"], list):
                 vector_dim = len(doc["vector"])
                 break
-            for key in doc:
-                if key.endswith("_vec") and isinstance(doc[key], list):
-                    vector_dim = len(doc[key])
-                    doc["vector"] = doc.pop(key)
-                    break
 
         if vector_dim is None:
             logger.error("无法获取向量维度")
             return 0
 
+        # 创建或获取集合
         self.create_index(index_name, vector_dim)
 
         import xxhash
 
         # 准备插入数据
-        user_levels = []  # 新增
+        user_levels = []
         ids = []
         contents = []
         contents_weight = []
+        parent_ids = []
+        parent_contents = []
+        chunk_types = []
+        parent_chunk_indices = []
+        child_chunk_indices = []
         docnms = []
         docnm_kwds = []
         doc_ids = []
@@ -193,10 +199,18 @@ class MilvusVectorStore:
             ids.append(doc_id)
             contents.append(self._truncate_string(doc.get("content", ""), 65535))
             contents_weight.append(self._truncate_string(doc.get("content_with_weight", ""), 65535))
+
+            # 父子分块字段
+            parent_ids.append(self._truncate_string(doc.get("parent_id", ""), 200))
+            parent_contents.append(self._truncate_string(doc.get("parent_content", ""), 65535))
+            chunk_types.append(self._truncate_string(doc.get("chunk_type", "child"), 20))
+            parent_chunk_indices.append(int(doc.get("parent_chunk_index", 0)))
+            child_chunk_indices.append(int(doc.get("child_chunk_index", 0)))
+
             docnms.append(self._truncate_string(doc.get("docnm", ""), 500))
             docnm_kwds.append(self._truncate_string(doc.get("docnm_kwd", ""), 500))
             doc_ids.append(self._truncate_string(doc.get("doc_id", ""), 200))
-            kb_ids.append(self._truncate_string(doc.get("kb_id", ""), 200))
+            kb_ids.append(self._truncate_string(doc.get("kb_id", index_name), 200))
             token_counts.append(int(doc.get("token_count", 0)))
             chunk_indices.append(int(doc.get("chunk_index", 0)))
             timestamps.append(float(doc.get("create_timestamp_flt", 0.0)))
@@ -209,29 +223,40 @@ class MilvusVectorStore:
         try:
             collection = Collection(index_name)
 
-            # ⚠️ 关键：插入顺序必须与 fields 定义顺序一致
-            # fields 顺序: user_level, id, content, content_with_weight, docnm, docnm_kwd, doc_id, kb_id, token_count, chunk_index, create_timestamp_flt, vector
+            # 插入数据（包含父子分块字段）
             collection.insert([
-                user_levels,  # user_level
-                ids,  # id
-                contents,  # content
-                contents_weight,  # content_with_weight
-                docnms,  # docnm
-                docnm_kwds,  # docnm_kwd
-                doc_ids,  # doc_id
-                kb_ids,  # kb_id
-                token_counts,  # token_count
-                chunk_indices,  # chunk_index
-                timestamps,  # create_timestamp_flt
-                vectors  # vector
+                user_levels,
+                ids,
+                contents,
+                contents_weight,
+                parent_ids,
+                parent_contents,
+                chunk_types,
+                parent_chunk_indices,
+                child_chunk_indices,
+                docnms,
+                docnm_kwds,
+                doc_ids,
+                kb_ids,
+                token_counts,
+                chunk_indices,
+                timestamps,
+                vectors
             ])
 
             collection.flush()
+
+            # 重要：插入后重新加载集合
+            collection.load()
+
             inserted = len(ids)
             logger.info(f"批量插入成功: {inserted} 条文档 -> {index_name}")
             return inserted
+
         except Exception as e:
             logger.error(f"Milvus 插入失败: {e}")
+            import traceback
+            traceback.print_exc()
             return 0
 
     def _truncate_string(self, s: str, max_length: int) -> str:
@@ -400,7 +425,8 @@ class MilvusVectorStore:
                 output_fields=[
                     "id", "content", "content_with_weight", "docnm",
                     "docnm_kwd", "doc_id", "kb_id", "token_count",
-                    "chunk_index", "create_timestamp_flt", "user_level"
+                    "chunk_index", "create_timestamp_flt", "user_level",
+                    "parent_id","parent_content"
                 ]
             )
 
@@ -423,8 +449,13 @@ class MilvusVectorStore:
                             "token_count": hit.entity.get("token_count", 0),
                             "chunk_index": hit.entity.get("chunk_index", 0),
                             "create_timestamp_flt": hit.entity.get("create_timestamp_flt", 0),
-                            "user_level": hit.entity.get("user_level", "normal")
+                            "user_level": hit.entity.get("user_level", "normal"),
+                            # ========== 关键修复：添加 parent_id 和 parent_content ==========
+                            "parent_id": hit.entity.get("parent_id", ""),
+                            "parent_content": hit.entity.get("parent_content", "")
                         }
+                        logger.info(
+                            f"检索结果: id={hit.id}, docnm={doc['docnm']}, parent_id={doc['parent_id'][:20] if doc['parent_id'] else 'N/A'}, similarity={similarity}")
                         formatted_results.append(doc)
 
             logger.info(f"向量搜索完成: 召回 {len(formatted_results)} 个文档 (user_level_filter={user_level})")

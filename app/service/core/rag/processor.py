@@ -1,58 +1,288 @@
-# app/service/core/rag/processor.py
+# app/service/core/rag/processor.py (修复版)
+
 """
-RAG 文档处理器
-包含：数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗 -> 智能分块 -> 向量化 -> 向量存储
+RAG 文档处理器 - 只负责调用分块器
 """
 
 import os
-import sys
 import hashlib
-from typing import List, Optional, Dict
-from dotenv import load_dotenv
-from app.service.core.deepdoc.parser.remote_pdf_parser import save_chunked_report, RemotePDFParser,is_remote_parse_enabled
 import logging
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-logger = logging.getLogger(__name__)
+from typing import List, Optional, Dict, Tuple
+from dotenv import load_dotenv
 
 load_dotenv()
-
-_mineru_executor = None
+logger = logging.getLogger(__name__)
 
 # 导入 deepdoc 模块
-from app.service.core.deepdoc import (
-    TextBlock, TableBlock, PageContent, ParsedDocument, LayoutType,
-    DataLoader, LayoutRecognizer, CrossPageConnector, DocumentParser,
-    DataCleaner, CleaningPipeline,
-    parse_document, parse_document_to_text, clean_text,
-)
+from app.service.core.deepdoc import DocumentParser
 
-# 导入分块模块
+# 导入父子分块模块
 from app.service.core.chunking import (
-    ChunkManager, ChunkProcessor, RecursiveChunkerSimple,
-    create_chunker, chunk_text_to_chunks, chunk_text_simple,
-    get_chunk_statistics, Chunk, ChunkStrategy,
+    ParentChildDocument,
+    ParentChunk,
+    ChildChunk,
+    chunk_document_parent_child,
+    ParentChildChunker,
 )
 
 # 导入向量化模块
 from app.service.core.embedding import (
     VectorChunk,
-    get_embedding_service,  # 使用 EmbeddingService 替代 VectorizationService
-    vectorize_chunks,
+    get_embedding_service,
 )
 
-# 导入向量存储模块 - 修复：移除 ESVectorStore 导入
-from app.service.core.vector_store import (
-    VectorStorageService, get_vector_storage_service, get_vector_search_service,
-)
+# 导入向量存储模块
+from app.service.core.vector_store import get_vector_storage_service
 
-def get_mineru_executor():
-    """获取 MinerU API 调用的专用线程池"""
-    global _mineru_executor
-    if _mineru_executor is None:
-        max_workers = int(os.getenv("ASYNC_PROCESSOR_MAX_WORKERS", "3"))
-        _mineru_executor = ThreadPoolExecutor(max_workers=max_workers)
-    return _mineru_executor
+
+class ParentChildVectorChunk:
+    def __init__(self, child_chunk: ChildChunk, parent_chunk: ParentChunk):
+        self.child = child_chunk
+        self.parent = parent_chunk
+        self.id = child_chunk.id
+        self.content = child_chunk.content
+        self.parent_content = parent_chunk.content
+        self.parent_id = parent_chunk.id
+        self.vector = None
+        self.token_count = child_chunk.token_count
+        self.metadata = {
+            **child_chunk.metadata,
+            'parent_id': parent_chunk.id,
+            'parent_content_preview': parent_chunk.content[:200],
+            'chunk_type': 'child',
+            'parent_chunk_index': parent_chunk.chunk_index,
+            'child_chunk_index': child_chunk.chunk_index
+        }
+
+        # ========== 关键修复：优先从 child_chunk.metadata 获取文档名 ==========
+        self.docnm = ''
+        if child_chunk.metadata:
+            # 尝试多种可能的字段名
+            for key in ['source', 'document_name', 'docnm', 'filename', 'name']:
+                if key in child_chunk.metadata and child_chunk.metadata[key]:
+                    self.docnm = child_chunk.metadata[key]
+                    break
+
+        # 如果还是没有，尝试从 parent_chunk.metadata 获取
+        if not self.docnm and parent_chunk.metadata:
+            for key in ['source', 'document_name', 'docnm', 'filename', 'name']:
+                if key in parent_chunk.metadata and parent_chunk.metadata[key]:
+                    self.docnm = parent_chunk.metadata[key]
+                    break
+
+        # 最终兜底：使用文件名（如果存在）
+        if not self.docnm:
+            self.docnm = child_chunk.metadata.get('source', '') or parent_chunk.metadata.get('source', '')
+
+        # 调试日志
+        if not self.docnm:
+            logger.warning(
+                f"ParentChildVectorChunk: 无法获取文档名，child_metadata={child_chunk.metadata}, parent_metadata={parent_chunk.metadata}")
+
+    def to_dict(self, user_level: str = "normal") -> Dict:
+        """转换为存储字典"""
+        result = {
+            "id": self.id,
+            "content": self.content,
+            "content_with_weight": self.content,
+            "parent_id": self.parent_id,
+            "parent_content": self.parent_content,
+            "vector": self.vector if self.vector else [],
+            "token_count": self.token_count,
+            "user_level": user_level,
+            "docnm": getattr(self, 'docnm', ''),  # 确保 docnm 字段存在
+            **self.metadata
+        }
+        if not isinstance(result["vector"], list):
+            result["vector"] = []
+        return result
+
+
+def process_document_parent_child(
+        file_path: str,
+        parent_chunk_size: int = 500,
+        child_chunk_size: int = 150,
+        enable_vectorization: bool = True,
+        enable_storage: bool = True,
+        from_page: int = 0,
+        to_page: int = None,
+        index_name: str = None,
+        verbose: bool = False,
+        user_level: str = "normal"
+) -> Tuple[Optional[ParentChildDocument], List[ParentChildVectorChunk]]:
+    """完整的文档处理流程 - 使用父子分块"""
+
+    # ========== 1. 解析文档 ==========
+    if verbose:
+        print(f"\n开始处理文档: {file_path}")
+        print(f"用户等级: {user_level}")
+
+    parser = DocumentParser()
+    parsed = parser.parse(
+        file_path,
+        from_page=from_page,
+        to_page=to_page or 100000,
+        enable_cleaning=True,
+        verbose=verbose
+    )
+
+    if not parsed.cleaned_text:
+        if verbose:
+            print("❌ 解析失败: 未能提取文本内容")
+        return None, []
+
+    if verbose:
+        print(f"✅ 解析成功: 文本长度 {len(parsed.cleaned_text)} 字符")
+
+    # ========== 2. 父子分块 ==========
+    if verbose:
+        print("\n执行父子分块...")
+
+    chunker = ParentChildChunker(
+        parent_chunk_size=parent_chunk_size,
+        child_chunk_size=child_chunk_size,
+        parent_overlap=50,
+        child_overlap=20,
+        min_child_size=30
+    )
+
+    parent_child_doc = chunker.chunk_document(
+        text=parsed.cleaned_text,
+        metadata={
+            'source': parsed.file_name,  # ← 关键
+            'document_name': parsed.file_name,  # ← 备用
+            'docnm': parsed.file_name,  # ← 再加一个
+            'file_type': parsed.file_type,
+            'total_pages': parsed.total_pages,
+            'user_level': user_level
+        },
+        document_id=hashlib.md5(file_path.encode()).hexdigest()[:16],
+        document_name=parsed.file_name  # ← 确保传递
+    )
+
+    if verbose:
+        stats = chunker.get_statistics(parent_child_doc)
+        print(f"  父块数: {stats['parent_count']}")
+        print(f"  子块数: {stats['child_count']}")
+        print(f"  平均父块大小: {stats['avg_parent_tokens']:.0f} tokens")
+        print(f"  平均子块大小: {stats['avg_child_tokens']:.0f} tokens")
+
+        # 调试：打印父块和子块的ID
+        if verbose and parent_child_doc.parent_chunks:
+            print(f"  父块ID示例: {parent_child_doc.parent_chunks[0].id}")
+        if verbose and parent_child_doc.all_children:
+            print(f"  子块parent_id示例: {parent_child_doc.all_children[0].parent_id}")
+
+    # ========== 3. 向量化子块 ==========
+    vector_chunks = []
+
+    if enable_vectorization and parent_child_doc.all_children:
+        if verbose:
+            print("\n向量化子块...")
+
+        try:
+            embedding_service = get_embedding_service()
+
+            # 提取子块文本
+            child_texts = [c.content for c in parent_child_doc.all_children]
+
+            if verbose:
+                print(f"  准备向量化 {len(child_texts)} 个子块")
+
+            # 批量生成向量
+            vectors = embedding_service.generate_embeddings(child_texts)
+
+            if verbose:
+                vectorized_count = sum(1 for v in vectors if v is not None)
+                print(f"  向量生成完成: {vectorized_count}/{len(child_texts)}")
+
+            # 创建父块映射 - 使用完整的父块ID
+            parent_map = {p.id: p for p in parent_child_doc.parent_chunks}
+
+            if verbose:
+                print(f"  父块映射keys: {list(parent_map.keys())}")
+                print(f"  子块parent_ids: {[c.parent_id for c in parent_child_doc.all_children]}")
+
+            # 构建向量块
+            for child, vector in zip(parent_child_doc.all_children, vectors):
+                if vector is None:
+                    if verbose:
+                        print(f"    警告: 子块 {child.id[:16]} 向量化为空")
+                    continue
+
+                # 直接使用 child.parent_id 作为 key 查找
+                parent = parent_map.get(child.parent_id)
+
+                if verbose:
+                    print(f"    查找: child.parent_id={child.parent_id}, found={parent is not None}")
+
+                if parent:
+                    vec_chunk = ParentChildVectorChunk(child, parent)
+                    vec_chunk.vector = vector
+                    vector_chunks.append(vec_chunk)
+                    if verbose:
+                        print(f"    已添加向量块: {child.id[:16]} -> parent {parent.id[:16]}")
+                else:
+                    if verbose:
+                        print(f"    警告: 找不到父块 {child.parent_id[:32]}...")
+
+            if verbose:
+                print(f"  完成: {len(vector_chunks)}/{len(parent_child_doc.all_children)} 个子块已向量化")
+
+        except Exception as e:
+            if verbose:
+                print(f"  向量化失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # ========== 4. 存储到向量数据库 ==========
+    if enable_storage and vector_chunks:
+        if verbose:
+            print("\n存储到向量数据库...")
+
+        try:
+            storage_service = get_vector_storage_service()
+            index = index_name or os.getenv("VECTOR_INDEX_NAME", "rag_documents")
+
+            # 准备存储文档
+            documents = []
+            for vc in vector_chunks:
+                doc = vc.to_dict(user_level)
+                documents.append(doc)
+
+            if verbose:
+                print(f"  准备存储 {len(documents)} 个文档")
+
+            if documents:
+                store = storage_service.store
+                if store:
+                    # 确保索引存在
+                    vector_dim = len(documents[0]["vector"]) if documents[0]["vector"] else 1024
+                    store.create_index(index, vector_dim)
+
+                    # 插入文档
+                    inserted = store.insert(documents, index, user_level)
+                    if verbose:
+                        print(f"  完成: {inserted}/{len(documents)} 条")
+
+                    # 验证存储成功
+                    if inserted > 0:
+                        doc_count = store.get_document_count(index)
+                        if verbose:
+                            print(f"  验证: 索引 {index} 现有 {doc_count} 条记录")
+
+        except Exception as e:
+            if verbose:
+                print(f"  存储失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    elif enable_storage and not vector_chunks:
+        if verbose:
+            print("\n⚠️ 跳过存储: 没有向量化的子块")
+
+    return parent_child_doc, vector_chunks
+
 
 def process_document(
         file_path: str,
@@ -64,252 +294,33 @@ def process_document(
         to_page: int = None,
         index_name: str = None,
         verbose: bool = False,
-        user_level: str = "normal"  # 新增参数：文档所属用户等级
-) -> List[VectorChunk]:
+        user_level: str = "normal"
+) -> List:
     """
-    完整的文档处理流程
+    兼容旧的 process_document 接口
+    内部使用父子分块
     """
-    if verbose:
-        print("=" * 70)
-        print(f"处理文档: {os.path.basename(file_path)}")
+    parent_chunk_size = int(os.getenv("PARENT_CHUNK_SIZE", "500"))
+    child_chunk_size = chunk_size or int(os.getenv("CHUNK_SIZE", "256"))
 
-    parser = DocumentParser()
-    parsed = parser.parse(
-        file_path,
+    parent_child_doc, vector_chunks = process_document_parent_child(
+        file_path=file_path,
+        parent_chunk_size=parent_chunk_size,
+        child_chunk_size=child_chunk_size,
+        enable_vectorization=enable_vectorization,
+        enable_storage=enable_storage,
         from_page=from_page,
-        to_page=to_page or 100000,
-        enable_cleaning=True,
-        verbose=verbose
+        to_page=to_page,
+        index_name=index_name,
+        verbose=verbose,
+        user_level=user_level
     )
 
-    if not parsed.cleaned_text:
-        if verbose:
-            print("错误: 未能提取文本内容")
-        return []
-
-    if verbose:
-        print(f"\n处理结果:")
-        print(f"  文件名: {parsed.file_name}")
-        print(f"  文件类型: {parsed.file_type}")
-        print(f"  总页数: {parsed.total_pages}")
-        print(f"  清洗后文本长度: {len(parsed.cleaned_text)} 字符")
-        print(f"  用户等级: {user_level}")
-
-    if verbose:
-        print("\n智能分块...")
-
-    chunks = chunk_text_to_chunks(
-        parsed.cleaned_text,
-        chunk_size=chunk_size,
-        metadata={
-            'source': parsed.file_name,
-            'file_type': parsed.file_type,
-            'total_pages': parsed.total_pages,
-            'user_level': user_level  # 添加等级到元数据
-        },
-        strategy='recursive'
-    )
-
-    if verbose:
-        stats = get_chunk_statistics(chunks)
-        print(f"  生成 {stats['total_chunks']} 个块")
-
-    vector_chunks = []
-    if enable_vectorization and chunks:
-        if verbose:
-            print("\n向量化处理...")
-
-        try:
-            vector_chunks = create_and_vectorize_chunks_with_level(
-                chunks, model_type, user_level, verbose
-            )
-
-            if verbose and vector_chunks:
-                vectorized_count = len([c for c in vector_chunks if c.vector])
-                print(f"  完成: {vectorized_count}/{len(vector_chunks)} 个块")
-
-        except Exception as e:
-            if verbose:
-                print(f"  向量化失败: {e}")
-            vector_chunks = []
-
-    if enable_storage and vector_chunks:
-        if verbose:
-            print("\n存储到向量数据库...")
-
-        try:
-            storage_service = get_vector_storage_service()
-            index = index_name or os.getenv("VECTOR_INDEX_NAME", "rag_documents")
-            inserted = storage_service.store_vector_chunks(vector_chunks, index, parsed.file_name, user_level)
-
-            if verbose:
-                print(f"  完成: {inserted}/{len(vector_chunks)} 条")
-
-        except Exception as e:
-            if verbose:
-                print(f"  存储失败: {e}")
-
-    # ========== 新增：保存分块报告 ==========
-    try:
-        # 检查是否使用了远程解析
-        use_remote = is_remote_parse_enabled()
-
-        if use_remote:
-            if verbose:
-                print("\n保存分块报告...")
-
-            # 获取远程解析器实例以获取原始 Markdown 内容
-            remote_parser = RemotePDFParser()
-            last_result = remote_parser.get_last_parse_result()
-
-            # 保存带分块结果的报告
-            report_path = save_chunked_report(
-                file_name=parsed.file_name,
-                chunks=vector_chunks if vector_chunks else chunks,
-                sections=last_result.get("sections"),
-                tables=last_result.get("tables"),
-                markdown_content=last_result.get("markdown_content")
-            )
-
-            if verbose and report_path:
-                print(f"  ✓ 报告已保存: {report_path}")
-    except Exception as e:
-        if verbose:
-            print(f"  ⚠️ 保存分块报告失败: {e}")
-
-    return vector_chunks if vector_chunks else chunks
-
-
-def create_and_vectorize_chunks_with_level(chunks, model_type: str = None, user_level: str = "normal", verbose: bool = False) -> List[VectorChunk]:
-    """创建 VectorChunk 并向量化，同时设置用户等级"""
-    import hashlib
-
-    vector_chunks = []
-    for i, chunk in enumerate(chunks):
-        chunk_id = hashlib.md5(f"{i}_{chunk.content[:100]}".encode()).hexdigest()[:16]
-        vector_chunks.append(VectorChunk(
-            id=f"chunk_{i}_{chunk_id}",
-            content=chunk.content,
-            metadata={
-                **chunk.metadata,
-                'chunk_index': i,
-                'token_count': chunk.token_count,
-                'user_level': user_level
-            },
-            token_count=chunk.token_count,
-            chunk_index=i,
-            user_level=user_level  # 设置文档等级
-        ))
-
-    embedding_service = get_embedding_service()
-    if model_type:
-        if model_type == 'local':
-            embedding_service.switch_to_local()
-        else:
-            embedding_service.switch_to_remote()
-
-    return embedding_service.vectorize_chunks(vector_chunks)
-
-
-def parse_only(
-    file_path: str,
-    from_page: int = 0,
-    to_page: int = None,
-    enable_cleaning: bool = True,
-    verbose: bool = False
-) -> ParsedDocument:
-    """仅执行 RAG1 流程：数据加载 -> 布局识别 -> 连接跨页内容 -> 数据清洗"""
-    parser = DocumentParser()
-    parsed = parser.parse(
-        file_path,
-        from_page=from_page,
-        to_page=to_page or 100000,
-        enable_cleaning=enable_cleaning,
-        verbose=verbose
-    )
-    all_text = parsed.cleaned_text or ""
-
-    # 添加表格内容
-    for page in parsed.pages:
-        for table in page.tables:
-            if table.data:
-                table_text = _table_to_text(table.data)
-                if table_text:
-                    all_text += "\n\n" + table_text
-
-    parsed.cleaned_text = all_text
-    return parsed
-
-
-def _table_to_text(table_data: List[List[str]]) -> str:
-    """将表格数据转换为可检索的文本格式"""
-    if not table_data or len(table_data) == 0:
-        return ""
-
-    lines = []
-
-    # 方式1：Markdown 表格格式（适合阅读和检索）
-    # 表头
-    header = "| " + " | ".join(str(cell) if cell else "" for cell in table_data[0]) + " |"
-    lines.append(header)
-    # 分隔线
-    separator = "| " + " | ".join(["---"] * len(table_data[0])) + " |"
-    lines.append(separator)
-    # 数据行
-    for row in table_data[1:]:
-        line = "| " + " | ".join(str(cell) if cell else "" for cell in row) + " |"
-        lines.append(line)
-
-    return "\n".join(lines)
-
-def chunk_document(
-    file_path: str,
-    chunk_size: int = 256,
-    from_page: int = 0,
-    to_page: int = None,
-    verbose: bool = False
-) -> List[Chunk]:
-    """仅执行：RAG1完整流程 + 智能分块（不含向量化和存储）"""
-    parser = DocumentParser()
-    parsed = parser.parse(
-        file_path,
-        from_page=from_page,
-        to_page=to_page or 100000,
-        enable_cleaning=True,
-        verbose=verbose
-    )
-
-    if not parsed.cleaned_text:
-        return []
-
-    return chunk_text_to_chunks(
-        parsed.cleaned_text,
-        chunk_size=chunk_size,
-        metadata={'source': parsed.file_name, 'file_type': parsed.file_type}
-    )
-
-
-def vectorize_chunk_texts(
-    texts: List[str],
-    metadata_list: List[dict] = None,
-    model_type: str = None
-) -> List[VectorChunk]:
-    """向量化文本列表"""
-    chunks = []
-    for i, text in enumerate(texts):
-        chunk_id = hashlib.md5(f"{i}_{text[:100]}".encode()).hexdigest()[:16]
-        metadata = metadata_list[i] if metadata_list and i < len(metadata_list) else {}
-        chunks.append(VectorChunk(
-            id=f"chunk_{i}_{chunk_id}",
-            content=text,
-            metadata=metadata
-        ))
-
-    return vectorize_chunks(chunks, model_type)
+    return vector_chunks
 
 
 def get_processing_stats(file_path: str, from_page: int = 0, to_page: int = None) -> dict:
-    """获取 RAG1 处理统计信息"""
+    """获取处理统计信息"""
     parser = DocumentParser()
     parsed = parser.parse(
         file_path,
@@ -319,15 +330,27 @@ def get_processing_stats(file_path: str, from_page: int = 0, to_page: int = None
         verbose=False
     )
 
-    total_text_blocks = sum(len(p.text_blocks) for p in parsed.pages)
-    total_tables = sum(len(p.tables) for p in parsed.pages)
+    # 估算父子分块统计
+    chunker = ParentChildChunker()
+    doc = chunker.chunk_document(parsed.cleaned_text)
+    stats = chunker.get_statistics(doc)
 
     return {
         'file_name': parsed.file_name,
         'file_type': parsed.file_type,
         'total_pages': parsed.total_pages,
-        'raw_text_length': len(parsed.cleaned_text) if parsed.cleaned_text else 0,
-        'cleaned_text_length': len(parsed.cleaned_text),
-        'total_text_blocks': total_text_blocks,
-        'total_tables': total_tables,
+        'text_length': len(parsed.cleaned_text) if parsed.cleaned_text else 0,
+        'parent_count': stats['parent_count'],
+        'child_count': stats['child_count'],
+        'avg_parent_tokens': stats['avg_parent_tokens'],
+        'avg_child_tokens': stats['avg_child_tokens']
     }
+
+
+__all__ = [
+    'process_document',
+    'process_document_parent_child',
+    'get_processing_stats',
+    'ParentChildVectorChunk',
+    'ParentChildDocument'
+]

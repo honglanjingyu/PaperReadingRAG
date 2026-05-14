@@ -267,6 +267,11 @@ class HybridRetriever(BaseRetriever):
                 r['_search_type'] = 'vector'
                 r['vector_score'] = r.get('_score', 0)
                 r['keyword_score'] = 0
+                # ========== 确保文档名字段存在 ==========
+                if 'docnm' not in r or not r['docnm']:
+                    r['docnm'] = r.get('document_name', '')
+                if 'document_name' not in r or not r['document_name']:
+                    r['document_name'] = r.get('docnm', '')
 
             return results
 
@@ -310,6 +315,11 @@ class HybridRetriever(BaseRetriever):
                 r['_search_type'] = 'bm25'
                 r['keyword_score'] = r.get('_score', 0)
                 r['vector_score'] = 0.0
+                # ========== 确保文档名字段存在 ==========
+                if 'docnm' not in r or not r['docnm']:
+                    r['docnm'] = r.get('document_name', '')
+                if 'document_name' not in r or not r['document_name']:
+                    r['document_name'] = r.get('docnm', '')
 
             return results
 
