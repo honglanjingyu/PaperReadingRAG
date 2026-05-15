@@ -1,13 +1,10 @@
 # app/service/core/cache/cache_manager.py
-"""
-统一缓存管理器 - 支持多级缓存
-"""
 
 import os
 import json
 import hashlib
 import logging
-from typing import Optional, Any, Dict, Callable
+from typing import Optional, Any, Dict, Callable, List
 from functools import wraps
 
 logger = logging.getLogger(__name__)
@@ -18,7 +15,6 @@ redis_client = None
 
 try:
     import redis
-
     REDIS_AVAILABLE = True
 except ImportError:
     logger.warning("redis 模块未安装，请运行: pip install redis")
@@ -45,20 +41,23 @@ def get_redis_client():
             redis_client.ping()
             logger.info("Redis 缓存连接成功")
         except Exception as e:
-            logger.warning(f"Redis 连接失败: {e}，将使用内存缓存")
+            logger.warning(f"Redis 连接失败: {e}，缓存功能将不可用")
             redis_client = None
 
     return redis_client
 
 
 class CacheManager:
-    """统一缓存管理器 - 支持多级缓存 (L1: 内存, L2: Redis)"""
+    """统一缓存管理器 - 只使用 Redis 作为缓存"""
 
     def __init__(self):
         self.redis_client = get_redis_client()
-        self.local_cache: Dict[str, Any] = {}  # L1: 本地内存缓存
         self.default_ttl = int(os.getenv("CACHE_DEFAULT_TTL", "3600"))
-        self.max_local_size = 1000  # 内存缓存最大条目数
+
+        if self.redis_client is None:
+            logger.warning("Redis 不可用，缓存功能将禁用")
+        else:
+            logger.info("CacheManager 初始化完成，使用 Redis 缓存")
 
     def _get_cache_key(self, prefix: str, key: str) -> str:
         """生成缓存 key"""
@@ -67,100 +66,144 @@ class CacheManager:
         return f"rag:cache:{prefix}:{key_hash}"
 
     def get(self, prefix: str, key: str) -> Optional[Any]:
-        """多级缓存读取"""
+        """从 Redis 读取缓存"""
+        if self.redis_client is None:
+            return None
+
         cache_key = self._get_cache_key(prefix, key)
 
-        # L1: 内存缓存
-        if cache_key in self.local_cache:
-            logger.debug(f"缓存命中 (L1): {cache_key}")
-            return self.local_cache[cache_key]
-
-        # L2: Redis 缓存
-        if self.redis_client:
-            try:
-                cached = self.redis_client.get(cache_key)
-                if cached:
-                    # 解码并存入 L1
-                    value = json.loads(cached)
-                    self._set_local(cache_key, value)
-                    logger.debug(f"缓存命中 (L2): {cache_key}")
-                    return value
-            except Exception as e:
-                logger.warning(f"Redis 读取失败: {e}")
+        try:
+            cached = self.redis_client.get(cache_key)
+            if cached:
+                logger.debug(f"缓存命中: {cache_key}")
+                return json.loads(cached)
+        except Exception as e:
+            logger.warning(f"Redis 读取失败: {e}")
 
         return None
 
     def set(self, prefix: str, key: str, value: Any, ttl: int = None):
-        """多级缓存写入"""
+        """写入 Redis 缓存"""
+        if self.redis_client is None:
+            return
+
         cache_key = self._get_cache_key(prefix, key)
         ttl = ttl or self.default_ttl
 
-        # 写入 L1
-        self._set_local(cache_key, value)
-
-        # 写入 L2
-        if self.redis_client:
-            try:
-                self.redis_client.setex(cache_key, ttl, json.dumps(value, ensure_ascii=False))
-                logger.debug(f"缓存写入 (L2): {cache_key}, TTL={ttl}")
-            except Exception as e:
-                logger.warning(f"Redis 写入失败: {e}")
-
-    def _set_local(self, key: str, value: Any):
-        """设置内存缓存，并维护大小限制"""
-        if len(self.local_cache) >= self.max_local_size:
-            # 移除最早的 200 个条目
-            keys_to_remove = list(self.local_cache.keys())[:200]
-            for k in keys_to_remove:
-                del self.local_cache[k]
-
-        self.local_cache[key] = value
+        try:
+            self.redis_client.setex(cache_key, ttl, json.dumps(value, ensure_ascii=False))
+            logger.debug(f"缓存写入: {cache_key}, TTL={ttl}")
+        except Exception as e:
+            logger.warning(f"Redis 写入失败: {e}")
 
     def delete(self, prefix: str, key: str):
         """删除缓存"""
+        if self.redis_client is None:
+            return
+
         cache_key = self._get_cache_key(prefix, key)
 
-        # 删除 L1
-        self.local_cache.pop(cache_key, None)
-
-        # 删除 L2
-        if self.redis_client:
-            try:
-                self.redis_client.delete(cache_key)
-            except Exception as e:
-                logger.warning(f"Redis 删除失败: {e}")
+        try:
+            self.redis_client.delete(cache_key)
+            logger.debug(f"缓存删除: {cache_key}")
+        except Exception as e:
+            logger.warning(f"Redis 删除失败: {e}")
 
     def delete_pattern(self, pattern: str):
         """批量删除匹配的缓存"""
+        if self.redis_client is None:
+            return
+
         full_pattern = f"rag:cache:{pattern}:*"
 
-        # 清空 L1 中匹配的条目
-        keys_to_remove = [k for k in self.local_cache.keys() if k.startswith(f"rag:cache:{pattern}:")]
-        for k in keys_to_remove:
-            del self.local_cache[k]
-
-        # 删除 L2
-        if self.redis_client:
-            try:
-                keys = self.redis_client.keys(full_pattern)
-                if keys:
-                    self.redis_client.delete(*keys)
-                    logger.info(f"批量删除缓存: {len(keys)} 条")
-            except Exception as e:
-                logger.warning(f"Redis 批量删除失败: {e}")
+        try:
+            keys = self.redis_client.keys(full_pattern)
+            if keys:
+                self.redis_client.delete(*keys)
+                logger.info(f"批量删除缓存: {len(keys)} 条")
+        except Exception as e:
+            logger.warning(f"Redis 批量删除失败: {e}")
 
     def clear(self):
         """清空所有缓存"""
-        self.local_cache.clear()
+        if self.redis_client is None:
+            return
 
-        if self.redis_client:
-            try:
-                keys = self.redis_client.keys("rag:cache:*")
-                if keys:
-                    self.redis_client.delete(*keys)
-                    logger.info(f"清空所有缓存: {len(keys)} 条")
-            except Exception as e:
-                logger.warning(f"Redis 清空失败: {e}")
+        try:
+            keys = self.redis_client.keys("rag:cache:*")
+            if keys:
+                self.redis_client.delete(*keys)
+                logger.info(f"清空所有缓存: {len(keys)} 条")
+        except Exception as e:
+            logger.warning(f"Redis 清空失败: {e}")
+
+    def batch_get(self, prefix: str, keys: List[str]) -> Dict[str, Optional[Any]]:
+        """
+        批量从 Redis 读取缓存（使用 Pipeline）
+
+        Args:
+            prefix: 缓存前缀
+            keys: 原始 key 列表
+
+        Returns:
+            字典 {原始key: 缓存值}
+        """
+        if self.redis_client is None or not keys:
+            return {key: None for key in keys}
+
+        try:
+            # 先计算所有 cache key
+            cache_keys = [self._get_cache_key(prefix, key) for key in keys]
+
+            # 使用 pipeline 批量查询
+            pipe = self.redis_client.pipeline()
+            for cache_key in cache_keys:
+                pipe.get(cache_key)
+            results = pipe.execute()
+
+            result_dict = {}
+            for original_key, cached in zip(keys, results):
+                if cached:
+                    result_dict[original_key] = json.loads(cached)
+                else:
+                    result_dict[original_key] = None
+
+            hit_count = sum(1 for v in result_dict.values() if v is not None)
+            logger.debug(f"批量查询: {len(keys)} 个key, 命中 {hit_count} 个")
+            return result_dict
+
+        except Exception as e:
+            logger.warning(f"Redis 批量读取失败: {e}")
+            # 回退到单条查询
+            return {key: self.get(prefix, key) for key in keys}
+
+    def batch_set(self, prefix: str, items: Dict[str, Any], ttl: int = None):
+        """
+        批量写入 Redis 缓存（使用 Pipeline）
+
+        Args:
+            prefix: 缓存前缀
+            items: 字典 {原始key: value}
+            ttl: 过期时间（秒）
+        """
+        if self.redis_client is None or not items:
+            return
+
+        ttl = ttl or self.default_ttl
+
+        try:
+            pipe = self.redis_client.pipeline()
+            for original_key, value in items.items():
+                cache_key = self._get_cache_key(prefix, original_key)
+                pipe.setex(cache_key, ttl, json.dumps(value, ensure_ascii=False))
+            pipe.execute()
+            logger.debug(f"批量写入: {len(items)} 条, TTL={ttl}")
+
+        except Exception as e:
+            logger.warning(f"Redis 批量写入失败: {e}")
+            # 回退到单条写入
+            for original_key, value in items.items():
+                self.set(prefix, original_key, value, ttl)
 
 
 # 全局缓存实例
@@ -176,7 +219,7 @@ def get_cache_manager() -> CacheManager:
 
 
 def cached(prefix: str, ttl: int = None, skip_if: Callable = None):
-    """缓存装饰器"""
+    """缓存装饰器 - 只使用 Redis"""
 
     def decorator(func):
         @wraps(func)
@@ -185,10 +228,13 @@ def cached(prefix: str, ttl: int = None, skip_if: Callable = None):
             if skip_if and skip_if(*args, **kwargs):
                 return func(*args, **kwargs)
 
-            # 生成缓存 key
             cache_manager = get_cache_manager()
 
-            # 序列化参数
+            # 如果 Redis 不可用，直接执行函数
+            if cache_manager.redis_client is None:
+                return func(*args, **kwargs)
+
+            # 生成缓存 key
             import inspect
             sig = inspect.signature(func)
             bound_args = sig.bind(*args, **kwargs)

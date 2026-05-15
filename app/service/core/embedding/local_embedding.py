@@ -53,7 +53,7 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
             model_path: str = None,
             device: str = "cpu",
             batch_size: int = 32,
-            use_cache: bool = True
+            use_cache: bool = False  # 默认禁用内存缓存，改用 Redis
     ):
         if not SENTENCE_TRANSFORMERS_AVAILABLE:
             raise ImportError("请安装 sentence-transformers: pip install sentence-transformers")
@@ -72,8 +72,8 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
 
         self._device = device
         self._batch_size = batch_size
-        self._use_cache = use_cache
-        self._cache = {} if use_cache else None
+        # 移除内存缓存
+        self._use_cache = False
 
         logger.info(f"加载本地Embedding模型: {self._model_key} from {self._model_path}")
         self._model = SentenceTransformer(self._model_path, device=device)
@@ -93,16 +93,9 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
         if not text:
             return None
 
-        if self._use_cache and text in self._cache:
-            return self._cache[text]
-
         try:
             embedding = self._model.encode(text, normalize_embeddings=True)
             embedding_list = embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
-
-            if self._use_cache:
-                self._cache[text] = embedding_list
-
             return embedding_list
         except Exception as e:
             logger.error(f"本地模型向量生成失败: {e}")
@@ -111,40 +104,6 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
     def generate_embeddings(self, texts: List[str]) -> List[Optional[List[float]]]:
         if not texts:
             return []
-
-        if self._use_cache:
-            results = []
-            uncached_texts = []
-            uncached_indices = []
-
-            for i, text in enumerate(texts):
-                if text in self._cache:
-                    results.append(self._cache[text])
-                else:
-                    uncached_texts.append(text)
-                    uncached_indices.append(i)
-                    results.append(None)
-
-            if uncached_texts:
-                try:
-                    embeddings = self._model.encode(
-                        uncached_texts,
-                        batch_size=self._batch_size,
-                        normalize_embeddings=True,
-                        show_progress_bar=False
-                    )
-
-                    for idx, embedding in zip(uncached_indices, embeddings):
-                        embedding_list = embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
-                        results[idx] = embedding_list
-
-                        if self._use_cache:
-                            self._cache[texts[idx]] = embedding_list
-
-                except Exception as e:
-                    logger.error(f"批量向量生成失败: {e}")
-
-            return results
 
         try:
             embeddings = self._model.encode(
@@ -166,9 +125,8 @@ class LocalEmbeddingModel(BaseEmbeddingModel):
             return [None] * len(texts)
 
     def clear_cache(self):
-        if self._cache:
-            self._cache.clear()
-            logger.info("缓存已清除")
+        """缓存已移除，此方法保留为空"""
+        logger.info("本地模型无内存缓存")
 
     def to_device(self, device: str):
         self._model.to(device)

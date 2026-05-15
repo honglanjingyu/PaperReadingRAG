@@ -5,13 +5,22 @@ import os
 import hashlib
 import time
 import logging
+import json
 from typing import List, Dict, Any, Optional, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 
 logger = logging.getLogger(__name__)
+
+# 尝试导入 Redis
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    logger.warning("redis 模块未安装，异步任务状态将无法跨实例共享")
 
 
 class TaskStatus(Enum):
@@ -40,24 +49,43 @@ class DocumentTask:
     completed_at: float = None
     error: Optional[str] = None
     result: Optional[Any] = None
-    callback: Optional[Callable] = None
 
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = time.time()
 
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典（用于 Redis 存储）"""
+        data = asdict(self)
+        data['status'] = self.status.value
+        # 只保留 result 的基本信息，避免存储过大的数据
+        if data.get('result') and isinstance(data['result'], list):
+            data['result'] = {
+                'chunks_count': len(data['result']),
+                'preview': str(data['result'][:2]) if data['result'] else []
+            }
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'DocumentTask':
+        """从字典创建任务"""
+        status = TaskStatus(data.get('status', 'pending'))
+        data['status'] = status
+        return cls(**data)
+
 
 class AsyncDocumentProcessor:
     """
-    异步文档处理器
-    使用队列管理并发，确保数据一致性
+    异步文档处理器 - 使用 Redis 存储任务状态
+    支持多实例部署，任务状态跨实例共享
     """
 
     def __init__(
             self,
             max_workers: int = None,
             queue_size: int = None,
-            task_timeout: int = None
+            task_timeout: int = None,
+            redis_client: redis.Redis = None
     ):
         """
         初始化异步处理器
@@ -66,32 +94,114 @@ class AsyncDocumentProcessor:
             max_workers: 最大并发工作进程数（从环境变量读取）
             queue_size: 队列最大长度（从环境变量读取）
             task_timeout: 单个任务超时时间（秒，从环境变量读取）
+            redis_client: Redis 客户端实例（可选，不传则自动创建）
         """
-        # 从环境变量读取配置，支持参数传入作为备选
+        # 从环境变量读取配置
         self.max_workers = max_workers or int(os.getenv("ASYNC_PROCESSOR_MAX_WORKERS", "3"))
         self.queue_size = queue_size or int(os.getenv("ASYNC_PROCESSOR_QUEUE_SIZE", "100"))
         self.task_timeout = task_timeout or int(os.getenv("ASYNC_PROCESSOR_TASK_TIMEOUT", "300"))
 
+        # Redis key 前缀
+        self._task_prefix = "rag:async_task:"
+        self._queue_prefix = "rag:task_queue"
+        self._stats_prefix = "rag:processor_stats"
+
+        # Redis 连接
+        if redis_client:
+            self.redis_client = redis_client
+        elif REDIS_AVAILABLE:
+            self.redis_client = redis.Redis(
+                host=os.getenv("REDIS_HOST", "localhost"),
+                port=int(os.getenv("REDIS_PORT", 6379)),
+                password=os.getenv("REDIS_PASSWORD") or None,
+                db=int(os.getenv("REDIS_DB", 0)),
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5
+            )
+            try:
+                self.redis_client.ping()
+                logger.info("Redis 连接成功，异步任务状态将使用 Redis 存储")
+            except Exception as e:
+                logger.error(f"Redis 连接失败: {e}")
+                self.redis_client = None
+                raise RuntimeError(f"Redis 连接失败，无法使用异步任务处理器: {e}")
+        else:
+            self.redis_client = None
+            raise ImportError("redis 模块未安装且无可用 Redis 连接，请安装 redis 模块并确保 Redis 服务已启动")
+
         # 队列和任务管理
         self._task_queue = asyncio.Queue(maxsize=self.queue_size)
-        self._tasks: Dict[str, DocumentTask] = {}
         self._workers: List[asyncio.Task] = []
         self._running = False
 
         # 线程池用于执行同步的文档处理函数
-        # 关键：max_workers 从环境变量读取，控制并发 API 调用数
         self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
 
-        # 统计信息
-        self._stats = {
-            "total_tasks": 0,
-            "completed_tasks": 0,
-            "failed_tasks": 0,
-            "avg_processing_time": 0
-        }
+        # 统计信息（存储在 Redis 中）
+        self._init_stats()
 
         logger.info(
-            f"异步文档处理器初始化: max_workers={self.max_workers}, queue_size={self.queue_size}, task_timeout={self.task_timeout}")
+            f"异步文档处理器初始化: max_workers={self.max_workers}, queue_size={self.queue_size}, "
+            f"task_timeout={self.task_timeout}, redis_available={self.redis_client is not None}"
+        )
+
+    def _init_stats(self):
+        """初始化统计信息"""
+        if self.redis_client:
+            if not self.redis_client.exists(self._stats_prefix):
+                self.redis_client.hset(self._stats_prefix, mapping={
+                    "total_tasks": 0,
+                    "completed_tasks": 0,
+                    "failed_tasks": 0,
+                    "avg_processing_time": 0
+                })
+
+    def _get_task_key(self, task_id: str) -> str:
+        """获取任务的 Redis key"""
+        return f"{self._task_prefix}{task_id}"
+
+    def _save_task(self, task: DocumentTask):
+        """保存任务到 Redis"""
+        if self.redis_client:
+            key = self._get_task_key(task.task_id)
+            self.redis_client.setex(key, self.task_timeout + 3600, json.dumps(task.to_dict(), ensure_ascii=False))
+
+    def _load_task(self, task_id: str) -> Optional[DocumentTask]:
+        """从 Redis 加载任务"""
+        if not self.redis_client:
+            return None
+
+        key = self._get_task_key(task_id)
+        data = self.redis_client.get(key)
+        if data:
+            try:
+                return DocumentTask.from_dict(json.loads(data))
+            except Exception as e:
+                logger.error(f"加载任务失败 {task_id}: {e}")
+        return None
+
+    def _delete_task(self, task_id: str):
+        """从 Redis 删除任务"""
+        if self.redis_client:
+            key = self._get_task_key(task_id)
+            self.redis_client.delete(key)
+
+    def _update_stats(self, field: str, delta: int = 1):
+        """更新统计信息"""
+        if self.redis_client:
+            self.redis_client.hincrby(self._stats_prefix, field, delta)
+
+    def _update_avg_time(self, new_time: float):
+        """更新平均处理时间"""
+        if self.redis_client:
+            completed = int(self.redis_client.hget(self._stats_prefix, "completed_tasks") or 0)
+            if completed == 0:
+                self.redis_client.hset(self._stats_prefix, "avg_processing_time", new_time)
+            else:
+                current_avg = float(self.redis_client.hget(self._stats_prefix, "avg_processing_time") or 0)
+                new_avg = (current_avg * completed + new_time) / (completed + 1)
+                self.redis_client.hset(self._stats_prefix, "avg_processing_time", new_avg)
 
     async def start(self):
         """启动处理器"""
@@ -110,7 +220,38 @@ class AsyncDocumentProcessor:
         # 启动监控进程
         self._monitor_task = asyncio.create_task(self._monitor())
 
+        # 恢复未完成的任务
+        await self._recover_pending_tasks()
+
         logger.info(f"异步文档处理器已启动，工作进程数: {self.max_workers}")
+
+    async def _recover_pending_tasks(self):
+        """恢复未完成的任务（服务重启时）"""
+        if not self.redis_client:
+            return
+
+        try:
+            # 查找所有 pending 或 processing 状态的任务
+            keys = self.redis_client.keys(f"{self._task_prefix}*")
+            recovered_count = 0
+
+            for key in keys:
+                data = self.redis_client.get(key)
+                if data:
+                    task_data = json.loads(data)
+                    status = task_data.get('status')
+                    if status in ['pending', 'processing']:
+                        # 重新加入队列
+                        task = DocumentTask.from_dict(task_data)
+                        await self._task_queue.put(task)
+                        recovered_count += 1
+                        logger.info(f"恢复任务: {task.task_id} ({task.file_name})")
+
+            if recovered_count > 0:
+                logger.info(f"恢复 {recovered_count} 个未完成任务")
+
+        except Exception as e:
+            logger.error(f"恢复任务失败: {e}")
 
     async def stop(self):
         """停止处理器"""
@@ -169,13 +310,14 @@ class AsyncDocumentProcessor:
             from_page=from_page,
             to_page=to_page,
             enable_vectorization=enable_vectorization,
-            enable_storage=enable_storage,
-            callback=callback
+            enable_storage=enable_storage
         )
 
-        # 存储任务
-        self._tasks[task_id] = task
-        self._stats["total_tasks"] += 1
+        # 保存任务到 Redis
+        self._save_task(task)
+
+        # 更新统计
+        self._update_stats("total_tasks")
 
         # 加入队列
         await self._task_queue.put(task)
@@ -185,7 +327,7 @@ class AsyncDocumentProcessor:
 
     async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """获取任务状态"""
-        task = self._tasks.get(task_id)
+        task = self._load_task(task_id)
         if not task:
             return None
 
@@ -257,14 +399,13 @@ class AsyncDocumentProcessor:
         # 更新任务状态
         task.status = TaskStatus.PROCESSING
         task.started_at = time.time()
+        self._save_task(task)
 
         try:
             # 导入文档处理函数
             from app.service.core.rag.processor import process_document
 
             # 在线程池中执行同步的文档处理函数
-            # 使用 asyncio.to_thread (Python 3.9+)
-            # 这会在 ThreadPoolExecutor 中执行，不会阻塞事件循环
             result = await asyncio.to_thread(
                 self._process_document_sync,
                 task
@@ -274,9 +415,10 @@ class AsyncDocumentProcessor:
             task.status = TaskStatus.COMPLETED
             task.completed_at = time.time()
             task.result = result
+            self._save_task(task)
 
             # 更新统计
-            self._stats["completed_tasks"] += 1
+            self._update_stats("completed_tasks")
             processing_time = task.completed_at - task.started_at
             self._update_avg_time(processing_time)
 
@@ -285,23 +427,14 @@ class AsyncDocumentProcessor:
                 f"{task.file_name}, 耗时: {processing_time:.2f}s"
             )
 
-            # 执行回调（如果有）
-            if task.callback:
-                try:
-                    if asyncio.iscoroutinefunction(task.callback):
-                        await task.callback(task.task_id, True, result)
-                    else:
-                        task.callback(task.task_id, True, result)
-                except Exception as e:
-                    logger.error(f"任务 {task.task_id} 回调执行失败: {e}")
-
         except Exception as e:
             # 任务处理失败
             task.status = TaskStatus.FAILED
             task.completed_at = time.time()
             task.error = str(e)
+            self._save_task(task)
 
-            self._stats["failed_tasks"] += 1
+            self._update_stats("failed_tasks")
 
             logger.error(
                 f"工作进程 {worker_id} 任务 {task.task_id} 失败: "
@@ -309,28 +442,14 @@ class AsyncDocumentProcessor:
                 exc_info=True
             )
 
-            # 执行回调（如果有）
-            if task.callback:
-                try:
-                    if asyncio.iscoroutinefunction(task.callback):
-                        await task.callback(task.task_id, False, str(e))
-                    else:
-                        task.callback(task.task_id, False, str(e))
-                except Exception as cb_e:
-                    logger.error(f"任务 {task.callback} 回调执行失败: {cb_e}")
-
     def _process_document_sync(self, task: DocumentTask) -> Any:
         """
         同步的文档处理函数（在线程池中执行）
-        这里包含 MinerU API 调用，会被放到线程池中执行，避免阻塞事件循环
         """
         from app.service.core.rag.processor import process_document
 
         logger.info(f"开始处理文档: {task.file_name} (工作进程)")
 
-        # 调用原有的文档处理函数
-        # 这个函数内部会调用 MinerU API，是同步阻塞的
-        # 但由于在 ThreadPoolExecutor 中运行，不会阻塞主事件循环
         result = process_document(
             file_path=task.file_path,
             chunk_size=task.chunk_size,
@@ -345,16 +464,6 @@ class AsyncDocumentProcessor:
         logger.info(f"文档处理完成: {task.file_name}, 生成了 {len(result) if result else 0} 个分块")
         return result
 
-    def _update_avg_time(self, new_time: float):
-        """更新平均处理时间"""
-        total = self._stats["completed_tasks"]
-        if total == 1:
-            self._stats["avg_processing_time"] = new_time
-        else:
-            self._stats["avg_processing_time"] = (
-                    (self._stats["avg_processing_time"] * (total - 1) + new_time) / total
-            )
-
     async def _monitor(self):
         """
         监控进程
@@ -368,27 +477,39 @@ class AsyncDocumentProcessor:
 
                 # 输出统计信息
                 queue_size = self._task_queue.qsize()
-                logger.info(
-                    f"处理器统计: 总任务={self._stats['total_tasks']}, "
-                    f"完成={self._stats['completed_tasks']}, "
-                    f"失败={self._stats['failed_tasks']}, "
-                    f"队列长度={queue_size}, "
-                    f"平均处理时间={self._stats['avg_processing_time']:.2f}s"
-                )
 
-                # 清理超过1小时的任务记录（可选）
-                current_time = time.time()
-                to_delete = []
-                for task_id, task in self._tasks.items():
-                    if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
-                        if current_time - task.completed_at > 3600:  # 1小时
-                            to_delete.append(task_id)
+                if self.redis_client:
+                    stats = self.redis_client.hgetall(self._stats_prefix)
+                    total = int(stats.get("total_tasks", 0))
+                    completed = int(stats.get("completed_tasks", 0))
+                    failed = int(stats.get("failed_tasks", 0))
+                    avg_time = float(stats.get("avg_processing_time", 0))
 
-                for task_id in to_delete:
-                    del self._tasks[task_id]
+                    logger.info(
+                        f"处理器统计: 总任务={total}, "
+                        f"完成={completed}, "
+                        f"失败={failed}, "
+                        f"队列长度={queue_size}, "
+                        f"平均处理时间={avg_time:.2f}s"
+                    )
 
-                if to_delete:
-                    logger.info(f"清理了 {len(to_delete)} 个过期任务")
+                # 清理超过1小时的任务记录
+                if self.redis_client:
+                    keys = self.redis_client.keys(f"{self._task_prefix}*")
+                    current_time = time.time()
+                    deleted = 0
+
+                    for key in keys:
+                        data = self.redis_client.get(key)
+                        if data:
+                            task_data = json.loads(data)
+                            completed_at = task_data.get('completed_at')
+                            if completed_at and current_time - completed_at > 3600:
+                                self.redis_client.delete(key)
+                                deleted += 1
+
+                    if deleted > 0:
+                        logger.info(f"清理了 {deleted} 个过期任务")
 
             except asyncio.CancelledError:
                 break
@@ -396,6 +517,31 @@ class AsyncDocumentProcessor:
                 logger.error(f"监控进程异常: {e}")
 
         logger.info("监控进程已停止")
+
+    async def get_stats(self) -> Dict[str, Any]:
+        """获取处理器统计信息"""
+        stats = {
+            "max_workers": self.max_workers,
+            "queue_size": self.queue_size,
+            "running": self._running
+        }
+
+        if self.redis_client:
+            redis_stats = self.redis_client.hgetall(self._stats_prefix)
+            stats.update({
+                "total_tasks": int(redis_stats.get("total_tasks", 0)),
+                "completed_tasks": int(redis_stats.get("completed_tasks", 0)),
+                "failed_tasks": int(redis_stats.get("failed_tasks", 0)),
+                "avg_processing_time": float(redis_stats.get("avg_processing_time", 0)),
+                "redis_available": True
+            })
+        else:
+            stats.update({
+                "redis_available": False,
+                "error": "Redis 不可用"
+            })
+
+        return stats
 
 
 # 全局处理器实例
@@ -420,3 +566,13 @@ async def shutdown_async_processor():
     """关闭异步处理器（在应用关闭时调用）"""
     processor = get_async_processor()
     await processor.stop()
+
+
+__all__ = [
+    'AsyncDocumentProcessor',
+    'get_async_processor',
+    'init_async_processor',
+    'shutdown_async_processor',
+    'TaskStatus',
+    'DocumentTask'
+]

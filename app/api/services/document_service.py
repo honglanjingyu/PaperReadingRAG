@@ -3,8 +3,8 @@
 from typing import List, Optional
 import hashlib
 import logging
+import os
 
-from app.api.config import processing_status
 from app.service.core.rag import process_document, get_processing_stats
 from app.service.core.embedding import VectorChunk
 from app.service.core.cache import get_document_cache
@@ -28,8 +28,7 @@ class DocumentService:
     ) -> List[VectorChunk]:
         """后台处理文档任务（处理完成后更新缓存）"""
         try:
-            processing_status[process_id]["message"] = "正在解析文档..."
-            processing_status[process_id]["progress"] = 20
+            logger.info(f"开始处理文档: {process_id}, user_level={user_level}")
 
             result = process_document(
                 file_path=file_path,
@@ -43,29 +42,21 @@ class DocumentService:
             )
 
             # 处理完成后，更新文档等级缓存
-            filename = processing_status[process_id]["filename"]
+            filename = os.path.basename(file_path)
             doc_cache = get_document_cache()
             doc_cache.set_document_level(filename, user_level)
             logger.info(f"文档 {filename} 等级已缓存: {user_level}")
 
-            processing_status[process_id]["progress"] = 100
-            processing_status[process_id]["status"] = "completed"
-            processing_status[process_id]["message"] = "文档处理完成"
-            processing_status[process_id]["result"] = {
-                "chunks_count": len(result),
-                "vectorized_count": len([c for c in result if hasattr(c, 'vector') and c.vector]) if result else 0
-            }
+            logger.info(f"文档处理完成: {process_id}, 生成了 {len(result) if result else 0} 个分块")
 
-            index_name = processing_status[process_id].get("index_name", "rag_documents")
-            self.invalidate_cache_for_document(processing_status[process_id]["filename"], index_name)
+            # 使相关缓存失效
+            self.invalidate_cache_for_document(filename, "rag_documents")
 
             return result
 
         except Exception as e:
-            processing_status[process_id]["status"] = "failed"
-            processing_status[process_id]["message"] = f"处理失败: {str(e)}"
-            processing_status[process_id]["error"] = str(e)
-            return []
+            logger.error(f"文档处理失败 {process_id}: {e}")
+            raise
 
     def get_processing_stats(self, file_path: str) -> dict:
         """获取处理统计信息"""
@@ -83,9 +74,6 @@ class DocumentService:
 
             # 2. 失效 BM25 索引缓存
             cache_manager.delete_pattern(f"bm25:{index_name}")
-
-            # 3. 可选：失效 Embedding 缓存（如果需要）
-            # cache_manager.delete_pattern("embedding")
 
             logger.info(f"文档 {file_name} 相关缓存已失效")
         except Exception as e:

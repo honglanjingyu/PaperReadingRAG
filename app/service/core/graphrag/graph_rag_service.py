@@ -76,7 +76,8 @@ class GraphRAGService:
         # 初始化 Neo4j 存储
         self.neo4j = get_neo4j_store()
 
-        # 初始化缓存
+        # ========== 修复：初始化 cache 属性 ==========
+        from .graph_cache import get_graph_cache
         self.cache = get_graph_cache() if self.config["enable_cache"] else None
 
         # 初始化约束和索引（首次运行时）
@@ -90,7 +91,7 @@ class GraphRAGService:
             use_llm=self.config["use_llm_entity_extract"],
             llm_service=self.llm_service,
             min_frequency=self.config["min_entity_frequency"],
-            max_entities=self.config["max_entities"]  # 添加 max_entities 参数
+            max_entities=self.config["max_entities"]
         )
 
         self.community_detector = CommunityDetector(
@@ -193,27 +194,18 @@ class GraphRAGService:
     ) -> Dict[str, Any]:
         """
         从文档构建知识图谱并存入 Neo4j
-
-        Args:
-            documents: 文档文本列表
-            doc_names: 文档名称列表
-            graph_id: 图谱标识
-            use_cache: 是否使用缓存
-            user_level: 用户等级
-            force_rebuild: 是否强制重建（忽略缓存）
-
-        Returns:
-            知识图谱数据
         """
         if not self.config["enabled"]:
             return {"success": False, "error": "GraphRAG 未启用"}
 
-        # ========== 缓存检查 ==========
+        # ========== 缓存检查（只检查一次） ==========
         if use_cache and self.cache and not force_rebuild:
             # 获取当前文档版本
             current_version = self._get_documents_version(user_level)
 
+            # 只查一次缓存（不要重复调用）
             cached_data = self.cache.get(user_level)
+
             if cached_data:
                 cached_version = cached_data.get("_documents_version")
                 if cached_version == current_version:
@@ -360,14 +352,21 @@ class GraphRAGService:
         return result
 
     def get_cached_graph(self, user_level: str = None) -> Optional[Dict]:
-        """获取缓存的图谱数据"""
+        """获取缓存的图谱数据（带统计）"""
         if not self.config["enable_cache"] or not self.cache:
             return None
 
         cached = self.cache.get(user_level)
         if cached:
-            logger.info(f"返回缓存图谱: user_level={user_level}")
-        return cached
+            # 添加缓存命中统计（避免重复日志）
+            if not hasattr(self, '_cache_logged'):
+                logger.info(f"返回缓存图谱: user_level={user_level}")
+                self._cache_logged = True
+            return cached
+
+        # 重置日志标记
+        self._cache_logged = False
+        return None
 
     def invalidate_cache(self, user_level: str = None):
         """使图谱缓存失效"""

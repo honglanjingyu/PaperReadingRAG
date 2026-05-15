@@ -79,10 +79,6 @@ def main():
     print(f"Agent Discovery: http://{args.host}:{args.port}/.well-known/agent.json")
     print("=" * 60)
 
-    # 记录启动信息到日志
-    logger.info(f"PaperReadingRAG 服务启动: host={args.host}, port={args.port}")
-    logger.info(f"API 文档地址: http://{args.host}:{args.port}/docs")
-
     # 集成 A2A 路由（包含发现端点）
     integrate_a2a_to_app(app)
 

@@ -1,5 +1,4 @@
 # app/service/core/cache/document_cache.py
-"""文档信息缓存模块 - 优化文档列表加载速度"""
 
 import logging
 from typing import Dict, Optional, List, Tuple
@@ -9,22 +8,14 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentCache:
-    """文档信息缓存管理器"""
+    """文档信息缓存管理器 - 纯 Redis 缓存，使用批量查询减少网络往返"""
 
     def __init__(self):
         self.cache = get_cache_manager()
         self.cache_ttl = 300  # 5分钟缓存
 
     def get_document_level(self, filename: str) -> Optional[str]:
-        """
-        获取文档等级（从缓存）
-
-        Args:
-            filename: 文档文件名
-
-        Returns:
-            文档等级 ('normal', 'admin', 'owner') 或 None
-        """
+        """获取文档等级（从 Redis 缓存）"""
         if not filename:
             return None
 
@@ -35,13 +26,7 @@ class DocumentCache:
         return None
 
     def set_document_level(self, filename: str, level: str):
-        """
-        设置文档等级到缓存
-
-        Args:
-            filename: 文档文件名
-            level: 文档等级
-        """
+        """设置文档等级到 Redis 缓存"""
         if not filename or not level:
             return
 
@@ -49,12 +34,7 @@ class DocumentCache:
         logger.debug(f"文档等级缓存写入: {filename} -> {level}")
 
     def delete_document_level(self, filename: str):
-        """
-        删除文档等级缓存
-
-        Args:
-            filename: 文档文件名
-        """
+        """删除文档等级缓存"""
         if not filename:
             return
 
@@ -63,21 +43,22 @@ class DocumentCache:
 
     def batch_get_levels(self, filenames: List[str]) -> Tuple[Dict[str, str], List[str]]:
         """
-        批量获取文档等级
-
-        Args:
-            filenames: 文件名列表
+        批量获取文档等级（使用 Redis pipeline 批量查询）
 
         Returns:
             (cached_levels, missing_filenames)
-            cached_levels: 缓存中存在的文档等级映射
-            missing_filenames: 缓存中不存在的文件名列表
         """
+        if not filenames:
+            return {}, []
+
+        # 使用批量查询 API
+        batch_results = self.cache.batch_get("doc_level", filenames)
+
         cached_levels = {}
         missing = []
 
         for filename in filenames:
-            level = self.get_document_level(filename)
+            level = batch_results.get(filename)
             if level:
                 cached_levels[filename] = level
             else:
@@ -85,22 +66,15 @@ class DocumentCache:
 
         if cached_levels:
             logger.debug(f"批量获取: 缓存命中 {len(cached_levels)}/{len(filenames)} 个文档")
-
         return cached_levels, missing
 
     def batch_set_levels(self, level_map: Dict[str, str]):
-        """
-        批量设置文档等级到缓存
+        """批量设置文档等级到 Redis 缓存（使用 pipeline）"""
+        if not level_map:
+            return
 
-        Args:
-            level_map: 文件名到等级的映射
-        """
-        for filename, level in level_map.items():
-            if filename and level:
-                self.cache.set("doc_level", filename, level, self.cache_ttl)
-
-        if level_map:
-            logger.debug(f"批量写入缓存: {len(level_map)} 个文档")
+        self.cache.batch_set("doc_level", level_map, self.cache_ttl)
+        logger.debug(f"批量写入缓存: {len(level_map)} 个文档")
 
     def invalidate_all(self):
         """使所有文档等级缓存失效"""
@@ -109,7 +83,6 @@ class DocumentCache:
 
     def get_cache_stats(self) -> Dict[str, any]:
         """获取缓存统计信息"""
-        # 注意：这个函数需要 Redis 支持扫描，如果使用内存缓存可能不准确
         return {
             "cache_ttl": self.cache_ttl,
             "cache_type": "redis" if self.cache.redis_client else "memory"
@@ -128,23 +101,27 @@ def get_document_cache() -> DocumentCache:
     return _doc_cache
 
 
-# 便捷函数
+# ========== 便捷函数（供其他模块使用） ==========
+
 def cache_document_level(filename: str, level: str):
-    """缓存单个文档等级"""
-    get_document_cache().set_document_level(filename, level)
+    """缓存单个文档等级（便捷函数）"""
+    cache = get_document_cache()
+    cache.set_document_level(filename, level)
 
 
 def get_cached_document_level(filename: str) -> Optional[str]:
-    """获取缓存的文档等级"""
-    return get_document_cache().get_document_level(filename)
+    """获取缓存的文档等级（便捷函数）"""
+    cache = get_document_cache()
+    return cache.get_document_level(filename)
 
 
 def invalidate_document_cache(filename: str = None):
-    """使文档缓存失效"""
+    """使文档缓存失效（便捷函数）"""
+    cache = get_document_cache()
     if filename:
-        get_document_cache().delete_document_level(filename)
+        cache.delete_document_level(filename)
     else:
-        get_document_cache().invalidate_all()
+        cache.invalidate_all()
 
 
 __all__ = [

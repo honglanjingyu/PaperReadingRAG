@@ -4,6 +4,7 @@ import os
 import hashlib
 import logging
 from typing import List, Optional
+import json
 
 from .base_embedding import BaseEmbeddingModel
 from .remote_embedding import RemoteEmbeddingModel
@@ -14,27 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 class CachedEmbeddingModel(BaseEmbeddingModel):
-    """带缓存的 Embedding 模型 - 包装原有模型"""
+    """带缓存的 Embedding 模型 - 纯 Redis 缓存"""
 
-    def __init__(
-            self,
-            model: BaseEmbeddingModel = None,
-            model_type: str = None,
-            cache_ttl: int = None,
-            **kwargs
-    ):
-        """
-        初始化缓存 Embedding 模型
-
-        Args:
-            model: 原始 Embedding 模型（可选）
-            model_type: 模型类型 ('remote' 或 'local')
-            cache_ttl: 缓存过期时间（秒），默认 7 天
-        """
+    def __init__(self, model: BaseEmbeddingModel = None, model_type: str = None, cache_ttl: int = None, **kwargs):
         self.cache_manager = get_cache_manager()
         self.cache_ttl = cache_ttl or int(os.getenv("CACHE_EMBEDDING_TTL", "604800"))  # 7天
 
-        # 初始化原始模型
         if model:
             self._model = model
         else:
@@ -49,34 +35,31 @@ class CachedEmbeddingModel(BaseEmbeddingModel):
         logger.info(f"缓存 Embedding 模型初始化: {self._model_name}, 维度={self._dimension}, TTL={self.cache_ttl}s")
 
     def _get_cache_key(self, text: str) -> str:
-        """生成缓存 key"""
-        # 基于文本内容和模型名称生成 key
-        import hashlib
+        """生成缓存 key（不含前缀）"""
         content_hash = hashlib.md5(text.encode()).hexdigest()
-        return f"embedding:{self._model_name}:{self._dimension}:{content_hash}"
+        return f"{self._model_name}:{self._dimension}:{content_hash}"
 
     def generate_embedding(self, text: str) -> Optional[List[float]]:
-        """生成单个文本的向量（带缓存）"""
+        """生成单个文本的向量（纯 Redis 缓存）"""
         if not text:
             return None
 
-        # 检查是否启用缓存
         enabled = os.getenv("ENABLE_EMBEDDING_CACHE", "true").lower() == "true"
         if not enabled:
             return self._model.generate_embedding(text)
 
-        # 1. 查缓存
+        # 查 Redis 缓存
         cache_key = self._get_cache_key(text)
         cached = self.cache_manager.get("embedding", cache_key)
 
         if cached is not None:
-            logger.debug(f"Embedding 缓存命中: {text[:50]}...")
+            logger.debug(f"Embedding 缓存命中 (Redis): {text[:50]}...")
             return cached
 
-        # 2. 调用原始模型
+        # 调用原始模型
         embedding = self._model.generate_embedding(text)
 
-        # 3. 存入缓存
+        # 存入 Redis 缓存
         if embedding:
             self.cache_manager.set("embedding", cache_key, embedding, self.cache_ttl)
             logger.debug(f"Embedding 缓存写入: {text[:50]}...")
@@ -84,11 +67,10 @@ class CachedEmbeddingModel(BaseEmbeddingModel):
         return embedding
 
     def generate_embeddings(self, texts: List[str]) -> List[Optional[List[float]]]:
-        """批量生成文本向量（带缓存）"""
+        """批量生成文本向量（使用 Redis pipeline）"""
         if not texts:
             return []
 
-        # 检查是否启用缓存
         enabled = os.getenv("ENABLE_EMBEDDING_CACHE", "true").lower() == "true"
         if not enabled:
             return self._model.generate_embeddings(texts)
@@ -97,30 +79,63 @@ class CachedEmbeddingModel(BaseEmbeddingModel):
         uncached_texts = []
         uncached_indices = []
 
-        # 1. 批量查缓存
-        for i, text in enumerate(texts):
-            cache_key = self._get_cache_key(text)
-            cached = self.cache_manager.get("embedding", cache_key)
+        # 批量查 Redis 缓存
+        if self.cache_manager.redis_client:
+            try:
+                pipe = self.cache_manager.redis_client.pipeline()
+                for text in texts:
+                    cache_key = self._get_cache_key(text)
+                    pipe.get(f"rag:cache:embedding:{cache_key}")
+                cached_results = pipe.execute()
 
-            if cached is not None:
-                results.append(cached)
-            else:
-                uncached_texts.append(text)
-                uncached_indices.append(i)
-                results.append(None)
+                for i, (text, cached) in enumerate(zip(texts, cached_results)):
+                    if cached:
+                        results.append(json.loads(cached))
+                    else:
+                        uncached_texts.append(text)
+                        uncached_indices.append(i)
+                        results.append(None)
+            except Exception as e:
+                logger.warning(f"批量查询缓存失败: {e}，回退到单条查询")
+                return self._generate_embeddings_fallback(texts)
+        else:
+            return self._generate_embeddings_fallback(texts)
 
-        # 2. 批量调用原始模型
+        # 批量调用原始模型
         if uncached_texts:
             embeddings = self._model.generate_embeddings(uncached_texts)
 
-            for idx, embedding in zip(uncached_indices, embeddings):
-                if embedding:
-                    results[idx] = embedding
-                    # 存入缓存
-                    cache_key = self._get_cache_key(texts[idx])
-                    self.cache_manager.set("embedding", cache_key, embedding, self.cache_ttl)
+            # 批量写入 Redis 缓存
+            if self.cache_manager.redis_client:
+                try:
+                    pipe = self.cache_manager.redis_client.pipeline()
+                    for idx, embedding in zip(uncached_indices, embeddings):
+                        if embedding:
+                            results[idx] = embedding
+                            cache_key = self._get_cache_key(texts[idx])
+                            pipe.setex(f"rag:cache:embedding:{cache_key}", self.cache_ttl,
+                                      json.dumps(embedding, ensure_ascii=False))
+                    pipe.execute()
+                except Exception as e:
+                    logger.warning(f"批量写入缓存失败: {e}")
+                    # 回退到单条写入
+                    for idx, embedding in zip(uncached_indices, embeddings):
+                        if embedding:
+                            results[idx] = embedding
+                            cache_key = self._get_cache_key(texts[idx])
+                            self.cache_manager.set("embedding", cache_key, embedding, self.cache_ttl)
+            else:
+                for idx, embedding in zip(uncached_indices, embeddings):
+                    if embedding:
+                        results[idx] = embedding
+                        cache_key = self._get_cache_key(texts[idx])
+                        self.cache_manager.set("embedding", cache_key, embedding, self.cache_ttl)
 
         return results
+
+    def _generate_embeddings_fallback(self, texts: List[str]) -> List[Optional[List[float]]]:
+        """回退方案：单条查询"""
+        return [self.generate_embedding(text) for text in texts]
 
     @property
     def dimension(self) -> int:

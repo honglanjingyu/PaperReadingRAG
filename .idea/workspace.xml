@@ -1,15 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="递归分块-&gt;父子分块+查询">
+    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="Louvain-&gt;Leiden">
       <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/RAG架构与优化计划.txt" beforeDir="false" afterPath="$PROJECT_DIR$/RAG架构与优化计划.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/graphrag/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/graphrag/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/graphrag/community_detection.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/graphrag/community_detection.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/routes/graph_rag.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/routes/graph_rag.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/routes/upload.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/routes/upload.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/services/document_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/services/document_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/cache/cache_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/cache/cache_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/cache/document_cache.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/cache/document_cache.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/cached_embedding.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/cached_embedding.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/embedding/local_embedding.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/embedding/local_embedding.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/graphrag/entity_extractor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/graphrag/entity_extractor.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/service/core/graphrag/graph_cache.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/graphrag/graph_cache.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/service/core/graphrag/graph_rag_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/graphrag/graph_rag_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/service/core/rag/async_processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/rag/async_processor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/web/graph.html" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/graph.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/web/js/upload/upload-service.js" beforeDir="false" afterPath="$PROJECT_DIR$/app/web/js/upload/upload-service.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_api.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_api.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -223,7 +231,7 @@
       <workItem from="1778724468165" duration="5967000" />
       <workItem from="1778738236752" duration="169000" />
       <workItem from="1778802856257" duration="7194000" />
-      <workItem from="1778828276335" duration="3588000" />
+      <workItem from="1778828276335" duration="10584000" />
     </task>
     <task id="LOCAL-00001" summary="First Commit">
       <option name="closed" value="true" />
@@ -537,7 +545,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778729293620</updated>
     </task>
-    <option name="localTasksCounter" value="40" />
+    <task id="LOCAL-00040" summary="Louvain-&gt;Leiden">
+      <option name="closed" value="true" />
+      <created>1778831952744</created>
+      <option name="number" value="00040" />
+      <option name="presentableId" value="LOCAL-00040" />
+      <option name="project" value="LOCAL" />
+      <updated>1778831952744</updated>
+    </task>
+    <option name="localTasksCounter" value="41" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -555,7 +571,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="相似度搜索" />
     <MESSAGE value="上下文构建,大模型生成" />
     <MESSAGE value="重构架构" />
     <MESSAGE value="可以使用milvus" />
@@ -580,7 +595,8 @@
     <MESSAGE value="不稳定的加权-&gt;RRF" />
     <MESSAGE value="README" />
     <MESSAGE value="递归分块-&gt;父子分块+查询" />
-    <option name="LAST_COMMIT_MESSAGE" value="递归分块-&gt;父子分块+查询" />
+    <MESSAGE value="Louvain-&gt;Leiden" />
+    <option name="LAST_COMMIT_MESSAGE" value="Louvain-&gt;Leiden" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/PaperReadingRAG$utils.coverage" NAME="utils 覆盖结果" MODIFIED="1777730598073" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/pdfparse_demo/deepdoc/parser" />
@@ -589,7 +605,7 @@
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_bm25.coverage" NAME="demo_bm25 覆盖结果" MODIFIED="1777946847662" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/test" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$main.coverage" NAME="main 覆盖结果" MODIFIED="1778155582286" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_fix_a2a.coverage" NAME="demo_fix_a2a 覆盖结果" MODIFIED="1778303316769" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$demo.coverage" NAME="demo 覆盖结果" MODIFIED="1778458395766" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$demo.coverage" NAME="demo 覆盖结果" MODIFIED="1778838794567" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG1_.coverage" NAME="RAG1-数据清洗 覆盖结果" MODIFIED="1777606611791" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$milvus_demo.coverage" NAME="milvus_demo 覆盖结果" MODIFIED="1777728934140" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_milvus.coverage" NAME="demo_milvus 覆盖结果" MODIFIED="1777946923889" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/test" />
@@ -600,7 +616,7 @@
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG4.coverage" NAME="RAG4 覆盖结果" MODIFIED="1777942866986" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_neo4j.coverage" NAME="demo_neo4j 覆盖结果" MODIFIED="1778546126844" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/demo" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_redis_session.coverage" NAME="demo_redis_session 覆盖结果" MODIFIED="1778548190108" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/demo" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$run_api.coverage" NAME="run_api 覆盖结果" MODIFIED="1778830345196" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$run_api.coverage" NAME="run_api 覆盖结果" MODIFIED="1778832727733" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$vector_test.coverage" NAME="vector_test 覆盖结果" MODIFIED="1777769328809" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$clear_all_data.coverage" NAME="clear_all_data 覆盖结果" MODIFIED="1778373415030" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_retrieval.coverage" NAME="demo_retrieval 覆盖结果" MODIFIED="1778726775918" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/demo" />
@@ -616,7 +632,7 @@
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG2.coverage" NAME="RAG2 覆盖结果" MODIFIED="1777643461163" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$remote_pdf_parser.coverage" NAME="remote_pdf_parser 覆盖结果" MODIFIED="1777854337981" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app/service/core/deepdoc/parser" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$elasticsearch_test.coverage" NAME="elasticsearch_test 覆盖结果" MODIFIED="1777630382564" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/PaperReadingRAG$stop_api.coverage" NAME="stop_api 覆盖结果" MODIFIED="1778830324352" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PaperReadingRAG$stop_api.coverage" NAME="stop_api 覆盖结果" MODIFIED="1778834366800" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$delete_index.coverage" NAME="delete_index 覆盖结果" MODIFIED="1777770637217" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$RAG3_.coverage" NAME="RAG3-增强搜索 覆盖结果" MODIFIED="1777702304481" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PaperReadingRAG$milvus_test.coverage" NAME="milvus_test 覆盖结果" MODIFIED="1777770054509" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

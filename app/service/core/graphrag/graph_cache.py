@@ -1,7 +1,4 @@
 # app/service/core/graphrag/graph_cache.py
-"""
-知识图谱缓存模块 - 只使用 Redis 缓存（无内存缓存）
-"""
 
 import os
 import json
@@ -14,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class GraphCache:
-    """知识图谱缓存管理器 - 只使用 Redis 缓存"""
+    """知识图谱缓存管理器 - 纯 Redis 缓存，无内存缓存"""
 
     def __init__(self):
         from app.service.core.cache import get_cache_manager
@@ -37,7 +34,7 @@ class GraphCache:
 
     def get(self, user_level: str = None) -> Optional[Dict]:
         """
-        获取缓存的图谱（只从 Redis 读取）
+        从 Redis 获取缓存的图谱（无内存缓存）
 
         Args:
             user_level: 用户等级
@@ -49,29 +46,26 @@ class GraphCache:
             return None
 
         cache_key = self._get_key(user_level)
+
+        # 直接查 Redis（不需要额外的 key 前缀，因为 batch_get 方法需要完整 key）
+        # 使用 cache.get 方法，它会自动添加 rag:cache:graph: 前缀
         cached = self.cache.get("graph", cache_key)
 
         if cached:
             logger.debug(f"图谱缓存命中 (Redis): {cache_key}")
-            return cached
         else:
             logger.debug(f"图谱缓存未命中: {cache_key}")
-            return None
+
+        return cached
 
     def set(self, data: Dict, user_level: str = None):
-        """
-        缓存图谱（只存入 Redis）
-
-        Args:
-            data: 图谱数据
-            user_level: 用户等级
-        """
+        """缓存图谱到 Redis"""
         if not self.enabled or not self._redis_available:
             return
 
         cache_key = self._get_key(user_level)
 
-        # 添加缓存时间戳（但不用于内存缓存，仅用于记录）
+        # 添加缓存时间戳
         data["_cached_at"] = datetime.now().isoformat()
         data["_cache_ttl"] = self.cache_ttl
         data["_cache_backend"] = "redis_only"
@@ -80,12 +74,7 @@ class GraphCache:
         logger.info(f"图谱已缓存到 Redis: {cache_key}, TTL={self.cache_ttl}s")
 
     def invalidate(self, user_level: str = None):
-        """
-        使缓存失效
-
-        Args:
-            user_level: 用户等级，如果为 None 则清除所有
-        """
+        """使缓存失效"""
         if not self.enabled or not self._redis_available:
             return
 
@@ -94,16 +83,14 @@ class GraphCache:
             self.cache.delete("graph", cache_key)
             logger.info(f"图谱缓存已失效 (Redis): {user_level}")
         else:
-            self.cache.delete_pattern("graph:*")
+            self.cache.delete_pattern("graph")
             logger.info("所有图谱缓存已失效 (Redis)")
 
     def is_valid(self, user_level: str = None) -> bool:
         """检查缓存是否有效"""
         if not self.enabled or not self._redis_available:
             return False
-
-        cached = self.get(user_level)
-        return cached is not None
+        return self.get(user_level) is not None
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """获取缓存统计信息"""
@@ -114,18 +101,6 @@ class GraphCache:
             "cache_backend": "redis_only",
             "has_redis": self._redis_available
         }
-
-    def warmup(self, user_level: str = None) -> bool:
-        """
-        预热缓存（检查缓存是否存在）
-
-        Args:
-            user_level: 用户等级
-
-        Returns:
-            缓存是否存在
-        """
-        return self.get(user_level) is not None
 
 
 # 全局实例

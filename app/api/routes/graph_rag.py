@@ -282,6 +282,7 @@ async def invalidate_graph_cache(
         "message": f"图谱缓存已失效 (user_level={user_level or 'all'})"
     }
 
+# app/api/routes/graph_rag.py - 优化 /chat/graph/status 接口
 
 @router.get("/chat/graph/status")
 async def get_graph_status(
@@ -302,11 +303,12 @@ async def get_graph_status(
 
     graph_service = get_graph_rag_service()
 
-    # 获取统计信息
+    # 一次性获取统计信息（避免重复调用）
     stats = graph_service.neo4j.get_statistics() if hasattr(graph_service, 'neo4j') else {}
 
-    # 检查缓存状态
+    # 只查一次缓存
     cached = graph_service.get_cached_graph(user_level)
+
     cache_info = {
         "is_cached": cached is not None,
         "cached_at": cached.get("_cached_at") if cached else None,
@@ -332,18 +334,21 @@ async def get_graph_cache_stats(
 
     graph_service = get_graph_rag_service()
 
+    # 分别检查不同等级的缓存状态（每个只查一次）
+    normal_cached = graph_service.get_cached_graph("normal")
+    admin_cached = graph_service.get_cached_graph("admin")
+    owner_cached = graph_service.get_cached_graph("owner")
+
     return {
         "success": True,
         "cache_enabled": graph_service.config.get("enable_cache", True),
         "cache_ttl": int(os.getenv("GRAPH_CACHE_TTL", "3600")),
         "user_level_stats": {
-            "normal": graph_service.get_cached_graph("normal") is not None,
-            "admin": graph_service.get_cached_graph("admin") is not None,
-            "owner": graph_service.get_cached_graph("owner") is not None
+            "normal": normal_cached is not None,
+            "admin": admin_cached is not None,
+            "owner": owner_cached is not None
         }
     }
-
-# ========== 辅助函数 ==========
 
 def _get_document_contents(index_name: str, user_level: str) -> Dict:
     """获取所有文档内容"""

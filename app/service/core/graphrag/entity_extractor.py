@@ -163,8 +163,8 @@ class EntityExtractor:
 
         return relations
 
-    def _extract_with_llm(self, text: str) -> Tuple[List[Entity], List[Relation]]:
-        """使用 LLM 提取实体和关系"""
+    def _extract_with_llm(self, text: str, max_retries: int = 2) -> Tuple[List[Entity], List[Relation]]:
+        """使用 LLM 提取实体和关系（带重试机制）"""
         if not self.llm_service:
             return [], []
 
@@ -174,71 +174,165 @@ class EntityExtractor:
 
         prompt = f"""请分析以下文档内容，提取其中的关键实体和关系。
 
-## 实体类型
-- PERSON: 人物、作者、研究者
-- ORGANIZATION: 公司、机构、组织、政府部门
-- LOCATION: 地理位置、城市、国家
-- CONCEPT: 核心概念、技术名词、专业术语
-- PRODUCT: 产品、服务、工具
-- DATE: 时间、年份、时期
-- NUMBER: 重要数字、指标
+    ## 实体类型
+    - PERSON: 人物、作者、研究者
+    - ORGANIZATION: 公司、机构、组织、政府部门
+    - LOCATION: 地理位置、城市、国家
+    - CONCEPT: 核心概念、技术名词、专业术语
+    - PRODUCT: 产品、服务、工具
+    - DATE: 时间、年份、时期
+    - NUMBER: 重要数字、指标
 
-## 关系类型
-- WORKS_FOR: 某人工作在某个组织
-- LOCATED_IN: 位于某地
-- PRODUCES: 生产/提供某产品
-- RELATED_TO: 相关关系
-- PART_OF: 组成部分
-- LEADS_TO: 导致/促使
+    ## 关系类型
+    - WORKS_FOR: 某人工作在某个组织
+    - LOCATED_IN: 位于某地
+    - PRODUCES: 生产/提供某产品
+    - RELATED_TO: 相关关系
+    - PART_OF: 组成部分
+    - LEADS_TO: 导致/促使
 
-## 文档内容
-{text_preview}
+    ## 文档内容
+    {text_preview}
 
-## 输出格式
-请以 JSON 格式输出：
-{{
-    "entities": [
-        {{"name": "实体名", "type": "实体类型", "description": "简短描述"}}
-    ],
-    "relations": [
-        {{"source": "源实体", "target": "目标实体", "relation_type": "关系类型", "evidence": "原文证据"}}
-    ]
-}}
+    ## 输出格式
+    请以 JSON 格式输出，只输出 JSON，不要有其他内容：
 
-只输出 JSON，不要有其他内容："""
+    {{
+        "entities": [
+            {{"name": "实体名", "type": "CONCEPT", "description": "简短描述"}}
+        ],
+        "relations": [
+            {{"source": "源实体", "target": "目标实体", "relation_type": "RELATED_TO", "evidence": "原文证据"}}
+        ]
+    }}
 
-        try:
-            response = self.llm_service.generate([{"role": "user", "content": prompt}])
+    注意：请确保 JSON 格式正确，不要包含注释、不要有尾随逗号，字符串使用双引号。"""
 
-            if response:
+        for attempt in range(max_retries + 1):
+            try:
+                response = self.llm_service.generate([{"role": "user", "content": prompt}])
+
+                if not response:
+                    logger.warning(f"LLM 返回空响应 (尝试 {attempt + 1}/{max_retries + 1})")
+                    if attempt < max_retries:
+                        continue
+                    return [], []
+
+                # 清理响应 - 移除可能的 markdown 代码块标记
+                cleaned_response = response.strip()
+
+                # 移除 markdown 代码块
+                if cleaned_response.startswith("```json"):
+                    cleaned_response = cleaned_response[7:]
+                elif cleaned_response.startswith("```"):
+                    cleaned_response = cleaned_response[3:]
+
+                if cleaned_response.endswith("```"):
+                    cleaned_response = cleaned_response[:-3]
+
+                cleaned_response = cleaned_response.strip()
+
+                # 尝试提取 JSON（查找第一个 { 和最后一个 }）
+                start_idx = cleaned_response.find('{')
+                end_idx = cleaned_response.rfind('}')
+
+                if start_idx == -1 or end_idx == -1:
+                    logger.warning(
+                        f"响应中未找到 JSON (尝试 {attempt + 1}/{max_retries + 1}): {cleaned_response[:200]}")
+                    if attempt < max_retries:
+                        continue
+                    return [], []
+
+                json_str = cleaned_response[start_idx:end_idx + 1]
+
+                # 修复常见的 JSON 格式问题
+                json_str = self._fix_json_format(json_str)
+
                 import json
-                # 提取 JSON
-                json_match = re.search(r'\{[\s\S]*\}', response)
-                if json_match:
-                    data = json.loads(json_match.group())
+                data = json.loads(json_str)
 
-                    entities = [
-                        Entity(name=e["name"], type=e.get("type", "CONCEPT"), mentions=[])
-                        for e in data.get("entities", [])
-                    ]
+                entities = []
+                for e in data.get("entities", []):
+                    entity_name = e.get("name", "").strip()
+                    if entity_name and len(entity_name) >= self.min_entity_length:
+                        entities.append(Entity(
+                            name=entity_name,
+                            type=e.get("type", "CONCEPT"),
+                            mentions=[]
+                        ))
 
-                    relations = [
-                        Relation(
-                            source=r["source"],
-                            target=r["target"],
+                relations = []
+                for r in data.get("relations", []):
+                    source = r.get("source", "").strip()
+                    target = r.get("target", "").strip()
+                    if source and target:
+                        relations.append(Relation(
+                            source=source,
+                            target=target,
                             relation_type=r.get("relation_type", "RELATED_TO"),
                             evidence=r.get("evidence", "")
-                        )
-                        for r in data.get("relations", [])
-                    ]
+                        ))
 
-                    logger.info(f"LLM 提取: {len(entities)} 个实体, {len(relations)} 个关系")
-                    return entities, relations
+                logger.info(f"LLM 提取成功: {len(entities)} 个实体, {len(relations)} 个关系")
+                return entities, relations
 
-        except Exception as e:
-            logger.error(f"LLM 提取失败: {e}")
+            except json.JSONDecodeError as e:
+                logger.error(f"LLM 提取 JSON 解析失败 (尝试 {attempt + 1}/{max_retries + 1}): {e}")
+                if attempt < max_retries:
+                    logger.debug(f"将重试，原始响应前500字符: {response[:500] if response else 'None'}")
+                    continue
+                else:
+                    logger.error(f"JSON 解析失败，已达最大重试次数")
+                    return [], []
+
+            except Exception as e:
+                logger.error(f"LLM 提取失败 (尝试 {attempt + 1}/{max_retries + 1}): {e}")
+                if attempt < max_retries:
+                    continue
+                import traceback
+                traceback.print_exc()
+                return [], []
 
         return [], []
+
+    def _fix_json_format(self, json_str: str) -> str:
+        """
+        修复常见的 JSON 格式问题
+
+        Args:
+            json_str: 原始 JSON 字符串
+
+        Returns:
+            修复后的 JSON 字符串
+        """
+        if not json_str or not json_str.strip():
+            return "{}"
+
+        import re
+
+        # 1. 移除尾随逗号
+        json_str = re.sub(r',\s*}', '}', json_str)
+        json_str = re.sub(r',\s*]', ']', json_str)
+
+        # 2. 修复单引号为双引号（谨慎处理，避免影响内容中的单引号）
+        # 只处理键名和字符串边界
+        # 将键名周围的单引号改为双引号
+        json_str = re.sub(r"'([^']+)'(?=\s*:)", r'"\1"', json_str)
+
+        # 3. 修复未加引号的键名
+        json_str = re.sub(r'(\{|\s*,\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_str)
+
+        # 4. 修复注释（移除 // 和 /* */ 注释）
+        json_str = re.sub(r'//.*?$', '', json_str, flags=re.MULTILINE)
+        json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+
+        # 5. 修复控制字符
+        json_str = re.sub(r'[\x00-\x1f\x7f]', '', json_str)
+
+        # 6. 修复重复的逗号
+        json_str = re.sub(r',\s*,', ',', json_str)
+
+        return json_str
 
     def _merge_entities(self, entities1: List[Entity], entities2: List[Entity]) -> List[Entity]:
         """合并两组实体"""

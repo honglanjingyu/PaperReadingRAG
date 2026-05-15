@@ -12,7 +12,7 @@ import shutil
 import os
 import logging
 
-from app.api.config import UPLOAD_DIR, SUPPORTED_EXTENSIONS, settings, processing_status
+from app.api.config import UPLOAD_DIR, SUPPORTED_EXTENSIONS, settings
 from app.api.dependencies import get_document_service
 from app.auth.jwt_utils import get_user_id_from_token
 from app.db.database import get_db_manager
@@ -56,7 +56,7 @@ async def upload_document(
             detail=f"不支持的文件类型: {file_ext}。支持的类型: {list(SUPPORTED_EXTENSIONS.keys())}"
         )
 
-    # ========== 修复：检查文件是否已存在 ==========
+    # 检查文件是否已存在
     file_path = UPLOAD_DIR / file.filename
     if file_path.exists():
         raise HTTPException(status_code=400, detail=f"文件已存在: {file.filename}")
@@ -68,6 +68,7 @@ async def upload_document(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
 
+    # 生成 process_id（仅用于标识）
     process_id = hashlib.md5(f"{file.filename}_{time.time()}".encode()).hexdigest()[:16]
 
     if chunk_size is None:
@@ -76,27 +77,20 @@ async def upload_document(
     if to_page is None:
         to_page = settings.max_pages
 
-    processing_status[process_id] = {
-        "status": "processing",
-        "filename": file.filename,
-        "progress": 0,
-        "message": "开始处理文档...",
-        "user_level": user_level
-    }
-
-    document_service = get_document_service()
-    background_tasks.add_task(
-        document_service.process_document_task,
-        process_id,
-        str(file_path),
-        chunk_size,
-        enable_vectorization,
-        enable_storage,
-        from_page,
-        to_page,
-        user_level
+    # 提交到异步队列
+    processor = get_async_processor()
+    task_id = await processor.submit_task(
+        file_path=str(file_path),
+        file_name=file.filename,
+        user_level=user_level,
+        chunk_size=chunk_size,
+        from_page=from_page,
+        to_page=to_page,
+        enable_vectorization=enable_vectorization,
+        enable_storage=enable_storage
     )
 
+    # 使 GraphRAG 缓存失效
     from app.service.core.graphrag import get_graph_rag_service
     graph_service = get_graph_rag_service()
     graph_service.invalidate_cache(user_level)
@@ -104,9 +98,10 @@ async def upload_document(
     return {
         "success": True,
         "process_id": process_id,
+        "task_id": task_id,
         "filename": file.filename,
-        "message": "文档已上传，正在后台处理",
-        "status_url": f"/api/upload/status/{process_id}"
+        "message": "文档已提交到处理队列",
+        "status_url": f"/api/upload/task/{task_id}"
     }
 
 
@@ -140,7 +135,7 @@ async def upload_document_async(
             detail=f"不支持的文件类型: {file_ext}"
         )
 
-    # ========== 修复：检查文件是否已存在 ==========
+    # 检查文件是否已存在
     file_path = UPLOAD_DIR / file.filename
     if file_path.exists():
         raise HTTPException(status_code=400, detail=f"文件已存在: {file.filename}")
@@ -165,6 +160,7 @@ async def upload_document_async(
         enable_storage=enable_storage
     )
 
+    # 使 GraphRAG 缓存失效
     from app.service.core.graphrag import get_graph_rag_service
     graph_service = get_graph_rag_service()
     graph_service.invalidate_cache(user_level)
@@ -179,16 +175,6 @@ async def upload_document_async(
 
 
 # ========== 状态查询接口 ==========
-
-@router.get("/upload/status/{process_id}")
-async def get_processing_status(process_id: str) -> Dict[str, Any]:
-    """获取文档处理状态"""
-    status = processing_status.get(process_id)
-    if not status:
-        raise HTTPException(status_code=404, detail=f"未找到处理任务: {process_id}")
-
-    return status
-
 
 @router.get("/upload/task/{task_id}")
 async def get_task_status(

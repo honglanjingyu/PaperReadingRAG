@@ -75,9 +75,4 @@ class Settings:
 
 settings = Settings()
 
-
-# 处理状态存储（简单内存存储，生产环境应使用Redis）
-processing_status: Dict[str, Any] = {}
-
-
-__all__ = ['settings', 'UPLOAD_DIR', 'WEB_DIR', 'SUPPORTED_EXTENSIONS', 'processing_status']
+__all__ = ['settings', 'UPLOAD_DIR', 'WEB_DIR', 'SUPPORTED_EXTENSIONS']
