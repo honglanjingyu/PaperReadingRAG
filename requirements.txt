@@ -1,27 +1,28 @@
-# Web 框架
+# Web 框架与服务器
 fastapi==0.115.0
 uvicorn==0.31.0
 gunicorn==21.0.0
 python-multipart==0.0.11
 
-# 认证相关
+# 认证与安全
 fastapi-jwt[authlib]==0.3.0
 python-jose==3.3.0
 authlib==1.3.0
 bcrypt==4.1.0
+pyjwt==2.8.0
 
-# 数据库
+# 数据库与ORM
 psycopg2-binary==2.9.9
 redis==5.0.1
 aioredis==2.0.1
-alembic==1.13.1
 sqlalchemy==1.4.53
+alembic==1.13.1
 
-# HTTP 客户端 - 固定 httpx 版本
+# HTTP 客户端
 requests==2.32.3
 httpx==0.27.0
 
-# LLM 相关 - 使用兼容新版导入且支持代理的版本
+# LLM 与 AI 相关
 openai==1.10.0
 dashscope==1.20.0
 llama-index-core==0.10.68.post1
@@ -29,7 +30,7 @@ llama-index-postprocessor-dashscope-rerank-custom==0.1.0
 tiktoken==0.7.0
 jieba==0.42.1
 
-# 文档处理
+# 文档与文件处理
 python-docx==1.1.0
 pdfplumber==0.11.0
 pypdf==4.0.0
@@ -41,6 +42,7 @@ lxml_html_clean==0.1.0
 html-text==0.6.2
 mineru-open-sdk==0.2.5
 aiofiles==23.2.0
+reportlab==3.6
 
 # 机器学习
 scikit-learn==1.3.2
@@ -54,7 +56,7 @@ opencv-python==4.9.0.80
 shapely==2.0.3
 pyclipper>=1.3.0,<2.0.0
 
-# 文本处理
+# 文本处理与NLP
 nltk==3.8.1
 chardet==5.2.0
 pandas==2.1.4
@@ -62,9 +64,8 @@ datrie==0.8.2
 hanziconv==0.3.2
 six==1.16.0
 xxhash==3.4.0
-reportlab==3.6
 
-# 搜索
+# 搜索与图数据库
 elasticsearch==8.12.0
 elasticsearch-dsl==8.12.0
 pymilvus==2.6.11
@@ -72,16 +73,19 @@ beautifulsoup4==4.12.3
 python-louvain==0.16
 networkx==3.0
 neo4j==5.28.2
+rank-bm25==0.2.2
+igraph==0.11.6
+leidenalg==0.10.2
 
-# 其他
+# 工具与日志
 tika==2.6.0
 colorlog==6.8.0
 dotenv==0.9.9
-rank-bm25==0.2.2
 loguru==0.7.0
-pyjwt==2.8.0
 
-# 可选 本地模型部署
-# 安装torch,torchaudio,torchvision,sentence-transformers
-
-# java:  sudo apt install openjdk-21-jdk
+# 可选：本地模型部署（需手动安装）
+# torch
+# torchaudio
+# torchvision
+# sentence-transformers
+# java: sudo apt install openjdk-21-jdk

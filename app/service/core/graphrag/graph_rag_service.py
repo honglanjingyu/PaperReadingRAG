@@ -94,7 +94,6 @@ class GraphRAGService:
         )
 
         self.community_detector = CommunityDetector(
-            use_louvain=self.config["use_louvain"],
             min_community_size=self.config["min_community_size"]
         )
 

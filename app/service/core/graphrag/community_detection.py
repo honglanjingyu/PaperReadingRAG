@@ -1,23 +1,30 @@
 # app/service/core/graphrag/community_detection.py
 """
-社区发现模块 - 使用 Louvain 算法识别实体社区
+社区发现模块 - 使用 Leiden 算法识别实体社区（纯 igraph 实现，高性能）
+Leiden 算法优势：
+- 保证社区之间是连通的
+- 更好的社区质量
+- 更快的收敛速度
 """
 
 import logging
-import networkx as nx
 from typing import List, Dict, Any, Set, Tuple
 from collections import defaultdict
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# 导入 igraph 和 leidenalg（必需）
 try:
-    import community as community_louvain
-
-    LOUVAIN_AVAILABLE = True
-except ImportError:
-    LOUVAIN_AVAILABLE = False
-    logger.warning("python-louvain 未安装，将使用简化社区检测")
+    import igraph as ig
+    from leidenalg import find_partition, ModularityVertexPartition
+    LEIDEN_AVAILABLE = True
+    logger.info("Leiden 算法可用 (igraph + leidenalg)")
+except ImportError as e:
+    LEIDEN_AVAILABLE = False
+    logger.error(f"Leiden 算法不可用: {e}")
+    logger.error("请安装依赖: pip install igraph leidenalg")
+    raise ImportError("Leiden 算法是必需的，请运行: pip install igraph leidenalg")
 
 
 @dataclass
@@ -29,28 +36,33 @@ class Community:
     density: float = 0.0
     summary: str = ""
     keywords: List[str] = field(default_factory=list)
-    level: int = 0  # 层次级别
+    level: int = 0
+    modularity: float = 0.0
 
 
 class CommunityDetector:
     """
-    社区发现器
-    使用 Louvain 算法识别实体网络中的社区结构
+    社区发现器 - 使用 Leiden 算法（纯 igraph 实现，高性能）
     """
-    def __init__(self, use_louvain: bool = True, min_community_size: int = 2):
+
+    def __init__(self, min_community_size: int = 2, resolution: float = 1.0):
         """
         初始化社区检测器
 
         Args:
-            use_louvain: 是否使用 Louvain 算法
             min_community_size: 最小社区大小（少于该值的社区将被过滤）
+            resolution: 分辨率参数，越高社区越多
         """
-        self.use_louvain = use_louvain and LOUVAIN_AVAILABLE
-        self.min_community_size = min_community_size  # 新增
+        if not LEIDEN_AVAILABLE:
+            raise RuntimeError("Leiden 算法不可用，请安装 igraph 和 leidenalg")
+
+        self.min_community_size = min_community_size
+        self.resolution = resolution
         self.communities: Dict[int, Community] = {}
 
         logger.info(
-            f"CommunityDetector 初始化, use_louvain={self.use_louvain}, min_community_size={min_community_size}")
+            f"CommunityDetector 初始化完成, 算法=Leiden, min_community_size={min_community_size}, resolution={resolution}"
+        )
 
     def detect_communities(
             self,
@@ -58,27 +70,37 @@ class CommunityDetector:
             relations: List[Dict]
     ) -> Dict[int, Community]:
         """
-        检测实体社区
+        检测实体社区（使用 Leiden 算法）
+
+        Args:
+            entities: 实体列表，格式 [{"name": str, "type": str, "frequency": int}, ...]
+            relations: 关系列表，格式 [{"source": str, "target": str, "weight": float}, ...]
+
+        Returns:
+            社区字典 {community_id: Community}
         """
         if not entities or not relations:
+            logger.warning("实体或关系为空，无法检测社区")
             return {}
 
-        # 构建图
-        G = self._build_graph(entities, relations)
+        # 构建 igraph
+        ig_graph, node_names = self._build_igraph(entities, relations)
 
-        if G.number_of_nodes() < 2:
+        if ig_graph.vcount() < 2:
+            logger.warning("节点数不足，无法检测社区")
             return {}
 
-        # 社区检测
-        if self.use_louvain:
-            partition = self._louvain_partition(G)
-        else:
-            partition = self._simple_partition(G)
+        if ig_graph.ecount() == 0:
+            logger.warning("图中没有边，无法检测社区")
+            return {}
+
+        # 使用 Leiden 算法进行社区检测
+        partition = self._leiden_partition(ig_graph)
 
         # 构建社区对象
-        self.communities = self._build_communities(G, partition)
+        self.communities = self._build_communities(ig_graph, partition, node_names)
 
-        # 过滤小社区（新增）
+        # 过滤小社区
         if self.min_community_size > 1:
             self.communities = {
                 cid: c for cid, c in self.communities.items()
@@ -88,101 +110,228 @@ class CommunityDetector:
         # 计算社区摘要
         self._compute_community_summaries()
 
-        logger.info(f"社区检测完成: {len(self.communities)} 个社区")
+        logger.info(f"Leiden 社区检测完成: {len(self.communities)} 个社区")
         return self.communities
 
-    def _build_graph(self, entities: List[Dict], relations: List[Dict]) -> nx.Graph:
-        """构建实体关系图"""
-        G = nx.Graph()
+    def _build_igraph(self, entities: List[Dict], relations: List[Dict]) -> Tuple[ig.Graph, List[str]]:
+        """
+        构建 igraph 图（高性能）
 
-        # 添加节点（实体）
-        for entity in entities:
-            G.add_node(
-                entity["name"],
-                type=entity.get("type", "UNKNOWN"),
-                frequency=entity.get("frequency", 1)
-            )
+        Args:
+            entities: 实体列表
+            relations: 关系列表
 
-        # 添加边（关系）
+        Returns:
+            (igraph图, 节点名称列表)
+        """
+        # 创建节点名称到索引的映射
+        node_names = [e["name"] for e in entities]
+        node_index = {name: i for i, name in enumerate(node_names)}
+
+        # 构建边列表
+        edges = []
+        weights = []
+        edge_types = []
+
         for relation in relations:
-            source = relation["source"]
-            target = relation["target"]
+            source = relation.get("source")
+            target = relation.get("target")
             weight = relation.get("weight", 1.0)
+            rel_type = relation.get("relation_type", "RELATED_TO")
 
-            if G.has_node(source) and G.has_node(target):
-                if G.has_edge(source, target):
-                    G[source][target]["weight"] += weight
-                else:
-                    G.add_edge(source, target, weight=weight)
+            if source in node_index and target in node_index:
+                edges.append((node_index[source], node_index[target]))
+                weights.append(weight)
+                edge_types.append(rel_type)
 
-        logger.info(f"图构建完成: {G.number_of_nodes()} 个节点, {G.number_of_edges()} 条边")
-        return G
+        # 创建 igraph
+        g = ig.Graph()
+        g.add_vertices(len(node_names))
 
-    def _louvain_partition(self, G: nx.Graph) -> Dict:
-        """使用 Louvain 算法进行社区划分"""
+        if edges:
+            g.add_edges(edges)
+            g.es['weight'] = weights
+            g.es['relation_type'] = edge_types
+
+        # 添加节点属性
+        for i, entity in enumerate(entities):
+            g.vs[i]['name'] = entity['name']
+            g.vs[i]['type'] = entity.get('type', 'UNKNOWN')
+            g.vs[i]['frequency'] = entity.get('frequency', 1)
+
+        logger.info(f"igraph 构建完成: {g.vcount()} 个节点, {g.ecount()} 条边")
+        return g, node_names
+
+    def _leiden_partition(self, g: ig.Graph) -> List[List[int]]:
+        """
+        使用 Leiden 算法进行社区划分
+
+        Args:
+            g: igraph 图对象
+
+        Returns:
+            社区列表，每个社区包含节点索引列表
+        """
         try:
-            # 使用权重
-            partition = community_louvain.best_partition(G, weight='weight')
-            logger.info(f"Louvain 划分完成: {len(set(partition.values()))} 个社区")
-            return partition
+            # 尝试不同的参数组合
+            partition = None
+
+            # 方式1: 使用 resolution_parameter (新版本)
+            try:
+                partition = find_partition(
+                    g,
+                    ModularityVertexPartition,
+                    weights='weight',
+                    resolution_parameter=self.resolution
+                )
+                logger.info(f"Leiden 划分成功 (resolution_parameter={self.resolution})")
+            except TypeError:
+                # 方式2: 使用 resolution (旧版本)
+                try:
+                    partition = find_partition(
+                        g,
+                        ModularityVertexPartition,
+                        weights='weight',
+                        resolution=self.resolution
+                    )
+                    logger.info(f"Leiden 划分成功 (resolution={self.resolution})")
+                except TypeError:
+                    # 方式3: 不使用 resolution 参数
+                    partition = find_partition(
+                        g,
+                        ModularityVertexPartition,
+                        weights='weight'
+                    )
+                    logger.info("Leiden 划分成功 (默认参数)")
+
+            # 转换为节点索引列表
+            communities = [list(community) for community in partition]
+            logger.info(f"Leiden 划分完成: {len(communities)} 个社区")
+
+            # 计算模块度
+            modularity = g.modularity(partition, weights='weight')
+            logger.info(f"模块度: {modularity:.4f}")
+
+            return communities
+
         except Exception as e:
-            logger.error(f"Louvain 算法失败: {e}")
-            return self._simple_partition(G)
+            logger.error(f"Leiden 算法失败: {e}")
+            raise RuntimeError(f"Leiden 社区检测失败: {e}")
 
-    def _simple_partition(self, G: nx.Graph) -> Dict:
-        """简化的社区划分（基于连通分量）"""
-        components = list(nx.connected_components(G))
-        partition = {}
-
-        for comp_id, component in enumerate(components):
-            for node in component:
-                partition[node] = comp_id
-
-        logger.info(f"连通分量划分完成: {len(components)} 个社区")
-        return partition
-
-    def _build_communities(self, G: nx.Graph, partition: Dict) -> Dict[int, Community]:
+    def _build_communities(
+            self,
+            g: ig.Graph,
+            communities: List[List[int]],
+            node_names: List[str]
+    ) -> Dict[int, Community]:
         """构建社区对象"""
-        communities = {}
+        result = {}
 
-        # 按社区分组
-        community_groups: Dict[int, List[str]] = defaultdict(list)
-        for node, comm_id in partition.items():
-            community_groups[comm_id].append(node)
+        for comm_id, node_indices in enumerate(communities):
+            # 获取实体名称列表
+            entities_list = [node_names[idx] for idx in node_indices]
 
-        # 创建社区对象
-        for comm_id, entities in community_groups.items():
             # 计算社区密度
-            subgraph = G.subgraph(entities)
-            density = nx.density(subgraph) if subgraph.number_of_nodes() > 1 else 1.0
+            subgraph = g.subgraph(node_indices)
+            density = subgraph.density() if subgraph.vcount() > 1 else 1.0
 
-            communities[comm_id] = Community(
+            # 计算模块度贡献
+            modularity = self._calculate_modularity_contrib(g, node_indices)
+
+            result[comm_id] = Community(
                 id=comm_id,
-                entities=entities,
-                size=len(entities),
+                entities=entities_list,
+                size=len(entities_list),
                 density=density,
+                modularity=modularity,
                 level=0
             )
 
-        return communities
+        return result
+
+    def _calculate_modularity_contrib(self, g: ig.Graph, community_nodes: List[int]) -> float:
+        """计算社区内的模块度贡献"""
+        if g.ecount() == 0:
+            return 0.0
+
+        community_set = set(community_nodes)
+
+        # 计算社区内部边权重和
+        internal_weight = 0.0
+        total_weight = 0.0
+
+        for edge in g.es:
+            weight = edge['weight'] if 'weight' in edge.attributes() else 1.0
+            total_weight += weight
+
+            if edge.source in community_set and edge.target in community_set:
+                internal_weight += weight
+
+        if total_weight == 0:
+            return 0.0
+
+        # 计算期望内部边权重
+        degree_sum = 0.0
+
+        # 检查是否有权重属性
+        has_weights = 'weight' in g.es.attributes()
+
+        for v in community_nodes:
+            try:
+                # 尝试不同的参数名
+                if has_weights:
+                    # 先尝试 weight（单数）
+                    try:
+                        degree_sum += g.degree(v, weight='weight')
+                    except TypeError:
+                        try:
+                            # 尝试 weights（复数）
+                            degree_sum += g.degree(v, weights='weight')
+                        except TypeError:
+                            # 都不行，使用无权重版本
+                            degree_sum += g.degree(v)
+                else:
+                    degree_sum += g.degree(v)
+            except Exception as e:
+                # 任何错误都回退到无权重版本
+                degree_sum += g.degree(v)
+
+        expected = (degree_sum ** 2) / (2 * total_weight)
+
+        if expected == 0:
+            return internal_weight / total_weight
+
+        return max(0.0, min(1.0, (internal_weight / total_weight) - (expected / total_weight)))
 
     def _compute_community_summaries(self):
         """计算社区摘要和关键词"""
         for comm in self.communities.values():
-            # 关键词提取（基于实体名称中的高频词）
             keywords = self._extract_keywords(comm.entities)
             comm.keywords = keywords[:10]
-            comm.summary = f"包含 {comm.size} 个相关实体，主要涉及 {', '.join(keywords[:3])}"
+
+            # 生成摘要
+            if comm.modularity > 0.3:
+                quality = "高内聚"
+            elif comm.modularity > 0.1:
+                quality = "中等内聚"
+            else:
+                quality = "松散"
+
+            comm.summary = (
+                f"社区包含 {comm.size} 个相关实体，{quality}（模块度={comm.modularity:.3f}），"
+                f"密度={comm.density:.2f}，主要涉及 {', '.join(keywords[:3]) if keywords else '未识别主题'}"
+            )
 
     def _extract_keywords(self, entities: List[str]) -> List[str]:
         """从实体名称中提取关键词"""
         words = []
         for entity in entities:
-            # 中文分词（简单处理）
-            for i in range(len(entity) - 1):
-                word = entity[i:i + 2]
-                if len(word) >= 2 and word not in ['公司', '有限', '股份']:
-                    words.append(word)
+            # 提取2-3个字符的词
+            for length in [2, 3]:
+                for i in range(len(entity) - length + 1):
+                    word = entity[i:i + length]
+                    if len(word) >= 2 and word not in ['公司', '有限', '股份', '有限公', '限公司']:
+                        words.append(word)
 
         # 统计词频
         from collections import Counter
@@ -205,15 +354,11 @@ class CommunityDetector:
             return []
 
         hierarchy = []
-
-        # Level 0: 原始社区
         hierarchy.append(self.communities.copy())
 
-        # 如果只有一个社区，无法继续聚合
         if len(self.communities) <= 1:
             return hierarchy
 
-        # Level 1+: 社区聚合
         current_communities = self.communities
 
         for level in range(1, max_levels):
@@ -231,14 +376,12 @@ class CommunityDetector:
             communities: Dict[int, Community],
             level: int
     ) -> Dict[int, Community]:
-        """聚合社区（简单的层次聚类）"""
-        # 计算社区间的相似度
+        """聚合社区"""
         comm_list = list(communities.values())
         similarities = []
 
         for i, c1 in enumerate(comm_list):
             for j, c2 in enumerate(comm_list[i + 1:], i + 1):
-                # 基于共同关键词的相似度
                 keywords1 = set(c1.keywords)
                 keywords2 = set(c2.keywords)
                 if keywords1 and keywords2:
@@ -247,7 +390,6 @@ class CommunityDetector:
                     if similarity > 0.1:
                         similarities.append((c1.id, c2.id, similarity))
 
-        # 按相似度排序并合并
         similarities.sort(key=lambda x: x[2], reverse=True)
         merged = set()
         aggregated = {}
@@ -259,7 +401,6 @@ class CommunityDetector:
             c1 = communities[s1]
             c2 = communities[s2]
 
-            # 合并
             new_id = f"agg_{level}_{s1}_{s2}"
             merged_entities = list(set(c1.entities + c2.entities))
             merged_keywords = list(set(c1.keywords + c2.keywords))
@@ -269,13 +410,13 @@ class CommunityDetector:
                 entities=merged_entities,
                 size=len(merged_entities),
                 density=(c1.density + c2.density) / 2,
+                modularity=(c1.modularity + c2.modularity) / 2,
                 keywords=merged_keywords,
                 level=level
             )
             merged.add(s1)
             merged.add(s2)
 
-        # 添加未合并的社区
         for c in communities.values():
             if c.id not in merged:
                 aggregated[c.id] = c
@@ -293,9 +434,22 @@ class CommunityDetector:
             "id": comm.id,
             "size": comm.size,
             "density": comm.density,
+            "modularity": comm.modularity,
             "entities": comm.entities[:20],
             "total_entities": comm.size,
             "keywords": comm.keywords,
             "summary": comm.summary,
             "level": comm.level
         }
+
+    def get_algorithm_info(self) -> Dict[str, Any]:
+        """获取当前使用的算法信息"""
+        return {
+            "algorithm": "leiden",
+            "leiden_available": LEIDEN_AVAILABLE,
+            "min_community_size": self.min_community_size,
+            "resolution": self.resolution
+        }
+
+
+__all__ = ['CommunityDetector', 'Community']
