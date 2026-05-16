@@ -1,17 +1,6 @@
 # app/service/core/deepdoc/__init__.py
-"""
-DeepDoc 文档处理模块 - 使用 MinerU 远程 API 解析所有文档
-"""
 
-from typing import Optional, Dict
-
-from .parser.remote_pdf_parser import (
-    RemotePDFParser,
-    parse_document_remote,
-    parse_pdf_remote,
-    is_remote_parse_enabled,
-    save_chunked_report,
-)
+import os
 
 from .cleaner import (
     DataCleaner,
@@ -19,70 +8,68 @@ from .cleaner import (
     TableCleaner,
     NoiseFilter,
     CleaningPipeline,
+    clean_document_content,
 )
 
-from .models import (
-    LayoutType,
-    TextBlock,
-    TableBlock,
-    PageContent,
-    ParsedDocument,
+from .remote_parser import (
+    RemoteDocumentParser,
+    parse_document_remote,
+    is_remote_parse_enabled,
+    save_chunked_report,
 )
 
-from .loader import DataLoader
-from .layout_recognizer import LayoutRecognizer
-from .cross_page_connector import CrossPageConnector
-from .document_parser import DocumentParser
+
+# ========== 兼容数据类 ==========
+class ParsedDocument:
+    """兼容旧版 ParsedDocument 的数据类"""
+
+    def __init__(self, file_path: str, sections: list, total_pages: int = 1):
+        self.file_name = os.path.basename(file_path)
+        file_ext = os.path.splitext(file_path)[1][1:] if '.' in file_path else 'txt'
+        self.file_type = 'pdf' if file_ext == 'pdf' else file_ext
+        self.total_pages = total_pages
+        self.cleaned_text = "\n".join([text for text, _ in sections]) if sections else ""
+        self._sections = sections
 
 
-def parse_document(file_path: str, enable_cleaning: bool = True, verbose: bool = False, **kwargs) -> ParsedDocument:
-    """快速解析文档"""
-    parser = DocumentParser()
-    return parser.parse(file_path, enable_cleaning=enable_cleaning, verbose=verbose, **kwargs)
+# ========== 兼容类：模拟旧的 DocumentParser 接口 ==========
+class DocumentParser:
+    """兼容类 - 模拟旧版 DocumentParser 接口，内部使用 RemoteDocumentParser"""
+
+    def __init__(self):
+        self._parser = RemoteDocumentParser()
+
+    def parse(self, file_path: str, from_page: int = 0, to_page: int = 100000,
+              enable_cleaning: bool = True, verbose: bool = False):
+        """
+        兼容 parse 方法，返回 ParsedDocument 对象
+
+        注意：enable_cleaning 和 verbose 参数被忽略（远程解析已包含清洗）
+        """
+        sections, tables, total_pages = self._parser.parse_document(file_path, from_page, to_page)
+        return ParsedDocument(file_path, sections, total_pages)
+
+    def parse_to_text(self, file_path: str, from_page: int = 0, to_page: int = 100000, **kwargs) -> str:
+        """兼容 parse_to_text 方法"""
+        sections, _, _ = self._parser.parse_document(file_path, from_page, to_page)
+        return "\n".join([text for text, _ in sections]) if sections else ""
 
 
-def parse_document_to_text(file_path: str, enable_cleaning: bool = True, verbose: bool = False, **kwargs) -> str:
-    """快速解析文档为纯文本"""
-    parser = DocumentParser()
-    return parser.parse_to_text(file_path, enable_cleaning=enable_cleaning, verbose=verbose, **kwargs)
-
-
-def clean_text(text: str, config: Optional[Dict] = None) -> str:
-    """快速清洗文本"""
-    cleaner = DataCleaner(config)
-    return cleaner.clean_text(text)
-
-
+# 导出兼容类
 __all__ = [
-    # 数据结构
-    'LayoutType',
-    'TextBlock',
-    'TableBlock',
-    'PageContent',
-    'ParsedDocument',
-
-    # 远程解析器
-    'RemotePDFParser',
-    'parse_document_remote',
-    'parse_pdf_remote',
-    'is_remote_parse_enabled',
-    'save_chunked_report',
-
     # 清洗器
     'DataCleaner',
     'HTMLCleaner',
     'TableCleaner',
     'NoiseFilter',
     'CleaningPipeline',
-
-    # 模块类
-    'DataLoader',
-    'LayoutRecognizer',
-    'CrossPageConnector',
+    'clean_document_content',
+    # 远程解析器
+    'RemoteDocumentParser',
+    'parse_document_remote',
+    'is_remote_parse_enabled',
+    'save_chunked_report',
+    # 兼容类
     'DocumentParser',
-
-    # 便捷函数
-    'parse_document',
-    'parse_document_to_text',
-    'clean_text',
+    'ParsedDocument',
 ]

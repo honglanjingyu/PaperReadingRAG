@@ -1,15 +1,11 @@
-"""
-Embedding模型基类
-定义统一的向量化接口
-"""
+"""Embedding 模型基类"""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union
-import numpy as np
+from typing import List, Optional
 
 
 class BaseEmbeddingModel(ABC):
-    """Embedding模型基类"""
+    """向量化模型基类"""
 
     @abstractmethod
     def generate_embedding(self, text: str) -> Optional[List[float]]:
@@ -24,11 +20,11 @@ class BaseEmbeddingModel(ABC):
     @property
     @abstractmethod
     def dimension(self) -> int:
-        """获取向量维度"""
+        """向量维度"""
         pass
 
     @property
     @abstractmethod
     def model_name(self) -> str:
-        """获取模型名称"""
+        """模型名称"""
         pass

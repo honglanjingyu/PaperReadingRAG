@@ -1,3 +1,4 @@
+# app/service/core/deepdoc/cleaner.py
 """
 数据清洗模块 - 统一的数据清洗处理
 用于文档解析后的文本清洗、规范化、过滤等操作
@@ -5,10 +6,13 @@
 
 import re
 import unicodedata
+import html
 from typing import List, Dict, Any, Optional
 from bs4 import BeautifulSoup
-import html
 
+# ============================================================
+# DataCleaner - 文本清洗器
+# ============================================================
 
 class DataCleaner:
     """数据清洗器 - 处理各种文档类型的文本清洗"""
@@ -200,7 +204,7 @@ class DataCleaner:
         清洗整个文档对象
 
         Args:
-            document: 文档字典，包含 content_with_weight, content_ltks 等字段
+            document: 文档字典，包含 content_with_weight 等字段
 
         Returns:
             清洗后的文档字典
@@ -209,12 +213,12 @@ class DataCleaner:
             document['content_with_weight_original'] = document['content_with_weight']
             document['content_with_weight'] = self.clean_text(document['content_with_weight'])
 
-        if 'content_ltks' in document:
-            # 重新生成分词（将在调用方处理）
-            document['content_ltks_original'] = document['content_ltks']
-
         return document
 
+
+# ============================================================
+# HTMLCleaner - HTML 清洗器
+# ============================================================
 
 class HTMLCleaner:
     """HTML 内容清洗器"""
@@ -253,6 +257,10 @@ class HTMLCleaner:
         """反转义 HTML 实体"""
         return html.unescape(text)
 
+
+# ============================================================
+# TableCleaner - 表格清洗器
+# ============================================================
 
 class TableCleaner:
     """表格数据清洗器"""
@@ -316,6 +324,10 @@ class TableCleaner:
         return "\n".join(lines)
 
 
+# ============================================================
+# NoiseFilter - 噪声过滤器
+# ============================================================
+
 class NoiseFilter:
     """噪声内容过滤器"""
 
@@ -373,3 +385,99 @@ class NoiseFilter:
             if not self.is_noise_line(content):
                 filtered.append(chunk)
         return filtered
+
+
+# ============================================================
+# CleaningPipeline - 清洗管道
+# ============================================================
+
+class CleaningPipeline:
+    """数据清洗管道"""
+
+    def __init__(self, config: Optional[Dict] = None):
+        config = config or {}
+        self.text_cleaner = DataCleaner(config)
+        self.html_cleaner = HTMLCleaner()
+        self.table_cleaner = TableCleaner()
+        self.noise_filter = NoiseFilter()
+
+    def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        处理单个文档
+
+        Args:
+            data: 文档数据字典
+
+        Returns:
+            处理后的文档
+        """
+        # 1. 清洗文本内容
+        if 'content_with_weight' in data:
+            content = data['content_with_weight']
+
+            # 如果是 HTML，先进行 HTML 清洗
+            if data.get('content_type') == 'html':
+                content = self.html_cleaner.clean_html(content)
+
+            # 普通文本清洗
+            content = self.text_cleaner.clean_text(content)
+            data['content_with_weight'] = content
+
+        # 2. 过滤噪声
+        if self.noise_filter.is_noise_line(data.get('content_with_weight', '')):
+            data['is_noise'] = True
+
+        # 3. 清洗表格数据
+        if 'table_data' in data:
+            data['table_data'] = self.table_cleaner.clean_table_data(data['table_data'])
+
+        return data
+
+    def process_batch(self, documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        批量处理文档
+
+        Args:
+            documents: 文档列表
+
+        Returns:
+            处理后的文档列表（自动过滤噪声）
+        """
+        processed = []
+        for doc in documents:
+            cleaned = self.process(doc)
+            if not cleaned.get('is_noise', False):
+                processed.append(cleaned)
+        return processed
+
+
+# ============================================================
+# 便捷函数
+# ============================================================
+
+def clean_document_content(content: str, content_type: str = 'text') -> str:
+    """
+    快速清洗文档内容
+
+    Args:
+        content: 原始内容
+        content_type: 内容类型 ('text', 'html', 'markdown')
+
+    Returns:
+        清洗后的内容
+    """
+    if content_type == 'html':
+        content = HTMLCleaner.clean_html(content)
+
+    cleaner = DataCleaner()
+    return cleaner.clean_text(content)
+
+
+__all__ = [
+    'DataCleaner',
+    'HTMLCleaner',
+    'TableCleaner',
+    'NoiseFilter',
+    'CleaningPipeline',
+    'clean_document_content',
+]

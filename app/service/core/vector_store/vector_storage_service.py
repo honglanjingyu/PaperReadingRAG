@@ -100,7 +100,7 @@ class VectorStorageService:
             documents.append(doc)
 
         # ========== 初始化 ES 检索器 ==========
-        from app.service.core.retrieval.es_bm25_retriever import get_es_bm25_retriever
+        from app.service.core.retrieval import get_es_bm25_retriever
         if self.es_retriever is None:
             self.es_retriever = get_es_bm25_retriever()
             logger.info("ES BM25 检索器已初始化")
@@ -143,6 +143,8 @@ class VectorStorageService:
                         es_doc["parent_id"] = doc.get("parent_id")
                     if doc.get("parent_content"):
                         es_doc["parent_content"] = doc.get("parent_content")
+                    if doc.get("chunk_type"):
+                        es_doc["chunk_type"] = doc.get("chunk_type")
                     es_documents.append(es_doc)
 
                 # 存储到 ES

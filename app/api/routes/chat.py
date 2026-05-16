@@ -641,6 +641,13 @@ async def graph_rag_ask_stream(
                         "type": "reasoning_path",
                         "content": result["reasoning_path"]
                     }) + "\n"
+                else:
+                    # 添加提示：图谱数据为空
+                    yield json.dumps({
+                        "type": "info",
+                        "content": "⚠️ 知识图谱数据为空，当前使用 Advanced RAG 模式。请先上传文档并构建知识图谱。",
+                        "fallback": True
+                    }) + "\n"
 
                 # 发送检索结果
                 if result.get("results"):

@@ -1,4 +1,4 @@
-# app/api/main.py
+# app/api/main.py (更新路由导入)
 """
 FastAPI应用创建
 """
@@ -11,13 +11,12 @@ from pathlib import Path
 import logging
 from contextlib import asynccontextmanager
 
-from app.api.routes import health, upload, chat, upload_batch
-from app.api.routes.delete import router as delete_router  # 单个删除
-from app.api.routes.delete_batch import router as delete_batch_router  # 批量删除
+from app.api.routes import health, chat
+from app.api.routes.upload import router as upload_router
+from app.api.routes.delete import router as delete_router
+from app.api.routes.graph_rag import router as graph_rag_router
 from app.api.config import settings
 from app.api.auth_routes import router as auth_router
-from app.api.routes.graph_rag import router as graph_rag_router
-
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +24,14 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    # 启动时
     logger.info("应用启动中...")
 
-    # 初始化异步处理器
     from app.service.core.rag.async_processor import init_async_processor, shutdown_async_processor
     await init_async_processor()
     logger.info("异步文档处理器已启动")
 
     yield
 
-    # 关闭时
     logger.info("应用关闭中...")
     await shutdown_async_processor()
     logger.info("异步文档处理器已关闭")
@@ -60,13 +56,11 @@ def create_app() -> FastAPI:
 
     # 注册路由
     app.include_router(health.router, prefix="/api", tags=["健康检查"])
-    app.include_router(upload.router, prefix="/api", tags=["文档上传"])
-    app.include_router(delete_router, prefix="/api", tags=["文档删除"])  # 单个删除
-    app.include_router(delete_batch_router, prefix="/api", tags=["文档批量删除"])  # 批量删除
+    app.include_router(upload_router, prefix="/api", tags=["文档上传"])
+    app.include_router(delete_router, prefix="/api", tags=["文档删除"])
     app.include_router(chat.router, prefix="/api", tags=["智能问答"])
-    app.include_router(upload_batch.router, prefix="/api", tags=["批量上传"])
     app.include_router(auth_router)
-    app.include_router(graph_rag_router, prefix="/api", tags=["GraphRAG"])
+    app.include_router(graph_rag_router, prefix="/api", tags=["GraphRAG管理"])
 
     logger.info("FastAPI 应用创建完成")
     return app

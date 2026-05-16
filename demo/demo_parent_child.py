@@ -31,7 +31,7 @@ def demo_parent_child_chunking_with_pdf(pdf_path: str = None):
     print("=" * 70)
 
     from app.service.core.deepdoc import DocumentParser
-    from app.service.core.chunking import ParentChildChunker
+    from app.service.core.chunking import ParentChildSplitter
 
     # 使用提供的 PDF 路径
     if pdf_path is None:
@@ -66,7 +66,7 @@ def demo_parent_child_chunking_with_pdf(pdf_path: str = None):
 
     # 2. 父子分块
     print("\n步骤2: 父子分块...")
-    chunker = ParentChildChunker(
+    chunker = ParentChildSplitter(
         parent_chunk_size=500,  # 父块大小（tokens）
         child_chunk_size=150,  # 子块大小（tokens）
         parent_overlap=50,
@@ -74,7 +74,7 @@ def demo_parent_child_chunking_with_pdf(pdf_path: str = None):
         min_child_size=30
     )
 
-    doc = chunker.chunk_document(
+    doc = chunker.split_document(
         text=parsed.cleaned_text,
         metadata={
             'source': parsed.file_name,
@@ -119,7 +119,7 @@ def demo_process_and_store(pdf_path: str = None):
     print("测试2: 完整处理流程（解析 -> 分块 -> 向量化 -> 存储）")
     print("=" * 70)
 
-    from app.service.core.rag.processor import process_document_parent_child
+    from app.service.core.rag import process_document_parent_child
     from app.service.core.vector_store import get_vector_store
 
     # 使用提供的 PDF 路径
@@ -178,7 +178,7 @@ def demo_parent_child_retrieval():
     print("测试3: 父子查询功能")
     print("=" * 70)
 
-    from app.service.core.retrieval.parent_child_retriever import get_parent_child_retriever
+    from app.service.core.retrieval import get_parent_child_retriever
     from app.service.core.vector_store import get_vector_store
 
     index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
@@ -270,7 +270,7 @@ def demo_compare_without_storage(pdf_path: str = None):
     print("=" * 70)
 
     from app.service.core.deepdoc import DocumentParser
-    from app.service.core.chunking import ParentChildChunker, chunk_text_simple
+    from app.service.core.chunking import ParentChildSplitter, chunk_text_simple
 
     # 使用提供的 PDF 路径
     if pdf_path is None:
@@ -309,13 +309,13 @@ def demo_compare_without_storage(pdf_path: str = None):
 
     # 父子分块
     print("\n【父子分块】")
-    chunker = ParentChildChunker(
+    chunker = ParentChildSplitter(
         parent_chunk_size=500,
         child_chunk_size=150,
         parent_overlap=50,
         child_overlap=20
     )
-    doc = chunker.chunk_document(text, document_name=parsed.file_name)
+    doc = chunker.split_document(text, document_name=parsed.file_name)
 
     print(f"  父块数量: {len(doc.parent_chunks)}")
     print(f"  子块数量: {len(doc.all_children)}")

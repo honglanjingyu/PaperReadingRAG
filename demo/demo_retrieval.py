@@ -1,5 +1,5 @@
 # check_es_docs.py
-from app.service.core.retrieval.es_bm25_retriever import get_es_bm25_retriever
+from app.service.core.retrieval import get_es_bm25_retriever
 
 es = get_es_bm25_retriever()
 index_name = "rag_documents"

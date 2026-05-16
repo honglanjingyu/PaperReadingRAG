@@ -1,18 +1,22 @@
-# app/service/core/embedding/__init__.py
-"""Embedding 向量化模块"""
+"""
+Embedding 向量化模块
 
-from .base_embedding import BaseEmbeddingModel
-from .remote_embedding import RemoteEmbeddingModel
-from .local_embedding import LocalEmbeddingModel
-from .cached_embedding import CachedEmbeddingModel
-from .embedding_service import (
-    EmbeddingService, get_embedding_service,
-    VectorChunk, generate_embedding, generate_embeddings,
-    vectorize_chunks, get_vector_field_name
+提供统一的向量生成接口，支持远程 API 和本地模型，带有 Redis 缓存。
+"""
+
+from .base import BaseEmbeddingModel
+from .remote import RemoteEmbeddingModel
+from .local import LocalEmbeddingModel
+from .cached import CachedEmbeddingModel
+from .service import (
+    EmbeddingService,
+    get_embedding_service,
+    generate_embedding,
+    generate_embeddings,
+    get_vector_field_name,
+    vectorize_chunks,
+    VectorChunk,
 )
-
-# 添加向后兼容别名
-VectorizationService = EmbeddingService
 
 __all__ = [
     'BaseEmbeddingModel',
@@ -20,11 +24,10 @@ __all__ = [
     'LocalEmbeddingModel',
     'CachedEmbeddingModel',
     'EmbeddingService',
-    'VectorizationService',  # 向后兼容
     'get_embedding_service',
-    'VectorChunk',
     'generate_embedding',
     'generate_embeddings',
-    'vectorize_chunks',
     'get_vector_field_name',
+    'vectorize_chunks',
+    'VectorChunk',
 ]

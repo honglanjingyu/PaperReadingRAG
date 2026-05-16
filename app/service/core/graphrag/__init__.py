@@ -1,22 +1,28 @@
 # app/service/core/graphrag/__init__.py
-"""
-GraphRAG 模块 - 基于知识图谱的 RAG 增强
-"""
+"""GraphRAG 模块 - 知识图谱增强 RAG"""
 
-from .entity_extractor import EntityExtractor
-from .community_detection import CommunityDetector
-from .hierarchical_summarizer import HierarchicalSummarizer
-from .graph_retriever import GraphRetriever
-from .graph_rag_service import GraphRAGService, get_graph_rag_service
-from .graph_cache import GraphCache, get_graph_cache
+from .service import GraphRAGService, get_graph_rag_service
+from .neo4j_store import get_neo4j_store, StoredEntity, StoredRelation
+from .core import EntityExtractor, Entity, Relation
+from .community import CommunityDetector, Community
+from .retriever import GraphRetriever, GraphCache, get_graph_cache
 
+# 保持向后兼容
 __all__ = [
-    'EntityExtractor',
-    'CommunityDetector',
-    'HierarchicalSummarizer',
-    'GraphRetriever',
+    # 主服务
     'GraphRAGService',
     'get_graph_rag_service',
+    # 存储
+    'get_neo4j_store',
+    'StoredEntity',
+    'StoredRelation',
+    # 核心组件
+    'EntityExtractor',
+    'Entity',
+    'Relation',
+    'CommunityDetector',
+    'Community',
+    'GraphRetriever',
     'GraphCache',
-    'get_graph_cache'
+    'get_graph_cache',
 ]
