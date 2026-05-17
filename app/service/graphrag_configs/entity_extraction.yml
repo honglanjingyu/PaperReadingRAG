@@ -12,6 +12,8 @@ entity_extraction_patterns:
   - r'([\u4e00-\u9fff]{2,})基金'
   - r'([\u4e00-\u9fff]{2,})证券'
   - r'([\u4e00-\u9fff]{2,})保险'
+  - r'([\u4e00-\u9fff]{2,})科技'
+  - r'([\u4e00-\u9fff]{2,})技术'
 
   # 技术相关
   - r'([\u4e00-\u9fff]{2,})技术'
@@ -21,27 +23,35 @@ entity_extraction_patterns:
   - r'([\u4e00-\u9fff]{2,})平台'
   - r'([\u4e00-\u9fff]{2,})系统'
   - r'([\u4e00-\u9fff]{2,})工具'
-  - r'([\u4e00-\u9fff]{2,})服务'
-  - r'([\u4e00-\u9fff]{2,})引擎'
 
   # 产品相关
   - r'([\u4e00-\u9fff]{2,})产品'
   - r'([\u4e00-\u9fff]{2,})项目'
   - r'([\u4e00-\u9fff]{2,})方案'
   - r'([\u4e00-\u9fff]{2,})解决方案'
+  - r'([\u4e00-\u9fff]{2,})电池'
+  - r'([\u4e00-\u9fff]{2,})芯片'
 
-  # 英文技术名词（大写开头）
-  - r'([A-Z][a-z]+)技术'
-  - r'([A-Z][a-z]+)算法'
-  - r'([A-Z][a-z]+)模型'
-  - r'([A-Z][a-z]+)框架'
-  - r'([A-Z][a-z]+)引擎'
+  # 行业术语
+  - r'([\u4e00-\u9fff]{2,})行业'
+  - r'([\u4e00-\u9fff]{2,})领域'
+  - r'([\u4e00-\u9fff]{2,})赛道'
 
-  # 英文缩写（3-5个大写字母）
-  - r'([A-Z]{3,5})'
+  # 融资相关
+  - r'([\u4e00-\u9fff]{2,})融资'
+  - r'([\u4e00-\u9fff]{2,})轮'
+  - r'([\u4e00-\u9fff]{2,})投资'
 
-  # 中文名词（3-10个字符的连续中文）
-  - r'([\u4e00-\u9fff]{3,10})'
+  # 财务指标
+  - r'([\u4e00-\u9fff]{2,})营收'
+  - r'([\u4e00-\u9fff]{2,})利润'
+  - r'([\u4e00-\u9fff]{2,})收入'
+  - r'([\u4e00-\u9fff]{2,})净利润'
+
+  # 时间相关
+  - r'(\d{4})年'
+  - r'(\d{4})年Q\d'
+  - r'(\d{4})年第一季度'
 
 # 实体长度限制
 min_entity_length: 2
@@ -55,3 +65,9 @@ enable_new_entity_extraction: true
 
 # 最大提取实体数量
 max_extracted_entities: 20
+
+# 别名匹配策略
+alias_matching_strategy: hybrid
+
+# 是否忽略大小写
+case_insensitive: true

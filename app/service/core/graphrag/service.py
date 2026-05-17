@@ -1,5 +1,5 @@
 # app/service/core/graphrag/service.py
-"""GraphRAG 主服务 - 使用指定提示词格式"""
+"""GraphRAG 主服务 - 使用 YAML 配置"""
 
 import os
 import hashlib
@@ -11,6 +11,9 @@ from .core import EntityExtractor
 from .community import CommunityDetector
 from .retriever import GraphRetriever, GraphCache
 from .neo4j_store import get_neo4j_store, StoredEntity, StoredRelation
+
+# 导入配置管理器
+from app.service.graphrag_configs import get_graphrag_config
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +48,7 @@ class HierarchicalSummarizer:
 
 
 class GraphRAGService:
-    """GraphRAG 主服务"""
+    """GraphRAG 主服务 - 使用 YAML 配置"""
 
     _instance = None
 
@@ -65,18 +68,27 @@ class GraphRAGService:
             logger.info("GraphRAG 已禁用")
             return
 
+        # 加载配置
+        self.config = get_graphrag_config()
+
         from app.service.core.llm import get_llm_service
         self.llm_service = get_llm_service()
         self.neo4j = get_neo4j_store()
         self.cache = GraphCache()
         self.neo4j.init_constraints()
 
+        # 从配置获取参数
+        use_llm = os.getenv("ENTITY_EXTRACT_USE_LLM", "true").lower() == "true"
+        min_frequency = self.config.get_min_entity_length()  # 复用为最小频率
+        max_entities = self.config.get_max_entities_per_doc()
+
         self.entity_extractor = EntityExtractor(
-            use_llm=os.getenv("ENTITY_EXTRACT_USE_LLM", "true").lower() == "true",
+            use_llm=use_llm,
             llm_service=self.llm_service,
             min_frequency=int(os.getenv("ENTITY_MIN_FREQUENCY", "1")),
-            max_entities=int(os.getenv("GRAPH_MAX_ENTITIES", "100"))
+            max_entities=max_entities
         )
+
         self.community_detector = CommunityDetector(
             min_community_size=int(os.getenv("COMMUNITY_MIN_SIZE", "2")),
             resolution=float(os.getenv("COMMUNITY_RESOLUTION", "1.0"))
@@ -84,7 +96,12 @@ class GraphRAGService:
         self.summarizer = HierarchicalSummarizer(self.llm_service)
         self.retriever = GraphRetriever(neo4j_store=self.neo4j)
 
-        logger.info("GraphRAGService 初始化完成")
+        # 获取关系类型定义（用于可视化）
+        self.relation_types = self.config.get_relation_types()
+        self.entity_types = self.config.get_entity_types()
+
+        logger.info(f"GraphRAGService 初始化完成: 实体类型={len(self.entity_types)}, "
+                    f"关系类型={len(self.relation_types)}")
 
     def _get_documents_version(self, user_level: str = None) -> str:
         from app.service.core.vector_store import get_vector_store
@@ -173,6 +190,8 @@ class GraphRAGService:
             "relations": [r.to_dict() for r in all_relations[:50]],
             "communities": [{"id": c.id, "size": c.size, "keywords": c.keywords, "summary": c.summary}
                             for c in communities.values()],
+            "entity_types": self.entity_types,  # 添加实体类型定义
+            "relation_types": self.relation_types,  # 添加关系类型定义
             "_cached_at": datetime.now().isoformat()
         }
 
@@ -343,7 +362,17 @@ class GraphRAGService:
         }
 
     def get_statistics(self) -> Dict[str, Any]:
-        return self.neo4j.get_statistics() if self.enabled else {"enabled": False}
+        """获取统计信息，包含配置信息"""
+        stats = self.neo4j.get_statistics() if self.enabled else {"enabled": False}
+        if self.enabled:
+            stats["config"] = {
+                "entity_types_count": len(self.entity_types),
+                "relation_types_count": len(self.relation_types),
+                "entity_extraction_patterns": len(self.config.get_entity_extraction_patterns()),
+                "query_replacements_count": len(self.config.get_query_replacements()),
+                "alias_count": len(self.config.get_entity_aliases())
+            }
+        return stats
 
     def close(self):
         self.neo4j.close()

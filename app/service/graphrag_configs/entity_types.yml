@@ -1,0 +1,75 @@
+# app/service/graphrag_configs/entity_types.yml
+# 实体类型定义 - 用于知识图谱可视化和类型识别
+
+entity_types:
+  COMPANY:
+    name: "公司"
+    description: "企业、上市公司、集团等商业实体"
+    priority: 1
+    color: "#667eea"
+    icon: "building"
+    search_weight: 1.0
+
+  PERSON:
+    name: "人物"
+    description: "创始人、高管、核心团队成员等"
+    priority: 2
+    color: "#f59e0b"
+    icon: "user"
+    search_weight: 0.9
+
+  PRODUCT:
+    name: "产品"
+    description: "公司提供的产品、服务、解决方案"
+    priority: 3
+    color: "#10b981"
+    icon: "box"
+    search_weight: 0.8
+
+  TECHNOLOGY:
+    name: "技术"
+    description: "核心技术、专利、研发成果"
+    priority: 4
+    color: "#3b82f6"
+    icon: "microchip"
+    search_weight: 0.7
+
+  SECTOR:
+    name: "行业"
+    description: "所属行业、细分领域"
+    priority: 5
+    color: "#8b5cf6"
+    icon: "chart-line"
+    search_weight: 0.6
+
+  FINANCING_EVENT:
+    name: "融资事件"
+    description: "融资轮次、金额、投资方"
+    priority: 6
+    color: "#ec4899"
+    icon: "coins"
+    search_weight: 0.7
+
+  FINANCIAL_METRIC:
+    name: "财务指标"
+    description: "营收、利润、增长率等"
+    priority: 7
+    color: "#f97316"
+    icon: "dollar-sign"
+    search_weight: 0.6
+
+  LOCATION:
+    name: "地点"
+    description: "总部所在地、业务区域"
+    priority: 8
+    color: "#14b8a6"
+    icon: "map-marker"
+    search_weight: 0.4
+
+  DATE:
+    name: "日期"
+    description: "成立日期、上市日期、报告期"
+    priority: 9
+    color: "#a855f7"
+    icon: "calendar"
+    search_weight: 0.3

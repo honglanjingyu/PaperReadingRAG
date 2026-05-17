@@ -1,0 +1,80 @@
+# app/service/graphrag_configs/query_replacements.yaml
+# 查询替换规则 - 替换问题中的别名/口语化表达
+
+query_replacements:
+  # ========== 公司查询替换 ==========
+  - alias: "阿里"
+    replacement: "阿里巴巴集团"
+
+  - alias: "腾讯"
+    replacement: "腾讯控股有限公司"
+
+  - alias: "百度"
+    replacement: "百度集团股份有限公司"
+
+  - alias: "字节"
+    replacement: "字节跳动有限公司"
+
+  - alias: "美团"
+    replacement: "美团"
+
+  - alias: "小米"
+    replacement: "小米集团"
+
+  # ========== 行业研究通用替换 ==========
+  - alias: "怎么样"
+    replacement: "的发展情况如何"
+
+  - alias: "如何"
+    replacement: "怎么样"
+
+  - alias: "谁家"
+    replacement: "哪个公司的"
+
+  - alias: "干嘛的"
+    replacement: "做什么业务的"
+
+  - alias: "主营业务是什么"
+    replacement: "主要业务是什么"
+
+  - alias: "赚了多少钱"
+    replacement: "营业收入是多少"
+
+  - alias: "盈利情况"
+    replacement: "利润情况"
+
+  - alias: "老板是谁"
+    replacement: "创始人是谁"
+
+  - alias: "老大"
+    replacement: "CEO"
+
+  - alias: "技术实力"
+    replacement: "技术优势"
+
+  - alias: "竞争对手有哪些"
+    replacement: "主要竞争对手"
+
+  - alias: "值多少钱"
+    replacement: "估值是多少"
+
+  - alias: "融资了多少"
+    replacement: "融资金额"
+
+  - alias: "谁投的"
+    replacement: "投资方"
+
+  - alias: "员工多少"
+    replacement: "员工数量"
+
+  - alias: "成立多久了"
+    replacement: "成立时间"
+
+  - alias: "总部在哪"
+    replacement: "总部地点"
+
+# 是否启用查询替换
+enable_query_replacement: true
+
+# 按长度排序（长别名优先匹配）
+sort_by_length: true

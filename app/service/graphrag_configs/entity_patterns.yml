@@ -1,0 +1,79 @@
+# app/service/graphrag_configs/entity_patterns.yaml
+# 实体类型模式配置 - 用于从文本中提取命名实体
+
+entity_patterns:
+  # 组织机构/公司
+  ORGANIZATION:
+    description: "公司/组织机构"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:公司|集团|有限|股份|银行|基金|证券|保险|投资|资本|科技|技术)"
+      - "([\\u4e00-\\u9fff]{2,})(?:研究院|实验室|中心|大学|学院)"
+      - "([A-Z][a-z]+(?:Inc|Corp|Ltd|Company|Group|Holdings|Capital))"
+      - "([A-Z]{2,}(?:\\s+[A-Z]{2,})*)"
+
+  # 人物
+  PERSON:
+    description: "人物"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,4})(?:先生|女士|博士|教授|经理|CEO|总裁|董事长|总经理|创始人|联合创始人)"
+      - "([A-Z][a-z]+\\s+[A-Z][a-z]+)"
+      - "([\\u4e00-\\u9fff]{2,4})(?:总|董|监)"
+
+  # 产品
+  PRODUCT:
+    description: "产品/服务"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:电池|芯片|系统|平台|软件|硬件|设备|终端|应用|产品|解决方案|服务)"
+      - "([A-Z][a-z0-9]+(?:[\\s-][A-Za-z0-9]+)*(?:Pro|Plus|Max|Ultra|Lite))"
+
+  # 技术概念
+  TECHNOLOGY:
+    description: "技术/概念"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:技术|算法|模型|框架|架构|方案|引擎|工具)"
+      - "([A-Z]{2,}(?:[\\s-][A-Z0-9]+)*)"
+
+  # 行业领域
+  SECTOR:
+    description: "行业/领域"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:行业|产业|领域|赛道|板块)"
+
+  # 地点
+  LOCATION:
+    description: "地点"
+    patterns:
+      - "([\\u4e00-\\u9fff]{2,})(?:市|省|区|县|国|州|园区|开发区|新区)"
+      - "([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)*(?:City|State|Province))"
+
+  # 财务指标
+  FINANCIAL_METRIC:
+    description: "财务指标"
+    patterns:
+      - "(\\d+(?:\\.\\d+)?)亿元"
+      - "(\\d+(?:\\.\\d+)?)万元"
+      - "(\\d+(?:\\.\\d+)?)%"
+      - "(\\d+(?:\\.\\d+)?)倍"
+      - "(\\d+(?:\\.\\d+)?)元"
+
+  # 日期
+  DATE:
+    description: "日期"
+    patterns:
+      - "(\\d{4})年"
+      - "(\\d{4}-\\d{1,2}-\\d{1,2})"
+      - "(\\d{4}年\\d{1,2}月)"
+
+# 实体类型优先级
+type_priority:
+  - "ORGANIZATION"
+  - "PERSON"
+  - "PRODUCT"
+  - "TECHNOLOGY"
+  - "SECTOR"
+  - "FINANCIAL_METRIC"
+  - "LOCATION"
+  - "DATE"
+
+# 最大实体数量
+max_entities: 100

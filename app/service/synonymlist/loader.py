@@ -60,8 +60,8 @@ class SynonymLoader:
             logger.warning(f"同义词目录不存在: {self.synonym_dir}")
             return {}
 
-        # 加载所有 yaml/yml 文件
-        yaml_files = list(self.synonym_dir.glob("*.yaml")) + list(self.synonym_dir.glob("*.yml"))
+        # 加载所有 yml 文件
+        yaml_files = list(self.synonym_dir.glob("*.yml"))
 
         for yaml_file in yaml_files:
             if yaml_file.name == "__init__.py":

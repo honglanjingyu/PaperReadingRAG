@@ -1,0 +1,96 @@
+# app/service/graphrag_configs/relation_patterns.yaml
+# 关系模式配置 - 用于提取实体之间的关系
+
+relation_patterns:
+  # 公司-人物关系
+  - pattern: "(.+?)董事长(?:是|为)(.+)"
+    relation_type: "CHAIRMAN_OF"
+    description: "董事长关系"
+
+  - pattern: "(.+?)CEO(?:是|为)(.+)"
+    relation_type: "CEO_OF"
+    description: "CEO关系"
+
+  - pattern: "(.+?)总经理(?:是|为)(.+)"
+    relation_type: "CEO_OF"
+    description: "总经理关系"
+
+  - pattern: "(.+?)(?:由|被)(.+?)(?:创办|创立|创建)"
+    relation_type: "FOUNDED_BY"
+    description: "创办关系"
+
+  - pattern: "(.+?)创始人(?:是|为)(.+)"
+    relation_type: "FOUNDED_BY"
+    description: "创始人关系"
+
+  # 公司-产品关系
+  - pattern: "(.+?)(?:推出|发布|研发|开发|生产)(.+?)(?:产品|系统|平台|电池|芯片)"
+    relation_type: "PRODUCES"
+    description: "生产/提供关系"
+
+  - pattern: "(.+?)(?:的核心产品是)(.+)"
+    relation_type: "PRODUCES"
+    description: "核心产品关系"
+
+  # 公司-公司竞争关系
+  - pattern: "(.+?)(?:与|和)(.+?)(?:竞争|是竞争对手)"
+    relation_type: "COMPETES_WITH"
+    description: "竞争关系"
+
+  - pattern: "(.+?)(?:的主要竞争对手是)(.+)"
+    relation_type: "COMPETES_WITH"
+    description: "主要竞争对手"
+
+  # 公司-公司合作关系
+  - pattern: "(.+?)(?:与|和)(.+?)(?:合作|战略合作|达成合作)"
+    relation_type: "COOPERATES_WITH"
+    description: "合作关系"
+
+  # 公司-公司供应关系
+  - pattern: "(.+?)(?:客户包括|供应给|供货给)(.+)"
+    relation_type: "SUPPLIES_TO"
+    description: "供应关系"
+
+  # 收购关系
+  - pattern: "(.+?)(?:收购|并购|买下)(.+)"
+    relation_type: "ACQUIRED"
+    description: "收购关系"
+
+  # 投资关系
+  - pattern: "(.+?)(?:投资|入股|参投)(.+)"
+    relation_type: "INVESTED_IN"
+    description: "投资关系"
+
+  # 公司-地点关系
+  - pattern: "(.+?)(?:位于|坐落于|地处|总部在)(.+)"
+    relation_type: "LOCATED_IN"
+    description: "位于关系"
+
+  # 公司-行业关系
+  - pattern: "(.+?)(?:属于|隶属于|是)(.+?)(?:行业|领域)"
+    relation_type: "BELONGS_TO"
+    description: "行业归属"
+
+  # 技术-技术关系
+  - pattern: "(.+?)(?:基于|采用|使用)(.+?)(?:技术|算法|模型)"
+    relation_type: "USES_TECHNOLOGY"
+    description: "技术使用关系"
+
+# 关系方向配置
+relation_direction:
+  CHAIRMAN_OF: "directed"
+  CEO_OF: "directed"
+  FOUNDED_BY: "directed"
+  PRODUCES: "directed"
+  COMPETES_WITH: "undirected"
+  COOPERATES_WITH: "undirected"
+  SUPPLIES_TO: "directed"
+  ACQUIRED: "directed"
+  INVESTED_IN: "directed"
+  LOCATED_IN: "directed"
+  BELONGS_TO: "directed"
+  USES_TECHNOLOGY: "directed"
+
+# 关系权重配置
+default_relation_weight: 1.0
+max_relation_weight: 5.0
