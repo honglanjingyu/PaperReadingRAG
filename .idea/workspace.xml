@@ -1,19 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="缓存全部采用Redis,fix: 缓存重复命中">
-      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
+    <list default="true" id="e3d43a55-8c00-4ca8-a963-f5f52a2322fd" name="更改" comment="架构梳理">
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/graphrag/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/graphrag/core.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/graphrag/retriever.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/graphrag/retriever.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/core/graphrag/service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/core/graphrag/service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/graphrag_configs/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/graphrag_configs/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/graphrag_configs/entity_aliases.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/graphrag_configs/entity_extraction.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/graphrag_configs/entity_patterns.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/graphrag_configs/query_replacements.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/graphrag_configs/relation_patterns.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/service/synonymlist/loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/service/synonymlist/loader.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -560,7 +549,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778839146600</updated>
     </task>
-    <option name="localTasksCounter" value="42" />
+    <task id="LOCAL-00042" summary="架构梳理">
+      <option name="closed" value="true" />
+      <created>1779505401468</created>
+      <option name="number" value="00042" />
+      <option name="presentableId" value="LOCAL-00042" />
+      <option name="project" value="LOCAL" />
+      <updated>1779505401468</updated>
+    </task>
+    <option name="localTasksCounter" value="43" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -578,7 +575,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="重构架构" />
     <MESSAGE value="可以使用milvus" />
     <MESSAGE value="使用Mineru解析PDF" />
     <MESSAGE value="Embedding,Rerank,LLM可各自配置" />
@@ -603,7 +599,8 @@
     <MESSAGE value="递归分块-&gt;父子分块+查询" />
     <MESSAGE value="Louvain-&gt;Leiden" />
     <MESSAGE value="缓存全部采用Redis,fix: 缓存重复命中" />
-    <option name="LAST_COMMIT_MESSAGE" value="缓存全部采用Redis,fix: 缓存重复命中" />
+    <MESSAGE value="架构梳理" />
+    <option name="LAST_COMMIT_MESSAGE" value="架构梳理" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/PaperReadingRAG$demo_embedding.coverage" NAME="demo_embedding 覆盖结果" MODIFIED="1778720707227" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/demo" />

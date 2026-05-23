@@ -25,7 +25,7 @@ PaperReadingRAG 是一个生产级的 RAG（Retrieval-Augmented Generation）文
 
 ### 整体架构图
 
-![](img/image_177892131912012.png)
+![](img/架构图.jpeg)
 
 ### 文档处理流程
 
