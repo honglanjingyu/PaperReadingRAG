@@ -1,13 +1,13 @@
-// app/web/js/upload.js - 修改版
-// 上传页面主入口
+// app/web/js/upload.js
+// 上传页面主入口 - 支持多模态和批量上传
 
 import { elements, initElements, state } from './upload/config.js';
-import { showToast, isLoggedIn, verifyToken, logout } from './upload/utils.js';
+import { showToast, isLoggedIn, verifyToken, logout, getMediaType, getProcessingMessage } from './upload/utils.js';
 import { uploadFile } from './upload/upload-service.js';
 import { loadFileList } from './upload/file-list.js';
 import { batchDeleteDocuments, updateBatchDeleteButton } from './upload/delete.js';
 import { getUserRole } from './upload/api.js';
-import { initBatchUploadElements, addFilesToPending, resetBatchUpload, isUploadingFiles } from './upload/batch-upload.js';
+import { initBatchUploadElements, addFilesToPending, resetBatchUpload, isUploadingFiles, getPendingFilesCount } from './upload/batch-upload.js';
 
 // 显示当前用户名
 function displayCurrentUser() {
@@ -54,7 +54,7 @@ async function displayUserRole() {
     }
 }
 
-// ========== 修改：支持批量文件选择 ==========
+// 初始化上传事件监听
 function initUploadEventListeners() {
     if (!elements.uploadArea || !elements.fileInput) {
         console.error('上传区域或文件输入元素未找到');
@@ -106,14 +106,11 @@ function initUploadEventListeners() {
         if (e.target.files && e.target.files.length > 0) {
             const files = Array.from(e.target.files);
             if (files.length === 1) {
-                // 单个文件使用原有逻辑
                 uploadFile(files[0]);
             } else {
-                // 多个文件使用批量上传
                 addFilesToPending(files);
             }
         }
-        // 清空 input 以便再次选择相同文件
         elements.fileInput.value = '';
     });
 
@@ -170,6 +167,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 加载文件列表
     await loadFileList();
 
-    // 重置批量上传状态（页面刷新时）
+    // 重置批量上传状态
     resetBatchUpload();
 });

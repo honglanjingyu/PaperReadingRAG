@@ -106,14 +106,20 @@ def _get_document_level_sync(filename: str, index_name: str) -> str:
 
 
 def _delete_from_local_storage(filename: str) -> bool:
-    """删除本地存储的文件"""
+    """删除本地存储的文件（包括提取的临时文本文件）"""
     try:
         file_path = UPLOAD_DIR / filename
         if file_path.exists():
             file_path.unlink()
             logger.info(f"本地文件已删除: {filename}")
-            return True
-        return False
+
+        # 删除对应的提取文字临时文件
+        temp_text_path = UPLOAD_DIR / f"{filename}.extracted.txt"
+        if temp_text_path.exists():
+            temp_text_path.unlink()
+            logger.info(f"临时文本文件已删除: {filename}.extracted.txt")
+
+        return True
     except Exception as e:
         logger.error(f"本地文件删除失败: {e}")
         return False
@@ -270,13 +276,18 @@ def _delete_from_redis_and_memory(filename: str) -> int:
 
 
 def _invalidate_cache(filename: str) -> bool:
-    """使文档相关缓存失效"""
+    """使文档相关缓存失效（包括多模态缓存）"""
     try:
         doc_cache = get_document_cache()
         doc_cache.delete_document_level(filename)
 
         search_cache = CachedSearchService()
         search_cache.invalidate_cache(pattern=f"*{filename}*")
+
+        # 清理多模态缓存
+        from app.service.core.cache import get_cache_manager
+        cache = get_cache_manager()
+        cache.delete("multimodal", filename)
 
         return True
     except Exception as e:
@@ -287,7 +298,7 @@ def _invalidate_cache(filename: str) -> bool:
 # ========== 批量删除辅助函数 ==========
 
 def _batch_delete_from_local_storage(filenames: List[str]) -> Dict[str, bool]:
-    """批量删除本地文件"""
+    """批量删除本地文件（包括临时文件）"""
     results = {}
     for filename in filenames:
         try:
@@ -299,6 +310,12 @@ def _batch_delete_from_local_storage(filenames: List[str]) -> Dict[str, bool]:
             else:
                 results[filename] = False
                 logger.warning(f"本地文件不存在: {filename}")
+
+            # 删除临时文件
+            temp_text_path = UPLOAD_DIR / f"{filename}.extracted.txt"
+            if temp_text_path.exists():
+                temp_text_path.unlink()
+
         except Exception as e:
             logger.error(f"本地文件删除失败 {filename}: {e}")
             results[filename] = False

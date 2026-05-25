@@ -1,7 +1,4 @@
 # app/api/config.py
-"""
-API配置模块
-"""
 
 import os
 from pathlib import Path
@@ -15,18 +12,70 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 WEB_DIR = Path(__file__).parent.parent / "web"
 WEB_DIR.mkdir(parents=True, exist_ok=True)
 
-# 支持的文件类型
-SUPPORTED_EXTENSIONS = {
+# ========== 扩展支持的文件类型 ==========
+# 原有文档类型
+DOCUMENT_EXTENSIONS = {
     '.pdf': 'pdf',
     '.docx': 'docx',
     '.txt': 'text',
     '.md': 'text',
-    '.markdown': 'text'
+    '.markdown': 'text',
+}
+
+# 新增图片类型
+IMAGE_EXTENSIONS = {
+    '.jpg': 'image',
+    '.jpeg': 'image',
+    '.png': 'image',
+    '.gif': 'image',
+    '.bmp': 'image',
+    '.webp': 'image',
+    '.tiff': 'image',
+    '.tif': 'image',
+}
+
+# 新增音频类型
+AUDIO_EXTENSIONS = {
+    '.mp3': 'audio',
+    '.wav': 'audio',
+    '.flac': 'audio',
+    '.m4a': 'audio',
+    '.aac': 'audio',
+    '.ogg': 'audio',
+}
+
+# 新增视频类型
+VIDEO_EXTENSIONS = {
+    '.mp4': 'video',
+    '.avi': 'video',
+    '.mov': 'video',
+    '.mkv': 'video',
+    '.flv': 'video',
+    '.wmv': 'video',
+    '.webm': 'video',
+}
+
+# 合并所有支持的类型
+SUPPORTED_EXTENSIONS = {
+    **DOCUMENT_EXTENSIONS,
+    **IMAGE_EXTENSIONS,
+    **AUDIO_EXTENSIONS,
+    **VIDEO_EXTENSIONS,
+}
+
+# 媒体类型映射
+MEDIA_TYPE_MAP = {
+    **{ext: 'document' for ext in DOCUMENT_EXTENSIONS},
+    **{ext: 'image' for ext in IMAGE_EXTENSIONS},
+    **{ext: 'audio' for ext in AUDIO_EXTENSIONS},
+    **{ext: 'video' for ext in VIDEO_EXTENSIONS},
 }
 
 
 class Settings:
     """配置类"""
+
+    # ... 原有配置保持不变 ...
 
     @property
     def chunk_size(self) -> int:
@@ -75,4 +124,4 @@ class Settings:
 
 settings = Settings()
 
-__all__ = ['settings', 'UPLOAD_DIR', 'WEB_DIR', 'SUPPORTED_EXTENSIONS']
+__all__ = ['settings', 'UPLOAD_DIR', 'WEB_DIR', 'SUPPORTED_EXTENSIONS', 'MEDIA_TYPE_MAP']

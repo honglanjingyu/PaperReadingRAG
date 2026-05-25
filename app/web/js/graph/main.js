@@ -1,5 +1,4 @@
-// app/web/js/graph/main.js - 主入口模块
-// 知识图谱页面主入口
+// app/web/js/graph/main.js - 完整修改版
 
 import { showToast } from '../chat/utils.js';
 import { initGraph, resizeGraph } from './graph-core.js';
@@ -26,8 +25,6 @@ let toggleCommunitiesBtn, closeSidebarBtn;
 let statsCards, statsHeader, collapseStatsBtn;
 
 // 初始化
-// 在 DOMContentLoaded 事件中，删除或注释掉 loadGraphDataUI(false) 调用
-
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Graph page initializing...');
 
@@ -50,21 +47,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindEvents();
     initGraphUI();
     initCollapsiblePanels();
-    await autoLoadGraphWithCache();
+
+    // 有缓存时加载缓存，无缓存时显示空状态
+    await loadGraphFromCacheIfExists();
 });
 
-// app/web/js/graph/main.js
-
-// 在 showEmptyGraphState 函数之后添加此函数
-
-async function autoLoadGraphWithCache() {
+// 检查缓存并加载（不自动构建）
+async function loadGraphFromCacheIfExists() {
     if (!graphLoading) return;
 
-    console.log('自动加载知识图谱（使用缓存）...');
-
-    // 显示加载状态
-    graphLoading.style.display = 'flex';
-    updateGraphStatus('loading', '正在加载知识图谱...');
+    console.log('检查知识图谱缓存...');
 
     try {
         // 先检查缓存状态
@@ -82,10 +74,13 @@ async function autoLoadGraphWithCache() {
             console.log('图谱缓存状态:', { hasCache, cacheInfo });
         }
 
-        // 如果有缓存，直接加载（force_rebuild = false）
+        // 如果有缓存，直接加载（不重新构建）
         if (hasCache) {
             console.log('发现图谱缓存，正在加载...');
-            const result = await loadGraphData(false);  // force_rebuild = false
+            graphLoading.style.display = 'flex';
+            updateGraphStatus('loading', '正在加载缓存的知识图谱...');
+
+            const result = await loadGraphData(false);
 
             if (result && result.success) {
                 setGraphData(result);
@@ -108,62 +103,23 @@ async function autoLoadGraphWithCache() {
                 if (communitiesPanel) communitiesPanel.style.display = 'block';
 
                 showToast('知识图谱已从缓存加载', 'success', 2000);
+                graphLoading.style.display = 'none';
                 return;
             }
         }
 
-        // 没有缓存，尝试构建（force_rebuild = false，会使用缓存构建）
-        console.log('没有缓存或缓存无效，正在构建知识图谱...');
-        const result = await loadGraphData(false);
-
-        if (result && result.success) {
-            setGraphData(result);
-
-            updateStatsUI(result);
-            renderGraphUI();
-            renderCommunitiesUI(result);
-
-            updateGraphStatus('success', `图谱已构建 (${result.statistics?.entity_count || 0} 实体, ${result.statistics?.relation_count || 0} 关系)`);
-
-            if (statsCards) statsCards.style.display = 'grid';
-            if (communitiesPanel) communitiesPanel.style.display = 'block';
-
-            showToast('知识图谱构建成功', 'success');
-        } else {
-            // 知识库为空
-            updateGraphStatus('idle', result?.error || '知识库为空，请先上传文档');
-            showEmptyGraphState();
-        }
+        // 没有缓存，显示空状态，等待用户手动点击
+        console.log('没有缓存，显示空状态');
+        showEmptyGraphState();
+        updateGraphStatus('idle', '点击「构建/刷新图谱」按钮开始构建');
 
     } catch (error) {
-        console.error('自动加载图谱失败:', error);
-        updateGraphStatus('error', '加载失败: ' + error.message);
+        console.error('检查缓存失败:', error);
         showEmptyGraphState();
+        updateGraphStatus('idle', '点击「构建/刷新图谱」按钮开始构建');
     } finally {
         if (graphLoading) graphLoading.style.display = 'none';
     }
-}
-
-// 显示空图谱状态
-function showEmptyGraphState() {
-    if (graphChart) {
-        graphChart.setOption({
-            title: {
-                show: true,
-                text: '点击「构建/刷新图谱」按钮开始\n知识图谱将基于已上传文档自动构建',
-                left: 'center',
-                top: 'center',
-                textStyle: { color: '#adb5bd', fontSize: 14, fontWeight: 'normal' }
-            },
-            backgroundColor: 'transparent'
-        });
-    }
-
-    if (communitiesList) {
-        communitiesList.innerHTML = '<div style="text-align: center; padding: 20px; color: #adb5bd;">点击构建按钮加载社区数据</div>';
-    }
-
-    updateGraphStatus('idle', '未加载，点击构建');
 }
 
 function initElements() {
@@ -189,44 +145,6 @@ function initElements() {
     closeSidebarBtn = document.getElementById('closeSidebarBtn');
     statsCards = document.getElementById('statsCards');
 }
-
-// app/web/js/graph/main.js
-
-// 在 initElements() 后面添加
-document.addEventListener('visibilitychange', async () => {
-    // 当页面从隐藏变为可见时（从其他标签页切回）
-    if (!document.hidden && graphChart) {
-        console.log('页面重新可见，检查图谱缓存...');
-
-        // 静默检查缓存，不显示加载动画
-        try {
-            const statusResponse = await fetch(`${API_BASE}/chat/graph/status`, {
-                headers: getAuthHeaders()
-            });
-
-            if (statusResponse.ok) {
-                const statusData = await statusResponse.json();
-
-                // 如果有缓存且当前图谱数据为空或过期，重新加载
-                if (statusData.has_cache && (!graphData || statusData.cache_info?.is_cached)) {
-                    console.log('检测到缓存，重新加载图谱...');
-
-                    // 静默重新加载（不显示加载动画的变体）
-                    const result = await loadGraphData(false);
-                    if (result && result.success) {
-                        setGraphData(result);
-                        updateStatsUI(result);
-                        renderGraphUI();
-                        renderCommunitiesUI(result);
-                        updateGraphStatus('success', `图谱已更新 (${result.statistics?.entity_count || 0} 实体)`);
-                    }
-                }
-            }
-        } catch (error) {
-            console.warn('页面恢复时检查缓存失败:', error);
-        }
-    }
-});
 
 function bindEvents() {
     if (buildGraphBtn) {
@@ -259,7 +177,6 @@ function bindEvents() {
     }
 }
 
-
 function initGraphUI() {
     if (!graphCanvas) {
         console.error('graphCanvas element not found');
@@ -268,7 +185,6 @@ function initGraphUI() {
 
     graphChart = initGraph(graphCanvas);
 
-    // 注册缩放事件
     let resizeTimeout;
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
@@ -277,7 +193,6 @@ function initGraphUI() {
         }, 200);
     });
 }
-// app/web/js/graph/main.js - 修改 loadGraphDataUI
 
 async function loadGraphDataUI(forceRebuild = false) {
     if (!graphLoading) return;
@@ -286,11 +201,9 @@ async function loadGraphDataUI(forceRebuild = false) {
     updateGraphStatus('loading', '正在构建知识图谱...');
 
     try {
-        // 直接调用 loadGraphData
         const result = await loadGraphData(forceRebuild);
 
         if (result && result.success) {
-            // 确保数据已设置
             setGraphData(result);
 
             console.log('图谱数据:', {
@@ -324,6 +237,7 @@ async function loadGraphDataUI(forceRebuild = false) {
         if (graphLoading) graphLoading.style.display = 'none';
     }
 }
+
 function updateStatsUI(data) {
     updateStats(data, 'entityCount', 'relationCount', 'communityCount', 'docCount');
 }
@@ -349,9 +263,6 @@ function renderCommunitiesUI(data) {
 function updateGraphLayout() {
     if (!graphChart) return;
 
-    if (currentLayout === 'force') {
-        // 更新力导向参数
-    }
     if (graphChart) {
         const option = graphChart.getOption();
         option.series[0].layout = currentLayout;
@@ -390,6 +301,7 @@ function highlightEntityInGraph(entityName) {
         graphChart.setOption(option);
     }
 }
+
 function updateGraphStatus(status, message) {
     if (!graphStatusDot || !graphStatusText) return;
 
@@ -402,6 +314,26 @@ function updateGraphStatus(status, message) {
 
     graphStatusDot.style.background = dotColors[status] || '#adb5bd';
     graphStatusText.textContent = message;
+}
+
+// 显示空图谱状态
+function showEmptyGraphState() {
+    if (graphChart) {
+        graphChart.setOption({
+            title: {
+                show: true,
+                text: '点击「构建/刷新图谱」按钮开始\n知识图谱将基于已上传文档自动构建',
+                left: 'center',
+                top: 'center',
+                textStyle: { color: '#adb5bd', fontSize: 14, fontWeight: 'normal' }
+            },
+            backgroundColor: 'transparent'
+        });
+    }
+
+    if (communitiesList) {
+        communitiesList.innerHTML = '<div style="text-align: center; padding: 20px; color: #adb5bd;">点击构建按钮加载社区数据</div>';
+    }
 }
 
 function getAuthHeaders() {

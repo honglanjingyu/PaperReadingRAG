@@ -138,3 +138,73 @@
     cursor: not-allowed;
     transform: none;
 }
+
+/* 媒体类型徽章样式 */
+.media-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 8px;
+    display: inline-block;
+}
+
+.media-badge.image {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4caf50;
+}
+
+.media-badge.audio {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+}
+
+.media-badge.video {
+    background: rgba(244, 67, 54, 0.15);
+    color: #f44336;
+}
+
+.media-badge.doc {
+    background: rgba(33, 150, 243, 0.15);
+    color: #2196f3;
+}
+
+/* 置信度显示 */
+.file-confidence {
+    font-size: 11px;
+    color: #6c757d;
+    margin-left: 8px;
+}
+
+/* 提取文字长度显示 */
+.file-extracted {
+    font-size: 11px;
+    color: #4263eb;
+    margin-left: 8px;
+}
+
+/* 时长显示 */
+.file-duration {
+    font-size: 11px;
+    color: #fd7e14;
+    margin-left: 8px;
+}
+
+/* 待上传文件类型标签 */
+.pending-file-type {
+    margin-left: 8px;
+}
+
+/* 确认文件列表中的提示 */
+.confirm-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 12px;
+}
+
+.confirm-file-item span:last-child {
+    color: #6c757d;
+    font-size: 11px;
+}

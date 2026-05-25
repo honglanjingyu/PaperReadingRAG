@@ -1,8 +1,8 @@
 // app/web/js/upload/file-list.js
-// 文件列表渲染和管理模块
+// 文件列表渲染和管理模块 - 支持多模态
 
 import { elements, state, updateSelectedFiles, getSelectedFiles } from './config.js';
-import { escapeHtml, getFileIcon, formatFileSize, formatDate, getLevelBadgeHtml } from './utils.js';
+import { escapeHtml, getFileIcon, formatFileSize, formatDate, getLevelBadgeHtml, getMediaType, getMediaTypeBadge } from './utils.js';
 import { fetchFileList } from './api.js';
 import { deleteDocument, updateBatchDeleteButton } from './delete.js';
 
@@ -89,6 +89,30 @@ export async function loadFileList() {
         for (const doc of data.documents) {
             const createdDate = formatDate(doc.created);
             const escapedFilename = escapeHtml(doc.filename).replace(/'/g, "\\'");
+            const mediaType = doc.media_type || getMediaType(doc.filename);
+            const mediaBadge = getMediaTypeBadge(mediaType);
+
+            // 显示 OCR/ASR 置信度（如果有）
+            let confidenceInfo = '';
+            if (doc.ocr_confidence && doc.ocr_confidence > 0) {
+                confidenceInfo = `<span class="file-confidence">🔍 OCR: ${(doc.ocr_confidence * 100).toFixed(0)}%</span>`;
+            } else if (doc.transcript_confidence && doc.transcript_confidence > 0) {
+                confidenceInfo = `<span class="file-confidence">🎤 ASR: ${(doc.transcript_confidence * 100).toFixed(0)}%</span>`;
+            }
+
+            // 显示提取的文字长度
+            let extractedInfo = '';
+            if (doc.extracted_text_length && doc.extracted_text_length > 0) {
+                extractedInfo = `<span class="file-extracted">📝 提取: ${doc.extracted_text_length}字符</span>`;
+            }
+
+            // 显示时长（音频/视频）
+            let durationInfo = '';
+            if (doc.duration_seconds && doc.duration_seconds > 0) {
+                const minutes = Math.floor(doc.duration_seconds / 60);
+                const seconds = Math.floor(doc.duration_seconds % 60);
+                durationInfo = `<span class="file-duration">⏱️ ${minutes}:${seconds.toString().padStart(2, '0')}</span>`;
+            }
 
             html += `
                 <div class="file-item" data-filename="${escapeHtml(doc.filename)}">
@@ -98,10 +122,16 @@ export async function loadFileList() {
                     <div class="file-info">
                         <span class="file-icon">${getFileIcon(doc.filename)}</span>
                         <div class="file-details">
-                            <div class="file-name">${escapeHtml(doc.filename)}</div>
+                            <div class="file-name">
+                                ${escapeHtml(doc.filename)}
+                                ${mediaBadge}
+                            </div>
                             <div class="file-meta">
                                 <span class="file-size">📦 ${formatFileSize(doc.size)}</span>
                                 <span class="file-date">📅 ${createdDate}</span>
+                                ${confidenceInfo}
+                                ${extractedInfo}
+                                ${durationInfo}
                             </div>
                             <div class="file-level">${getLevelBadgeHtml(doc.user_level)}</div>
                         </div>
