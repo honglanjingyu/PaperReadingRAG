@@ -1,7 +1,7 @@
 # app/api/routes/graph_rag.py (精简版)
 """
 GraphRAG API 路由 - 仅保留图谱构建和管理功能
-注意：GraphRAG 问答接口已在 chat.py 中实现
+添加异步处理避免阻塞
 """
 
 from fastapi import APIRouter, HTTPException, Header, BackgroundTasks, Query
@@ -43,8 +43,8 @@ def _get_user_level_from_token(authorization: Optional[str]) -> str:
     return user_level
 
 
-def _get_document_contents(index_name: str, user_level: str) -> Dict:
-    """获取所有文档内容"""
+def _get_document_contents_sync(index_name: str, user_level: str) -> Dict:
+    """同步获取文档内容"""
     from app.service.core.vector_store import get_vector_store
     from pymilvus import Collection
 
@@ -56,7 +56,6 @@ def _get_document_contents(index_name: str, user_level: str) -> Dict:
         collection = Collection(index_name)
         collection.load()
 
-        # 获取所有唯一的文档名，支持等级过滤
         expr_parts = []
         if user_level:
             level_priority = {"normal": 1, "admin": 2, "owner": 3}
@@ -73,7 +72,6 @@ def _get_document_contents(index_name: str, user_level: str) -> Dict:
             limit=500
         )
 
-        # 去重
         doc_map = {}
         for r in results:
             doc_name = r.get("docnm", "")
@@ -102,22 +100,18 @@ async def build_knowledge_graph(
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
     """
-    构建知识图谱（支持缓存）
-
-    参数：
-    - force_rebuild: 强制重建，忽略缓存
+    构建知识图谱（支持缓存）- 使用异步处理避免阻塞
     """
     user_level = _get_user_level_from_token(authorization)
     index_name = "rag_documents"
 
-    # 获取文档
-    doc_result = _get_document_contents(index_name, user_level)
+    # 使用 asyncio.to_thread 避免阻塞
+    doc_result = await asyncio.to_thread(_get_document_contents_sync, index_name, user_level)
     documents = doc_result.get("documents", [])
 
     if not documents:
         graph_service = get_graph_rag_service()
-        # 尝试返回缓存数据
-        cached = graph_service.get_cached_graph(user_level)
+        cached = await asyncio.to_thread(graph_service.get_cached_graph, user_level)
         if cached:
             logger.info(f"文档为空，返回缓存图谱: user_level={user_level}")
             return cached
@@ -125,8 +119,9 @@ async def build_knowledge_graph(
 
     graph_service = get_graph_rag_service()
 
-    # 构建图谱（支持缓存）
-    graph_data = graph_service.build_knowledge_graph(
+    # 异步构建图谱
+    graph_data = await asyncio.to_thread(
+        graph_service.build_knowledge_graph,
         [d["content"] for d in documents],
         [d["name"] for d in documents],
         use_cache=True,
@@ -145,7 +140,7 @@ async def invalidate_graph_cache(
     user_level = _get_user_level_from_token(authorization)
 
     graph_service = get_graph_rag_service()
-    graph_service.invalidate_cache(user_level)
+    await asyncio.to_thread(graph_service.invalidate_cache, user_level)
 
     return {
         "success": True,
@@ -162,11 +157,8 @@ async def get_graph_status(
 
     graph_service = get_graph_rag_service()
 
-    # 一次性获取统计信息
-    stats = graph_service.neo4j.get_statistics() if hasattr(graph_service, 'neo4j') else {}
-
-    # 只查一次缓存
-    cached = graph_service.get_cached_graph(user_level)
+    stats = await asyncio.to_thread(graph_service.neo4j.get_statistics) if hasattr(graph_service, 'neo4j') else {}
+    cached = await asyncio.to_thread(graph_service.get_cached_graph, user_level)
 
     cache_info = {
         "is_cached": cached is not None,
@@ -192,10 +184,9 @@ async def get_graph_cache_stats(
     import os
     graph_service = get_graph_rag_service()
 
-    # 分别检查不同等级的缓存状态
-    normal_cached = graph_service.get_cached_graph("normal")
-    admin_cached = graph_service.get_cached_graph("admin")
-    owner_cached = graph_service.get_cached_graph("owner")
+    normal_cached = await asyncio.to_thread(graph_service.get_cached_graph, "normal")
+    admin_cached = await asyncio.to_thread(graph_service.get_cached_graph, "admin")
+    owner_cached = await asyncio.to_thread(graph_service.get_cached_graph, "owner")
 
     return {
         "success": True,

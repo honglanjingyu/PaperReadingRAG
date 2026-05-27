@@ -141,6 +141,8 @@ def suppress_noisy_loggers():
     for logger_name in noisy_loggers:
         logger = logging.getLogger(logger_name)
         logger.setLevel(logging.WARNING)
+    neo4j_notifications = logging.getLogger("neo4j.notifications")
+    neo4j_notifications.setLevel(logging.ERROR)  # 只显示 ERROR 及以上
 
 
 def init_logging():

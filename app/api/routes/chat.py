@@ -22,17 +22,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# app/api/routes/chat.py
+# ========== 会话创建 ==========
+
 @router.get("/chat/session/create")
 async def create_new_session(
         authorization: Optional[str] = Header(None),
         user_id: str = "default"
 ) -> Dict[str, Any]:
-    """
-    创建新会话，返回 session_id
-    """
+    """创建新会话，返回 session_id"""
     try:
-        # 获取登录用户ID
         token_user_id = None
         if authorization:
             token = authorization[7:] if authorization.startswith("Bearer ") else authorization
@@ -40,7 +38,6 @@ async def create_new_session(
 
         chat_service = get_chat_service()
         if hasattr(chat_service, '_memory_manager') and chat_service._memory_manager:
-            # 使用登录用户ID或默认值
             effective_user_id = str(token_user_id) if token_user_id else user_id
             session_id = chat_service._memory_manager.get_or_create_session(user_id=effective_user_id)
         else:
@@ -49,7 +46,6 @@ async def create_new_session(
             effective_user_id = str(token_user_id) if token_user_id else user_id
             session_id = memory_manager.get_or_create_session(user_id=effective_user_id)
 
-        # 如果用户已登录，关联会话到数据库
         if token_user_id:
             db = get_db_manager()
             db.associate_session(token_user_id, session_id)
@@ -61,7 +57,9 @@ async def create_new_session(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"创建会话失败: {str(e)}")
 
-# 修改 get_session_info 接口
+
+# ========== 会话信息 ==========
+
 @router.get("/chat/session/{session_id}")
 async def get_session_info(
         session_id: str,
@@ -72,7 +70,6 @@ async def get_session_info(
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id不能为空")
 
-    # 验证权限（仅当提供 token 时）
     if authorization:
         token = authorization[7:] if authorization.startswith("Bearer ") else authorization
         token_user_id = get_user_id_from_token(token)
@@ -110,6 +107,7 @@ async def get_session_info(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取会话信息失败: {str(e)}")
 
+
 @router.get("/chat/session/{session_id}/history")
 async def get_session_history(
         session_id: str,
@@ -121,7 +119,6 @@ async def get_session_history(
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id不能为空")
 
-    # 验证权限（仅当提供 token 时）
     if authorization:
         token = authorization[7:] if authorization.startswith("Bearer ") else authorization
         token_user_id = get_user_id_from_token(token)
@@ -145,51 +142,7 @@ async def get_session_history(
         raise HTTPException(status_code=500, detail=f"获取历史失败: {str(e)}")
 
 
-@router.get("/chat/session/{session_id}/messages")
-async def get_session_messages(
-        session_id: str,
-        max_turns: int = Query(20, ge=1, le=50),
-        user_id: str = "default"
-) -> Dict[str, Any]:
-    """
-    获取会话消息（用于恢复对话界面）
-
-    Args:
-        session_id: 会话ID
-        max_turns: 最大轮次数
-        user_id: 用户ID
-
-    Returns:
-        会话消息列表
-    """
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id不能为空")
-
-    try:
-        from app.service.core.memory import get_memory_manager
-        memory = get_memory_manager()
-
-        # 检查会话是否存在
-        info = memory.get_session_info(session_id, user_id)
-        if not info:
-            return {
-                "success": False,
-                "error": "会话不存在"
-            }
-
-        messages = memory.get_conversation_history(session_id, user_id, max_turns=max_turns)
-
-        return {
-            "success": True,
-            "session_id": session_id,
-            "session_info": info,
-            "messages": messages
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取消息失败: {str(e)}")
-
-
-# app/api/routes/chat.py - 修改搜索部分
+# ========== 问答接口 ==========
 
 def _get_user_level_from_token(authorization: str) -> Optional[str]:
     """从 token 获取用户等级"""
@@ -213,8 +166,6 @@ async def ask_question(
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
     """问答接口 - 完整流程，支持会话记忆和用户等级"""
-
-    # 获取用户等级
     user_level = _get_user_level_from_token(authorization)
 
     # 验证会话权限
@@ -252,7 +203,7 @@ async def ask_question(
             rerank_type=settings.rerank_type,
             index_name=settings.index_name,
             enable_memory=request.enable_memory,
-            user_level=user_level  # 传递用户等级
+            user_level=user_level
         )
         return result
 
@@ -261,12 +212,8 @@ async def ask_question(
 
 
 @router.post("/chat/ask/stream")
-async def ask_question_stream(request: ChatRequest,authorization: Optional[str] = Header(None)):
-    """
-    流式问答接口 - 支持会话记忆
-
-    实时流式返回答案，适合聊天界面使用
-    """
+async def ask_question_stream(request: ChatRequest, authorization: Optional[str] = Header(None)):
+    """流式问答接口 - 支持会话记忆"""
     user_level = None
     if authorization:
         token = authorization[7:] if authorization.startswith("Bearer ") else authorization
@@ -290,34 +237,31 @@ async def ask_question_stream(request: ChatRequest,authorization: Optional[str] 
         try:
             chat_service = get_chat_service()
 
-            # 发送开始标记
             yield json.dumps({"type": "start", "content": "", "session_id": request.session_id}) + "\n"
 
             full_answer = ""
             session_id = request.session_id
 
-            # 1. 先执行检索
+            # 1. 先执行检索（使用 asyncio.to_thread）
             loop = asyncio.get_event_loop()
 
-            retrieval_result = await loop.run_in_executor(
-                chat_service._executor,
-                lambda: enhanced_search_with_hybrid_and_rerank(
-                    question=request.question,
-                    index_name=settings.index_name,
-                    recall_k=recall_k,
-                    top_k=top_k,
-                    keyword_weight=settings.keyword_weight,
-                    vector_weight=settings.vector_weight,
-                    enable_rerank=enable_rerank,
-                    enable_query_rewrite=enable_query_rewrite,
-                    similarity_threshold=similarity_threshold,
-                    rerank_type=settings.rerank_type,
-                    verbose=False,
-                    user_level=user_level
-                )
+            retrieval_result = await asyncio.to_thread(
+                enhanced_search_with_hybrid_and_rerank,
+                question=request.question,
+                index_name=settings.index_name,
+                recall_k=recall_k,
+                top_k=top_k,
+                keyword_weight=settings.keyword_weight,
+                vector_weight=settings.vector_weight,
+                enable_rerank=enable_rerank,
+                enable_query_rewrite=enable_query_rewrite,
+                similarity_threshold=similarity_threshold,
+                rerank_type=settings.rerank_type,
+                verbose=False,
+                user_level=user_level
             )
 
-            # 2. 发送检索结果到前端
+            # 2. 发送检索结果
             if retrieval_result.get("success") and retrieval_result.get("results"):
                 results = retrieval_result.get("results", [])
                 formatted_results = []
@@ -339,7 +283,6 @@ async def ask_question_stream(request: ChatRequest,authorization: Optional[str] 
                     }
                 }) + "\n"
 
-                # 如果没有检索结果，直接结束
                 if not results:
                     yield json.dumps({
                         "type": "end",
@@ -364,13 +307,11 @@ async def ask_question_stream(request: ChatRequest,authorization: Optional[str] 
                         full_answer += chunk
                         yield json.dumps({"type": "answer", "content": chunk}) + "\n"
             else:
-                # 检索失败
                 yield json.dumps({
                     "type": "error",
                     "content": retrieval_result.get("error", "检索失败")
                 }) + "\n"
 
-            # 发送结束标记
             yield json.dumps({
                 "type": "end",
                 "content": "",
@@ -385,13 +326,11 @@ async def ask_question_stream(request: ChatRequest,authorization: Optional[str] 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
+# ========== 其余接口保持原样 ==========
+
 @router.post("/chat/search")
 async def search_only(request: ChatRequest) -> Dict[str, Any]:
-    """
-    仅检索接口 - 只返回相关文档，不生成答案
-
-    适合需要查看检索结果的场景
-    """
+    """仅检索接口 - 只返回相关文档，不生成答案"""
     top_k = request.top_k or settings.rerank_top_k
     recall_k = request.recall_k or settings.similarity_top_k
 
@@ -414,11 +353,7 @@ async def search_only(request: ChatRequest) -> Dict[str, Any]:
 
 @router.post("/chat/generate")
 async def generate_only(request: GenerateRequest) -> Dict[str, Any]:
-    """
-    仅生成接口 - 基于已有检索结果生成答案
-
-    适合已经手动选定了检索结果的场景
-    """
+    """仅生成接口 - 基于已有检索结果生成答案"""
     try:
         chat_service = get_chat_service()
         result = await chat_service.generate_only(
@@ -435,11 +370,7 @@ async def generate_only(request: GenerateRequest) -> Dict[str, Any]:
 
 @router.delete("/chat/session/{session_id}")
 async def clear_session(session_id: str) -> Dict[str, Any]:
-    """
-    清除会话记忆
-
-    删除指定会话的所有对话历史，释放内存
-    """
+    """清除会话记忆"""
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id不能为空")
 
@@ -465,11 +396,7 @@ async def clear_session(session_id: str) -> Dict[str, Any]:
 
 @router.get("/chat/sessions")
 async def list_active_sessions() -> Dict[str, Any]:
-    """
-    列出所有活跃会话
-
-    获取当前系统中所有活跃会话的统计信息
-    """
+    """列出所有活跃会话"""
     try:
         from app.service.core.memory import get_memory_manager
         memory_manager = get_memory_manager()
@@ -491,11 +418,7 @@ async def conversation(
         session_id: Optional[str] = None,
         enable_memory: bool = True
 ) -> Dict[str, Any]:
-    """
-    简化的对话接口
-
-    只需传入问题和可选的session_id，其他参数使用默认值
-    """
+    """简化的对话接口"""
     try:
         chat_service = get_chat_service()
 
@@ -526,11 +449,10 @@ async def graph_rag_ask(
         request: ChatRequest,
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
-    """GraphRAG 问答接口 - 参考 Advanced RAG 记忆保存方式"""
+    """GraphRAG 问答接口"""
     from app.service.core.graphrag import get_graph_rag_service
     from app.service.core.memory import get_memory_manager
 
-    # 获取用户等级
     user_level = "normal"
     if authorization:
         token = authorization[7:] if authorization.startswith("Bearer ") else authorization
@@ -548,7 +470,6 @@ async def graph_rag_ask(
         graph_service = get_graph_rag_service()
         memory_manager = get_memory_manager()
 
-        # 获取或创建会话（与 Advanced RAG 逻辑一致）
         actual_session_id = None
         if request.enable_memory and memory_manager:
             actual_session_id = memory_manager.get_or_create_session(request.session_id)
@@ -556,17 +477,16 @@ async def graph_rag_ask(
         else:
             actual_session_id = request.session_id or "default"
 
-        # 执行 GraphRAG 问答
-        result = graph_service.graph_rag_ask(
+        # 执行 GraphRAG 问答（使用 asyncio.to_thread）
+        result = await asyncio.to_thread(
+            graph_service.graph_rag_ask,
             question=request.question,
             index_name=index_name,
             top_k=top_k,
             user_level=user_level
         )
 
-        # ========== 参考 Advanced RAG 方式保存记忆 ==========
-        if result.get("success") and result.get(
-                "answer") and request.enable_memory and memory_manager and actual_session_id and actual_session_id != "default":
+        if result.get("success") and result.get("answer") and request.enable_memory and memory_manager and actual_session_id and actual_session_id != "default":
             try:
                 logger.info(f"GraphRAG 非流式保存对话到记忆: session={actual_session_id}")
                 memory_manager.add_message(actual_session_id, "user", request.question)
@@ -588,7 +508,7 @@ async def graph_rag_ask_stream(
         request: ChatRequest,
         authorization: Optional[str] = Header(None)
 ):
-    """GraphRAG 流式问答 - 参考 Advanced RAG 记忆保存方式"""
+    """GraphRAG 流式问答"""
     from app.service.core.graphrag import get_graph_rag_service
     from app.service.core.memory import get_memory_manager
 
@@ -606,7 +526,6 @@ async def graph_rag_ask_stream(
     memory_manager = get_memory_manager()
     index_name = settings.index_name
 
-    # 获取或创建会话（与 Advanced RAG 逻辑一致）
     actual_session_id = None
     if request.enable_memory and memory_manager:
         actual_session_id = memory_manager.get_or_create_session(request.session_id)
@@ -616,7 +535,6 @@ async def graph_rag_ask_stream(
 
     async def generate():
         try:
-            # 发送开始标记
             yield json.dumps({"type": "start", "content": "", "session_id": actual_session_id}) + "\n"
             yield json.dumps({
                 "type": "info",
@@ -624,8 +542,9 @@ async def graph_rag_ask_stream(
                 "mode": "graph"
             }) + "\n"
 
-            # 执行 GraphRAG 问答
-            result = graph_service.graph_rag_ask(
+            # 执行 GraphRAG 问答（使用 asyncio.to_thread）
+            result = await asyncio.to_thread(
+                graph_service.graph_rag_ask,
                 question=request.question,
                 index_name=index_name,
                 top_k=request.top_k or 8,
@@ -635,21 +554,18 @@ async def graph_rag_ask_stream(
             if result.get("success"):
                 answer = result.get("answer", "")
 
-                # 发送推理路径
                 if result.get("reasoning_path"):
                     yield json.dumps({
                         "type": "reasoning_path",
                         "content": result["reasoning_path"]
                     }) + "\n"
                 else:
-                    # 添加提示：图谱数据为空
                     yield json.dumps({
                         "type": "info",
                         "content": "⚠️ 知识图谱数据为空，当前使用 Advanced RAG 模式。请先上传文档并构建知识图谱。",
                         "fallback": True
                     }) + "\n"
 
-                # 发送检索结果
                 if result.get("results"):
                     formatted_results = []
                     for r in result["results"][:5]:
@@ -663,7 +579,6 @@ async def graph_rag_ask_stream(
                         "results": formatted_results
                     }) + "\n"
 
-                # ========== 参考 Advanced RAG 方式保存记忆 ==========
                 if request.enable_memory and memory_manager and actual_session_id and actual_session_id != "default" and answer:
                     try:
                         logger.info(f"GraphRAG 保存对话到记忆: session={actual_session_id}")
@@ -688,7 +603,8 @@ async def graph_rag_ask_stream(
 
                 from app.service.core.rag import enhanced_search_with_hybrid_and_rerank, generate_answer_stream
 
-                retrieval_result = enhanced_search_with_hybrid_and_rerank(
+                retrieval_result = await asyncio.to_thread(
+                    enhanced_search_with_hybrid_and_rerank,
                     question=request.question,
                     index_name=index_name,
                     recall_k=request.recall_k or settings.similarity_top_k,
@@ -712,7 +628,6 @@ async def graph_rag_ask_stream(
                             full_answer += chunk
                             yield json.dumps({"type": "answer", "content": chunk}) + "\n"
 
-                    # 降级模式也保存记忆
                     if request.enable_memory and memory_manager and actual_session_id and actual_session_id != "default" and full_answer:
                         try:
                             memory_manager.add_message(actual_session_id, "user", request.question)
@@ -728,5 +643,6 @@ async def graph_rag_ask_stream(
             yield json.dumps({"type": "error", "content": str(e)}) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
 
 __all__ = ['router']

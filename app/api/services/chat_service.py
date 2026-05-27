@@ -1,6 +1,6 @@
 # app/api/services/chat_service.py
 """
-聊天服务 - 支持会话记忆
+聊天服务 - 支持会话记忆，使用独立线程池
 """
 
 from typing import List, Dict, Any, Optional
@@ -18,12 +18,10 @@ from app.service.core.rag import (
     generate_answer_stream
 )
 
-# ========== 新增：导入评估模块 ==========
 from app.service.core.evaluation import get_evaluator
 
 try:
     from app.service.core.memory import RedisSessionMemory, MemoryInjector, get_memory_manager
-
     MEMORY_AVAILABLE = True
 except ImportError as e:
     print(f"❌ 记忆模块导入失败: {e}，请确保 Redis 服务已启动")
@@ -32,11 +30,25 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
+# 聊天服务专用线程池（独立于其他服务）
+_CHAT_EXECUTOR = None
+
+
+def _get_chat_executor():
+    """获取聊天服务专用线程池"""
+    global _CHAT_EXECUTOR
+    if _CHAT_EXECUTOR is None:
+        max_workers = int(os.getenv("CHAT_MAX_WORKERS", "2"))
+        _CHAT_EXECUTOR = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="chat_worker")
+        logger.info(f"聊天服务线程池初始化完成，max_workers={max_workers}")
+    return _CHAT_EXECUTOR
+
+
 class ChatService:
-    """聊天服务 - 支持会话记忆"""
+    """聊天服务 - 支持会话记忆，使用独立线程池"""
 
     def __init__(self):
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        self._executor = _get_chat_executor()
 
         # 初始化记忆组件
         self._memory_manager = None
@@ -44,11 +56,11 @@ class ChatService:
         if MEMORY_AVAILABLE:
             self._init_memory()
 
-        # ========== 评估模块配置 ==========
+        # 评估模块配置
         self._evaluator = None
         self._eval_enabled = os.getenv("ENABLE_EVAL", "false").lower() == "true"
-        self._eval_sample_rate = float(os.getenv("EVAL_SAMPLE_RATE", "0.1"))  # 10%采样率
-        self._eval_timeout = int(os.getenv("EVAL_TIMEOUT", "3"))  # 3秒超时
+        self._eval_sample_rate = float(os.getenv("EVAL_SAMPLE_RATE", "0.1"))
+        self._eval_timeout = int(os.getenv("EVAL_TIMEOUT", "3"))
 
         if self._eval_enabled and MEMORY_AVAILABLE:
             self._evaluator = get_evaluator() if MEMORY_AVAILABLE else None
@@ -75,32 +87,19 @@ class ChatService:
             session_id: str,
             rewritten_query: str = None
     ):
-        """
-        后台异步执行评估（不阻塞主响应）
-
-        Args:
-            question: 原始问题
-            answer: 生成的答案
-            results: 检索结果
-            session_id: 会话ID
-            rewritten_query: 改写后的问题
-        """
+        """后台异步执行评估（不阻塞主响应）"""
         try:
-            # 提取上下文（用于评估）
             contexts = []
-            for r in results[:5]:  # 最多取5个上下文
+            for r in results[:5]:
                 content = r.get("content", "") or r.get("content_with_weight", "")
                 if content:
-                    contexts.append(content[:1000])  # 限制长度
+                    contexts.append(content[:1000])
 
             if not contexts:
                 print(f"⚠️ 评估跳过 [{session_id[:8]}]: 无上下文")
                 return
 
-            # 使用超时控制执行评估
             loop = asyncio.get_event_loop()
-
-            # 创建带超时的任务
             try:
                 eval_result = await asyncio.wait_for(
                     loop.run_in_executor(
@@ -115,7 +114,6 @@ class ChatService:
                     ),
                     timeout=self._eval_timeout
                 )
-
             except asyncio.TimeoutError:
                 print(f"⚠️ 评估超时 [{session_id[:8]}]: 超过 {self._eval_timeout} 秒")
 
@@ -141,15 +139,16 @@ class ChatService:
             user_level: str = None
     ) -> Dict[str, Any]:
         """问答处理 - 支持会话记忆"""
-
+        # ... 保持原有代码不变 ...
         actual_session_id = None
         if enable_memory and self._memory_manager:
             actual_session_id = self._get_or_create_session(session_id)
         else:
             actual_session_id = session_id or "default"
 
-        # 执行增强检索
-        retrieval_result = enhanced_search_with_hybrid_and_rerank(
+        # 执行增强检索（使用 asyncio.to_thread 避免阻塞事件循环）
+        retrieval_result = await asyncio.to_thread(
+            enhanced_search_with_hybrid_and_rerank,
             question=question,
             index_name=index_name,
             recall_k=recall_k,
@@ -174,7 +173,6 @@ class ChatService:
 
         results = retrieval_result.get("results", [])
 
-        # 没有检索结果时的处理
         if not results:
             return {
                 "success": False,
@@ -193,8 +191,9 @@ class ChatService:
             history_text = self._memory_manager.get_history_text(actual_session_id, max_turns=10)
             has_history = bool(history_text)
 
-        # 生成答案
-        generation_result = generate_answer(
+        # 生成答案（使用 asyncio.to_thread）
+        generation_result = await asyncio.to_thread(
+            generate_answer,
             question=rewritten_query,
             results=results,
             history=history,
@@ -212,11 +211,9 @@ class ChatService:
 
         answer = generation_result.get("answer", "")
 
-        # ========== 异步评估（不阻塞响应） ==========
+        # 异步评估（不阻塞）
         if self._eval_enabled and self._evaluator and answer and results:
-            # 采样率控制：只对部分请求进行评估
             if random.random() < self._eval_sample_rate:
-                # 创建后台任务，不等待结果
                 asyncio.create_task(
                     self._async_evaluate(
                         question=question,
@@ -226,22 +223,18 @@ class ChatService:
                         rewritten_query=rewritten_query
                     )
                 )
-            else:
-                print(f"ℹ️ 跳过评估 [{actual_session_id[:8]}]: 未命中采样")
 
         # 更新会话记忆
         if enable_memory and self._memory_manager and actual_session_id and actual_session_id != "default" and answer:
             logger.info(f"保存对话到记忆: session={actual_session_id}")
-            user_msg_result = self._memory_manager.add_message(actual_session_id, "user", question)
-            assistant_msg_result = self._memory_manager.add_message(actual_session_id, "assistant", answer)
-            logger.info(f"保存结果: user={user_msg_result}, assistant={assistant_msg_result}")
+            self._memory_manager.add_message(actual_session_id, "user", question)
+            self._memory_manager.add_message(actual_session_id, "assistant", answer)
 
             # 验证保存
             key = f"rag:session:{actual_session_id}"
             msg_count = self._memory_manager.redis_client.llen(key) if self._memory_manager.redis_client else 0
             logger.info(f"验证保存: key={key}, 消息数={msg_count}")
 
-        # ========== 返回结果（不包含评估指标） ==========
         return {
             "success": True,
             "question": question,
@@ -249,7 +242,7 @@ class ChatService:
             "rewritten_query": rewritten_query,
             "answer": answer,
             "has_history": has_history,
-            "results": results[:top_k],  # 只返回 top_k 个结果
+            "results": results[:top_k],
             "retrieval_info": {
                 "total_recalled": retrieval_result.get("total_recalled", 0),
                 "total_returned": retrieval_result.get("total_returned", 0),
@@ -258,9 +251,9 @@ class ChatService:
                 "rerank_model": retrieval_result.get("rerank_model", "unknown")
             },
             "model_info": generation_result.get("model_info", {})
-            # ❌ 注意：这里没有添加 evaluation 字段，避免响应卡顿
         }
 
+    # ... 其余方法保持原样 ...
     async def ask_stream_with_results(
             self,
             question: str,
@@ -270,7 +263,7 @@ class ChatService:
             template_name: str = "detailed",
             enable_memory: bool = True
     ):
-        """流式问答处理 - 使用已有的检索结果"""
+        # ... 保持原有代码不变 ...
         actual_session_id = None
         if enable_memory and self._memory_manager:
             actual_session_id = self._get_or_create_session(session_id)
@@ -283,28 +276,19 @@ class ChatService:
 
         full_answer = ""
 
-        def sync_generate():
-            nonlocal full_answer
-            for chunk in generate_answer_stream(
-                    question=question,
-                    results=results,
-                    history=history,
-                    template_name=template_name,
-                    verbose=False
-            ):
-                if chunk and chunk.strip():
-                    full_answer += chunk
-                    yield chunk
+        # 流式生成
+        for chunk in generate_answer_stream(
+                question=question,
+                results=results,
+                history=history,
+                template_name=template_name,
+                verbose=False
+        ):
+            if chunk and chunk.strip():
+                full_answer += chunk
+                yield chunk
 
-        # 收集完整答案
-        answer_chunks = []
-        for chunk in sync_generate():
-            answer_chunks.append(chunk)
-            yield chunk
-
-        full_answer = "".join(answer_chunks)
-
-        # ========== 异步评估（流式完成后） ==========
+        # 异步评估
         if self._eval_enabled and self._evaluator and full_answer and results:
             if random.random() < self._eval_sample_rate:
                 asyncio.create_task(
@@ -330,7 +314,8 @@ class ChatService:
             index_name: str = "rag_documents"
     ) -> Dict[str, Any]:
         """仅检索"""
-        result = enhanced_search_with_hybrid_and_rerank(
+        result = await asyncio.to_thread(
+            enhanced_search_with_hybrid_and_rerank,
             question=question,
             index_name=index_name,
             recall_k=recall_k,
@@ -356,7 +341,8 @@ class ChatService:
             template_name: str = "detailed"
     ) -> Dict[str, Any]:
         """仅生成"""
-        result = generate_answer(
+        result = await asyncio.to_thread(
+            generate_answer,
             question=question,
             results=results,
             history=history,

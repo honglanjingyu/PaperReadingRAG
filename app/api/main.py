@@ -1,6 +1,6 @@
-# app/api/main.py (更新路由导入)
+# app/api/main.py
 """
-FastAPI应用创建
+FastAPI应用创建 - 优化异步配置
 """
 
 from fastapi import FastAPI
@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import logging
 from contextlib import asynccontextmanager
+import asyncio
 
 from app.api.routes import health, chat
 from app.api.routes.upload import router as upload_router
@@ -23,9 +24,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
+    """应用生命周期管理 - 优化异步处理"""
     logger.info("应用启动中...")
 
+    # 初始化异步文档处理器
     from app.service.core.rag.async_processor import init_async_processor, shutdown_async_processor
     await init_async_processor()
     logger.info("异步文档处理器已启动")
