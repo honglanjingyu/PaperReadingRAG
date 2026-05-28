@@ -18,7 +18,6 @@ from app.service.core.prompt import PromptBuilder
 from app.service.core.llm import get_llm_service
 from app.service.core.retrieval import get_parent_child_retriever
 from .cached_search import CachedSearchService
-from .async_processor import AsyncDocumentProcessor, get_async_processor, init_async_processor, shutdown_async_processor
 from .cached_search import CachedSearchService
 
 

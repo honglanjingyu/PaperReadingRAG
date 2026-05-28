@@ -1,4 +1,5 @@
-# app/api/routes/upload.py (修改版 - 保留原始上传文件)
+# app/api/routes/upload.py
+# 完整修复版 - 包含 /upload/async 和 /upload/task/{task_id} 路由
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Header, Query
 from pathlib import Path
@@ -6,16 +7,19 @@ from typing import List, Optional, Dict, Any
 import shutil
 import os
 import logging
+import asyncio
+import time
+import hashlib
 
-# ========== 导入多模态解析器 ==========
 from app.api.config import UPLOAD_DIR, SUPPORTED_EXTENSIONS, MEDIA_TYPE_MAP, settings
 from app.api.dependencies import get_document_service
 from app.auth.jwt_utils import get_user_id_from_token
 from app.db.database import get_db_manager
-from app.service.core.rag.async_processor import get_async_processor
 from app.service.core.multimodal import get_multimodal_parser, ExtractedContent
 from pydantic import BaseModel, Field
 from app.service.core.graphrag import get_graph_rag_service
+from app.service.core.streaming import get_stream_processor, is_kafka_enabled
+from app.service.core.cache import get_cache_manager, get_document_cache
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -72,29 +76,266 @@ def _invalidate_graph_cache(user_level: str) -> None:
 
 
 def _extract_text_from_file(file_path: str, file_name: str) -> ExtractedContent:
-    """
-    从文件中提取文字内容（支持多模态）
-    """
+    """从文件中提取文字内容（支持多模态）"""
     parser = get_multimodal_parser()
     return parser.parse(file_path, file_name)
 
 
-# ========== 单个文档上传（支持多模态） ==========
+# ========== 后台发送 Kafka 事件（带任务状态更新） ==========
+
+async def send_to_kafka(
+        filename: str,
+        content: str,
+        user_level: str,
+        file_path: Optional[str] = None,
+        media_type: str = "document",
+        task_id: str = None
+):
+    """发送文档到 Kafka 处理，并更新任务状态"""
+    cache = get_cache_manager()
+
+    try:
+        # 更新任务状态：开始处理
+        if task_id:
+            existing = cache.get("task", task_id) or {}
+            cache.set("task", task_id, {
+                "status": "processing",
+                "filename": filename,
+                "media_type": media_type,
+                "progress": 10,
+                "message": "正在发送到 Kafka 队列...",
+                "updated_at": time.time(),
+                "created_at": existing.get("created_at", time.time())
+            }, ttl=3600)
+
+        logger.info(f"🚀 [Kafka] 发送文档: filename={filename}, "
+                    f"user_level={user_level}, content_length={len(content) if content else 0}, "
+                    f"media_type={media_type}, task_id={task_id}")
+
+        if not is_kafka_enabled():
+            logger.error(f"❌ [Kafka] Kafka 未启用，无法处理: {filename}")
+            if task_id:
+                cache.set("task", task_id, {
+                    "status": "failed",
+                    "filename": filename,
+                    "media_type": media_type,
+                    "progress": 0,
+                    "message": "Kafka 服务未启用",
+                    "error": "Kafka 服务未启用",
+                    "updated_at": time.time()
+                }, ttl=3600)
+            return
+
+        processor = get_stream_processor()
+        result = await processor.emit_change_event(
+            filename=filename,
+            content=content,
+            user_level=user_level,
+            file_path=file_path,
+            event_type="upsert"
+        )
+
+        if result:
+            logger.info(f"✅ [Kafka] 文档发送成功: {filename}")
+            if task_id:
+                cache.set("task", task_id, {
+                    "status": "processing",
+                    "filename": filename,
+                    "media_type": media_type,
+                    "progress": 50,
+                    "message": "文档已发送到 Kafka，等待处理...",
+                    "updated_at": time.time()
+                }, ttl=3600)
+        else:
+            logger.error(f"❌ [Kafka] 文档发送失败: {filename}")
+            if task_id:
+                cache.set("task", task_id, {
+                    "status": "failed",
+                    "filename": filename,
+                    "media_type": media_type,
+                    "progress": 0,
+                    "message": "发送到 Kafka 失败",
+                    "error": "Kafka 发送失败",
+                    "updated_at": time.time()
+                }, ttl=3600)
+
+    except Exception as e:
+        logger.error(f"❌ [Kafka] 发送异常: {filename}, error={e}", exc_info=True)
+        if task_id:
+            cache.set("task", task_id, {
+                "status": "failed",
+                "filename": filename,
+                "media_type": media_type,
+                "progress": 0,
+                "message": f"发送异常: {str(e)}",
+                "error": str(e),
+                "updated_at": time.time()
+            }, ttl=3600)
+
+
+# ========== 异步上传接口 ==========
+
+@router.post("/upload/async")
+async def upload_document_async(
+        background_tasks: BackgroundTasks,
+        file: UploadFile = File(...),
+        chunk_size: Optional[int] = None,
+        from_page: int = 0,
+        to_page: Optional[int] = None,
+        authorization: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """
+    异步上传并处理文档 - 通过 Kafka 异步处理
+    """
+    from app.service.core.cache import get_cache_manager
+
+    user_level, user_id, username = _get_user_level_from_token(authorization)
+
+    # 验证文件类型
+    file_ext = _validate_file(file)
+    media_type = MEDIA_TYPE_MAP.get(file_ext, "document")
+
+    logger.info(f"用户 {username} (等级={user_level}) 上传文件: {file.filename}, 类型={media_type}")
+
+    # 检查 Kafka 是否启用
+    if not is_kafka_enabled():
+        logger.error(f"Kafka 未启用，无法处理文档: {file.filename}")
+        raise HTTPException(
+            status_code=503,
+            detail="Kafka 服务未启用，无法处理文档。请检查 Kafka 配置。"
+        )
+
+    file_path = UPLOAD_DIR / file.filename
+    if file_path.exists():
+        raise HTTPException(status_code=400, detail=f"文件已存在: {file.filename}")
+
+    # 保存原始文件
+    _save_upload_file(file, file_path)
+
+    # 多模态预处理：提取文字内容
+    extracted = _extract_text_from_file(str(file_path), file.filename)
+
+    if not extracted.success:
+        # 解析失败，删除文件
+        file_path.unlink()
+        raise HTTPException(status_code=400, detail=f"文件解析失败: {extracted.error}")
+
+    # 记录多模态元数据到缓存
+    cache = get_cache_manager()
+    cache.set("multimodal", file.filename, {
+        "media_type": media_type,
+        "ocr_confidence": extracted.ocr_confidence if media_type == "image" else 0,
+        "transcript_confidence": extracted.transcript_confidence if media_type in ["audio", "video"] else 0,
+        "duration": extracted.duration_seconds if media_type in ["audio", "video"] else 0,
+        "original_filename": file.filename,
+        "extracted_text_length": len(extracted.text_content),
+    }, ttl=86400)
+
+    # 使 GraphRAG 缓存失效
+    _invalidate_graph_cache(user_level)
+
+    # 准备 Kafka 消息
+    kafka_file_path = str(file_path) if media_type not in ["image", "audio", "video"] else None
+
+    # 生成任务 ID
+    task_id = hashlib.md5(f"{file.filename}_{user_level}".encode()).hexdigest()[:16]
+
+    # 记录初始任务状态
+    cache.set("task", task_id, {
+        "status": "pending",
+        "filename": file.filename,
+        "media_type": media_type,
+        "progress": 0,
+        "message": "文件已接收，等待处理...",
+        "created_at": time.time(),
+        "updated_at": time.time()
+    }, ttl=3600)
+
+    # 发送到 Kafka，传递 task_id
+    background_tasks.add_task(
+        send_to_kafka,
+        filename=file.filename,
+        content=extracted.text_content,
+        user_level=user_level,
+        file_path=kafka_file_path,
+        media_type=media_type,
+        task_id=task_id
+    )
+
+    logger.info(f"📋 [Kafka] upsert 事件已加入后台队列: {file.filename}, task_id={task_id}")
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "filename": file.filename,
+        "media_type": media_type,
+        "extracted_text_length": len(extracted.text_content),
+        "message": f"文件已发送到 Kafka 处理队列{'（已通过OCR/ASR提取文字）' if media_type in ['image', 'audio', 'video'] else ''}",
+        "kafka_sent": True,
+        "status_url": f"/api/upload/task/{task_id}"
+    }
+
+
+# ========== 任务状态查询接口 ==========
+
+@router.get("/upload/task/{task_id}")
+async def get_task_status(
+        task_id: str,
+        authorization: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """
+    查询异步任务状态
+
+    Args:
+        task_id: 任务ID
+
+    Returns:
+        任务状态信息
+    """
+    from app.service.core.cache import get_cache_manager
+
+    cache = get_cache_manager()
+    task_data = cache.get("task", task_id)
+
+    if not task_data:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    # 可选：验证用户权限
+    if authorization:
+        user_level, user_id, username = _get_user_level_from_token(authorization)
+        # 可以在这里验证用户是否有权查看此任务
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "status": task_data.get("status", "unknown"),
+        "progress": task_data.get("progress", 0),
+        "message": task_data.get("message", ""),
+        "media_type": task_data.get("media_type", "document"),
+        "filename": task_data.get("filename", ""),
+        "error": task_data.get("error"),
+        "result": task_data.get("result", {}),
+        "created_at": task_data.get("created_at"),
+        "updated_at": task_data.get("updated_at")
+    }
+
+
+# ========== 同步上传接口（保留兼容） ==========
 
 @router.post("/upload")
 async def upload_document(
         background_tasks: BackgroundTasks,
         file: UploadFile = File(...),
         chunk_size: Optional[int] = None,
-        enable_vectorization: bool = True,
-        enable_storage: bool = True,
         from_page: int = 0,
         to_page: Optional[int] = None,
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
     """
-    上传并处理文档（支持：图片、音频、视频、PDF、DOCX、TXT等）
+    同步上传接口 - 直接返回结果（无轮询）
     """
+    from app.service.core.rag import process_document_with_text
+
     user_level, user_id, username = _get_user_level_from_token(authorization)
 
     # 验证文件类型
@@ -110,55 +351,26 @@ async def upload_document(
     # 保存原始文件
     _save_upload_file(file, file_path)
 
-    # ========== 多模态预处理：提取文字内容 ==========
+    # 多模态预处理：提取文字内容
     extracted = _extract_text_from_file(str(file_path), file.filename)
 
     if not extracted.success:
-        # 解析失败，删除文件
         file_path.unlink()
         raise HTTPException(status_code=400, detail=f"文件解析失败: {extracted.error}")
 
-    if not extracted.text_content or len(extracted.text_content.strip()) < 10:
-        logger.warning(f"文件 {file.filename} 未提取到有效文字内容")
-        # 不阻塞，允许上传空内容，但记录警告
+    # 直接处理文档（同步）
+    chunk_count = process_document_with_text(
+        text_content=extracted.text_content,
+        file_name=file.filename,
+        enable_vectorization=True,
+        enable_storage=True,
+        user_level=user_level
+    )
 
-    # 提交到异步处理队列
-    processor = get_async_processor()
+    if not chunk_count:
+        raise HTTPException(status_code=500, detail="文档处理失败")
 
-    # ========== 根据媒体类型选择不同的提交方式 ==========
-    if media_type in ["image", "audio", "video"]:
-        # 多模态文件：直接传递提取的文字，不创建临时文件
-        task_id = await processor.submit_task_with_text(
-            extracted_text=extracted.text_content,
-            file_name=file.filename,
-            original_filename=file.filename,
-            media_type=media_type,
-            extracted_length=len(extracted.text_content),
-            user_level=user_level,
-            chunk_size=chunk_size or settings.chunk_size,
-            enable_vectorization=enable_vectorization,
-            enable_storage=enable_storage
-        )
-        # ⚠️ 注意：不删除原始上传文件，保留原文件
-
-    else:
-        # 文档类型：使用传统文件路径方式
-        task_id = await processor.submit_task(
-            file_path=str(file_path),
-            file_name=file.filename,
-            original_filename=file.filename,
-            media_type=media_type,
-            extracted_length=len(extracted.text_content),
-            user_level=user_level,
-            chunk_size=chunk_size or settings.chunk_size,
-            from_page=from_page,
-            to_page=to_page or settings.max_pages,
-            enable_vectorization=enable_vectorization,
-            enable_storage=enable_storage
-        )
-
-    # 记录多模态元数据到缓存
-    from app.service.core.cache import get_cache_manager
+    # 记录元数据
     cache = get_cache_manager()
     cache.set("multimodal", file.filename, {
         "media_type": media_type,
@@ -167,291 +379,20 @@ async def upload_document(
         "duration": extracted.duration_seconds if media_type in ["audio", "video"] else 0,
         "original_filename": file.filename,
         "extracted_text_length": len(extracted.text_content),
-        "task_id": task_id
-    }, ttl=86400)  # 24小时缓存
+    }, ttl=86400)
 
     _invalidate_graph_cache(user_level)
 
     return {
         "success": True,
-        "task_id": task_id,
         "filename": file.filename,
         "media_type": media_type,
-        "extracted_text_length": len(extracted.text_content),
-        "message": f"文件已提交到处理队列{'（已通过OCR/ASR提取文字）' if media_type in ['image', 'audio', 'video'] else ''}",
-        "status_url": f"/api/upload/task/{task_id}"
+        "chunk_count": chunk_count,
+        "message": f"文件处理完成，共 {chunk_count} 个分块"
     }
 
 
-@router.post("/upload/async")
-async def upload_document_async(
-        file: UploadFile = File(...),
-        chunk_size: Optional[int] = None,
-        enable_vectorization: bool = True,
-        enable_storage: bool = True,
-        from_page: int = 0,
-        to_page: Optional[int] = None,
-        authorization: Optional[str] = Header(None)
-) -> Dict[str, Any]:
-    """异步上传文档（使用队列处理器）- 支持多模态"""
-    user_level, user_id, username = _get_user_level_from_token(authorization)
-
-    file_ext = _validate_file(file)
-    media_type = MEDIA_TYPE_MAP.get(file_ext, "document")
-
-    file_path = UPLOAD_DIR / file.filename
-    if file_path.exists():
-        raise HTTPException(status_code=400, detail=f"文件已存在: {file.filename}")
-
-    # 保存原始文件
-    _save_upload_file(file, file_path)
-
-    # 多模态预处理
-    extracted = _extract_text_from_file(str(file_path), file.filename)
-
-    if not extracted.success:
-        file_path.unlink()
-        raise HTTPException(status_code=400, detail=f"文件解析失败: {extracted.error}")
-
-    processor = get_async_processor()
-
-    # ========== 根据媒体类型选择不同的提交方式 ==========
-    if media_type in ["image", "audio", "video"]:
-        # 多模态文件：直接传递提取的文字
-        task_id = await processor.submit_task_with_text(
-            extracted_text=extracted.text_content,
-            file_name=file.filename,
-            original_filename=file.filename,
-            media_type=media_type,
-            extracted_length=len(extracted.text_content),
-            user_level=user_level,
-            chunk_size=chunk_size or settings.chunk_size,
-            enable_vectorization=enable_vectorization,
-            enable_storage=enable_storage
-        )
-        # ⚠️ 注意：不删除原始上传文件，保留原文件
-
-    else:
-        # 文档类型：使用传统方式
-        task_id = await processor.submit_task(
-            file_path=str(file_path),
-            file_name=file.filename,
-            original_filename=file.filename,
-            media_type=media_type,
-            extracted_length=len(extracted.text_content),
-            user_level=user_level,
-            chunk_size=chunk_size or settings.chunk_size,
-            from_page=from_page,
-            to_page=to_page or settings.max_pages,
-            enable_vectorization=enable_vectorization,
-            enable_storage=enable_storage
-        )
-
-    _invalidate_graph_cache(user_level)
-
-    return {
-        "success": True,
-        "task_id": task_id,
-        "filename": file.filename,
-        "media_type": media_type,
-        "extracted_text_length": len(extracted.text_content),
-        "message": "文档已提交到处理队列",
-        "status_url": f"/api/upload/task/{task_id}"
-    }
-
-
-# ========== 异步任务状态查询 ==========
-
-def _get_status_message(status: str, media_type: str = None) -> str:
-    """根据状态和媒体类型返回友好的状态消息"""
-    if status == "pending":
-        if media_type == "image":
-            return "等待 OCR 识别..."
-        elif media_type == "audio":
-            return "等待语音转文字..."
-        elif media_type == "video":
-            return "等待视频处理..."
-        return "等待处理..."
-    elif status == "processing":
-        if media_type == "image":
-            return "正在通过 OCR 识别图片文字..."
-        elif media_type == "audio":
-            return "正在通过 ASR 转写音频..."
-        elif media_type == "video":
-            return "正在处理视频（提取音频+关键帧OCR）..."
-        return "正在处理文档..."
-    elif status == "completed":
-        if media_type == "image":
-            return "图片 OCR 识别完成"
-        elif media_type == "audio":
-            return "音频转文字完成"
-        elif media_type == "video":
-            return "视频处理完成"
-        return "文档处理完成"
-    elif status == "failed":
-        return "处理失败"
-    return "未知状态"
-
-
-@router.get("/upload/task/{task_id}")
-async def get_task_status(
-        task_id: str,
-        authorization: Optional[str] = Header(None)
-) -> Dict[str, Any]:
-    """
-    获取异步任务状态（支持多模态）
-
-    Args:
-        task_id: 任务ID
-
-    Returns:
-        任务状态信息，包含：
-        - status: pending/processing/completed/failed
-        - progress: 进度百分比 (0-100)
-        - message: 状态描述
-        - media_type: 媒体类型（如果是多模态文件）
-        - extracted_length: 提取的文字长度
-    """
-    from app.service.core.rag.async_processor import get_async_processor
-
-    processor = get_async_processor()
-    task_status = await processor.get_task_status(task_id)
-
-    if task_status is None:
-        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-
-    # 增强多模态信息的返回
-    media_type = task_status.get("media_type", "document")
-    status = task_status.get("status", "pending")
-
-    result = {
-        "task_id": task_status.get("task_id"),
-        "status": status,
-        "file_name": task_status.get("file_name"),
-        "error": task_status.get("error"),
-        "progress": task_status.get("progress", 0),
-        "message": task_status.get("message") or _get_status_message(status, media_type),
-        "media_type": media_type,
-        "extracted_length": task_status.get("extracted_length", 0)
-    }
-
-    return result
-
-
-# ========== 批量上传 ==========
-
-class BatchUploadRequest(BaseModel):
-    """批量上传请求"""
-    files: List[str] = Field(..., description="文件名列表")
-    chunk_size: Optional[int] = Field(None, description="分块大小")
-    from_page: int = Field(0, description="起始页")
-    to_page: Optional[int] = Field(None, description="结束页")
-    enable_vectorization: bool = Field(True, description="启用向量化")
-    enable_storage: bool = Field(True, description="启用存储")
-
-
-@router.post("/upload/batch")
-async def batch_upload(
-        request: BatchUploadRequest,
-        authorization: Optional[str] = Header(None)
-) -> Dict[str, Any]:
-    """
-    批量上传文档 - 使用上传者的等级（支持多模态）
-    """
-    user_level, user_id, username = _get_user_level_from_token(authorization)
-
-    logger.info(f"用户 {username or 'unknown'} (等级={user_level}) 发起批量上传，共 {len(request.files)} 个文件")
-
-    # 验证文件存在
-    valid_files = []
-    for file_name in request.files:
-        file_path = UPLOAD_DIR / file_name
-        if not file_path.exists():
-            logger.warning(f"文件不存在: {file_name}")
-            continue
-
-        ext = file_path.suffix.lower()
-        if ext not in SUPPORTED_EXTENSIONS:
-            logger.warning(f"不支持的文件类型: {file_name}")
-            continue
-
-        valid_files.append(file_name)
-
-    if not valid_files:
-        return {"success": False, "message": "没有有效的文件可上传"}
-
-    # 提交任务
-    processor = get_async_processor()
-    parser = get_multimodal_parser()
-    tasks = {}
-
-    for file_name in valid_files:
-        file_path = UPLOAD_DIR / file_name
-        ext = file_path.suffix.lower()
-        media_type = MEDIA_TYPE_MAP.get(ext, "document")
-
-        try:
-            # 多模态预处理
-            extracted = parser.parse(str(file_path), file_name)
-
-            if not extracted.success:
-                logger.warning(f"文件解析失败 {file_name}: {extracted.error}")
-                continue
-
-            # ========== 根据媒体类型选择不同的提交方式 ==========
-            if media_type in ["image", "audio", "video"]:
-                # 多模态文件：直接传递提取的文字
-                task_id = await processor.submit_task_with_text(
-                    extracted_text=extracted.text_content,
-                    file_name=file_name,
-                    original_filename=file_name,
-                    media_type=media_type,
-                    extracted_length=len(extracted.text_content),
-                    user_level=user_level,
-                    chunk_size=request.chunk_size or settings.chunk_size,
-                    enable_vectorization=request.enable_vectorization,
-                    enable_storage=request.enable_storage
-                )
-                # ⚠️ 注意：不删除原始上传文件，保留原文件
-
-            else:
-                # 文档类型：使用传统方式
-                task_id = await processor.submit_task(
-                    file_path=str(file_path),
-                    file_name=file_name,
-                    original_filename=file_name,
-                    media_type=media_type,
-                    extracted_length=len(extracted.text_content),
-                    user_level=user_level,
-                    chunk_size=request.chunk_size or settings.chunk_size,
-                    from_page=request.from_page,
-                    to_page=request.to_page or settings.max_pages,
-                    enable_vectorization=request.enable_vectorization,
-                    enable_storage=request.enable_storage
-                )
-
-            tasks[task_id] = {
-                "filename": file_name,
-                "media_type": media_type,
-                "extracted_length": len(extracted.text_content)
-            }
-            logger.info(f"任务已提交: {task_id} -> {file_name} (类型={media_type})")
-
-        except Exception as e:
-            logger.error(f"提交任务失败 {file_name}: {e}")
-
-    _invalidate_graph_cache(user_level)
-
-    return {
-        "success": True,
-        "total_files": len(valid_files),
-        "tasks": tasks,
-        "user_level": user_level,
-        "message": f"已提交 {len(tasks)} 个文件，文档等级={user_level}"
-    }
-
-
-# ========== 文档列表 ==========
+# ========== 文档列表接口 ==========
 
 @router.get("/upload/list")
 async def list_documents(
@@ -459,7 +400,7 @@ async def list_documents(
         page: int = Query(1, ge=1, description="页码"),
         page_size: int = Query(20, ge=1, le=100, description="每页数量")
 ) -> Dict[str, Any]:
-    """列出已上传的文档（分页）- 显示媒体类型"""
+    """列出已上传的文档（分页）"""
     from app.auth.jwt_utils import get_user_id_from_token
     from app.db.database import get_db_manager
     from app.service.core.cache import get_document_cache
@@ -484,23 +425,18 @@ async def list_documents(
     index_name = os.getenv("VECTOR_INDEX_NAME", "rag_documents")
     upload_dir = UPLOAD_DIR
 
-    # 获取多模态缓存
-    from app.service.core.cache import get_cache_manager
     cache = get_cache_manager()
 
     try:
         if not upload_dir.exists():
             return {"success": True, "total": 0, "documents": [], "page": page, "page_size": page_size}
 
-        # 收集文件信息（排除临时文件）
         file_infos = []
         for file_path in upload_dir.iterdir():
             if file_path.is_file() and not file_path.name.endswith(".extracted.txt"):
                 ext = file_path.suffix.lower()
                 if ext in SUPPORTED_EXTENSIONS:
                     media_type = MEDIA_TYPE_MAP.get(ext, "document")
-
-                    # 获取多模态元数据
                     multimodal_info = cache.get("multimodal", file_path.name) or {}
 
                     file_infos.append({
@@ -518,7 +454,6 @@ async def list_documents(
 
         file_infos.sort(key=lambda x: x.get("created", 0), reverse=True)
 
-        # 获取文档等级（原有逻辑）
         doc_cache = get_document_cache()
         filenames = [f["filename"] for f in file_infos]
         cached_levels, missing_filenames = doc_cache.batch_get_levels(filenames)
@@ -563,7 +498,6 @@ async def list_documents(
                 for filename in missing_filenames:
                     doc_level_map[filename] = "normal"
 
-        # 根据用户权限过滤文档
         allowed_docs = []
         for file_info in file_infos:
             filename = file_info["filename"]
@@ -582,7 +516,6 @@ async def list_documents(
                     "duration_seconds": file_info.get("duration", 0)
                 })
 
-        # 分页
         total = len(allowed_docs)
         start = (page - 1) * page_size
         end = start + page_size
@@ -604,42 +537,6 @@ async def list_documents(
         logger.error(f"获取文档列表失败: {e}")
         return {"success": True, "total": 0, "documents": [], "page": page, "page_size": page_size,
                 "warning": "加载失败"}
-
-
-# ========== 文档统计信息 ==========
-
-@router.get("/upload/stats/{filename}")
-async def get_document_stats(filename: str) -> Dict[str, Any]:
-    """获取文档统计信息（包含媒体类型）"""
-    file_path = UPLOAD_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail=f"文件不存在: {filename}")
-
-    ext = file_path.suffix.lower()
-    media_type = MEDIA_TYPE_MAP.get(ext, "document")
-
-    # 获取多模态元数据
-    from app.service.core.cache import get_cache_manager
-    cache = get_cache_manager()
-    multimodal_info = cache.get("multimodal", filename) or {}
-
-    try:
-        document_service = get_document_service()
-        stats = document_service.get_processing_stats(str(file_path))
-
-        # 添加多模态信息
-        stats["media_type"] = media_type
-        stats["extracted_text_length"] = multimodal_info.get("extracted_text_length", 0)
-
-        if media_type == "image":
-            stats["ocr_confidence"] = multimodal_info.get("ocr_confidence", 0)
-        elif media_type in ["audio", "video"]:
-            stats["transcript_confidence"] = multimodal_info.get("transcript_confidence", 0)
-            stats["duration_seconds"] = multimodal_info.get("duration", 0)
-
-        return {"success": True, "stats": stats}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")
 
 
 __all__ = ['router']

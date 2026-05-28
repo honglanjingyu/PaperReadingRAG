@@ -1,4 +1,9 @@
 # run_api.py
+# ========== 必须在所有导入之前压制警告 ==========
+import warnings
+warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="jieba._compat")
+
 import uvicorn
 import signal
 import sys
@@ -8,7 +13,6 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
-# ========== 重要：在导入 app 之前初始化日志 ==========
 from app.api.services.logging_config import init_logging
 
 init_logging()
@@ -17,11 +21,6 @@ init_logging()
 logger = logging.getLogger(__name__)
 
 # 抑制第三方库的详细日志（控制台）
-import warnings
-
-warnings.filterwarnings("ignore")
-
-# 抑制一些常见的警告
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("elasticsearch").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)

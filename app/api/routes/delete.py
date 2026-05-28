@@ -1,13 +1,11 @@
-# app/api/routes/delete.py (合并版 - 包含单个删除和批量删除)
-"""
-文档删除路由 - 包含单个删除和批量删除功能
-"""
+# app/api/routes/delete.py
+"""文档删除路由 - 包含单个删除和批量删除功能"""
 
 import os
 import asyncio
 import logging
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Request, HTTPException, Header
+from fastapi import APIRouter, Request, HTTPException, Header, BackgroundTasks
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -20,6 +18,7 @@ from app.service.core.retrieval import get_es_bm25_retriever
 from app.service.core.memory import get_memory_manager
 from app.service.core.rag.cached_search import CachedSearchService
 from app.service.core.graphrag import get_graph_rag_service
+from app.service.core.streaming import get_stream_processor, is_kafka_enabled
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -281,8 +280,20 @@ def _invalidate_cache(filename: str) -> bool:
         doc_cache = get_document_cache()
         doc_cache.delete_document_level(filename)
 
+        # 使用正确的方法名清理搜索缓存
+        from app.service.core.rag.cached_search import CachedSearchService
         search_cache = CachedSearchService()
-        search_cache.invalidate_cache(pattern=f"*{filename}*")
+
+        # 检查方法是否存在
+        if hasattr(search_cache, 'invalidate'):
+            search_cache.invalidate(pattern=f"*{filename}*")
+        elif hasattr(search_cache, 'invalidate_cache'):
+            search_cache.invalidate_cache(pattern=f"*{filename}*")
+        else:
+            # 直接删除缓存
+            from app.service.core.cache import get_cache_manager
+            cache = get_cache_manager()
+            cache.delete_pattern(f"search:*{filename}*")
 
         # 清理多模态缓存
         from app.service.core.cache import get_cache_manager
@@ -293,6 +304,40 @@ def _invalidate_cache(filename: str) -> bool:
     except Exception as e:
         logger.error(f"缓存失效失败 {filename}: {e}")
         return False
+
+
+# ========== 后台任务函数 ==========
+
+async def send_kafka_delete_event_background(
+        filename: str,
+        user_level: str,
+        chunk_ids: List[str] = None
+):
+    """后台发送 Kafka delete 事件"""
+    try:
+        logger.info(f"🚀 [Kafka后台] 开始发送 delete 事件: filename={filename}, "
+                    f"user_level={user_level}, chunk_count={len(chunk_ids) if chunk_ids else 0}")
+
+        if not is_kafka_enabled():
+            logger.warning(f"⚠️ [Kafka后台] Kafka 未启用，跳过发送: {filename}")
+            return
+
+        processor = get_stream_processor()
+        result = await processor.emit_change_event(
+            filename=filename,
+            content="",
+            user_level=user_level,
+            file_path=None,
+            event_type="delete"
+        )
+
+        if result:
+            logger.info(f"✅ [Kafka后台] delete 事件发送成功: {filename}")
+        else:
+            logger.warning(f"⚠️ [Kafka后台] delete 事件发送失败: {filename}")
+
+    except Exception as e:
+        logger.error(f"❌ [Kafka后台] delete 事件发送异常: {filename}, error={e}", exc_info=True)
 
 
 # ========== 批量删除辅助函数 ==========
@@ -311,7 +356,6 @@ def _batch_delete_from_local_storage(filenames: List[str]) -> Dict[str, bool]:
                 results[filename] = False
                 logger.warning(f"本地文件不存在: {filename}")
 
-            # 删除临时文件
             temp_text_path = UPLOAD_DIR / f"{filename}.extracted.txt"
             if temp_text_path.exists():
                 temp_text_path.unlink()
@@ -499,12 +543,29 @@ def _batch_invalidate_cache(filenames: List[str]) -> Dict[str, bool]:
     """批量使缓存失效"""
     results = {}
     doc_cache = get_document_cache()
-    search_cache = CachedSearchService()
 
     for filename in filenames:
         try:
             doc_cache.delete_document_level(filename)
-            search_cache.invalidate_cache(pattern=f"*{filename}*")
+
+            # 使用与 _invalidate_cache 相同的方式
+            from app.service.core.rag.cached_search import CachedSearchService
+            search_cache = CachedSearchService()
+
+            if hasattr(search_cache, 'invalidate'):
+                search_cache.invalidate(pattern=f"*{filename}*")
+            elif hasattr(search_cache, 'invalidate_cache'):
+                search_cache.invalidate_cache(pattern=f"*{filename}*")
+            else:
+                from app.service.core.cache import get_cache_manager
+                cache = get_cache_manager()
+                cache.delete_pattern(f"search:*{filename}*")
+
+            # 清理多模态缓存
+            from app.service.core.cache import get_cache_manager
+            cache = get_cache_manager()
+            cache.delete("multimodal", filename)
+
             results[filename] = True
         except Exception as e:
             logger.error(f"缓存失效失败 {filename}: {e}")
@@ -513,15 +574,23 @@ def _batch_invalidate_cache(filenames: List[str]) -> Dict[str, bool]:
     return results
 
 
-# ========== 单个删除 API ==========
+# ========== 单个文档删除 ==========
 
 @router.delete("/upload/{filename}")
 async def delete_document(
         filename: str,
+        background_tasks: BackgroundTasks,
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
     """
-    删除单个文档（同时删除 Milvus、Elasticsearch、Redis、本地存储的所有相关数据）
+    删除单个文档 - 通过 Kafka 异步删除
+
+    流程：
+    1. 验证用户权限
+    2. 发送删除事件到 Kafka
+    3. Kafka 消费者执行实际删除操作
+
+    注意：Kafka 必须启用，否则返回错误
     """
     file_path = UPLOAD_DIR / filename
     if not file_path.exists():
@@ -537,6 +606,14 @@ async def delete_document(
 
     logger.info(f"用户 {username} (等级={user_level}) 请求删除文档: {filename}")
 
+    # ========== 检查 Kafka 是否启用 ==========
+    if not is_kafka_enabled():
+        logger.error(f"Kafka 未启用，无法删除文档: {filename}")
+        raise HTTPException(
+            status_code=503,
+            detail="Kafka 服务未启用，无法执行删除操作。请检查 Kafka 配置。"
+        )
+
     # 获取文档等级
     doc_level = _get_document_level_sync(filename, index_name)
     logger.info(f"文档 {filename}: 等级={doc_level}")
@@ -549,78 +626,61 @@ async def delete_document(
 
     logger.info(f"权限验证通过: {reason}")
 
-    result = {
+    # 获取 chunk_ids（可选，用于更精确的删除）
+    chunk_ids = []
+    try:
+        store = get_vector_store()
+        if store and store.index_exists(index_name):
+            from pymilvus import Collection
+            collection = Collection(index_name)
+            collection.load()
+            expr = f'docnm == "{filename}"'
+            query_results = collection.query(
+                expr=expr,
+                output_fields=["id"],
+                limit=10000
+            )
+            chunk_ids = [r.get("id", "") for r in query_results if r.get("id")]
+            logger.info(f"获取到 {len(chunk_ids)} 个 chunk_id 用于 Kafka 事件")
+    except Exception as e:
+        logger.warning(f"获取 chunk_ids 失败: {e}")
+
+    # 发送删除事件到 Kafka（消费者会执行实际删除）
+    background_tasks.add_task(
+        send_kafka_delete_event_background,
+        filename=filename,
+        user_level=user_level,
+        chunk_ids=chunk_ids
+    )
+
+    logger.info(f"📋 [Kafka] delete 事件已加入后台队列: {filename}")
+
+    # 立即失效文档等级缓存（避免前端显示问题）
+    doc_cache = get_document_cache()
+    doc_cache.delete_document_level(filename)
+    logger.info(f"文档等级缓存已删除: {filename}")
+
+    # 使 GraphRAG 缓存失效
+    graph_service = get_graph_rag_service()
+    graph_service.invalidate_cache(user_level)
+
+    return {
         "success": True,
         "filename": filename,
-        "deleted": {
-            "local": False,
-            "milvus": 0,
-            "elasticsearch": 0,
-            "redis_messages": 0,
-            "cache": False
-        },
-        "message": ""
+        "user_level": user_level,
+        "doc_level": doc_level,
+        "message": f"删除请求已发送到 Kafka 队列，文档 {filename} 将被异步删除",
+        "kafka_sent": True,
+        "chunk_count": len(chunk_ids)
     }
 
-    details = [f"✅ 权限验证通过: {reason}"]
 
-    try:
-        # 1. 删除本地文件
-        if _delete_from_local_storage(filename):
-            result["deleted"]["local"] = True
-            details.append("✅ 本地文件已删除")
-        else:
-            details.append("⚠️ 本地文件删除失败")
-
-        # 2. 从 Milvus 删除向量数据
-        milvus_deleted = _delete_from_milvus(filename, index_name)
-        result["deleted"]["milvus"] = milvus_deleted
-        if milvus_deleted > 0:
-            details.append(f"✅ Milvus 已删除 {milvus_deleted} 条向量记录")
-        else:
-            details.append("⚠️ Milvus 无相关记录或删除失败")
-
-        # 3. 从 Elasticsearch 删除 BM25 索引数据
-        es_deleted = _delete_from_elasticsearch(filename, index_name)
-        result["deleted"]["elasticsearch"] = es_deleted
-        if es_deleted > 0:
-            details.append(f"✅ Elasticsearch 已删除 {es_deleted} 条记录")
-        else:
-            details.append("⚠️ Elasticsearch 无相关记录或删除失败")
-
-        # 4. 从 Redis 清理对话历史
-        redis_deleted = _delete_from_redis_and_memory(filename)
-        result["deleted"]["redis_messages"] = redis_deleted
-        if redis_deleted > 0:
-            details.append(f"✅ Redis 已清理 {redis_deleted} 条相关对话")
-        else:
-            details.append("✅ Redis 无相关对话记录")
-
-        # 5. 使缓存失效
-        _invalidate_cache(filename)
-        result["deleted"]["cache"] = True
-        details.append("✅ 文档等级缓存已清除")
-        details.append("✅ 搜索缓存已清除")
-
-        result["message"] = "\n".join(details)
-        logger.info(f"文档删除完成: {filename}, 删除者: {username} (等级={user_level})")
-
-        # 6. 使知识图谱缓存失效
-        graph_service = get_graph_rag_service()
-        graph_service.invalidate_cache(user_level)
-
-        return result
-
-    except Exception as e:
-        logger.error(f"删除文档失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
-
-
-# ========== 批量删除 API ==========
+# ========== 批量删除 ==========
 
 @router.post("/upload/delete-batch")
 async def delete_documents_batch(
         request: Request,
+        background_tasks: BackgroundTasks,
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
     """
@@ -742,6 +802,18 @@ async def delete_documents_batch(
 
     graph_service = get_graph_rag_service()
     graph_service.invalidate_cache(user_level)
+
+    # ========== 批量发送 Kafka 删除事件 ==========
+    if is_kafka_enabled() and verified_filenames:
+        logger.info(f"📋 [Kafka] 将 {len(verified_filenames)} 个 delete 事件加入后台队列")
+        for filename in verified_filenames:
+            background_tasks.add_task(
+                send_kafka_delete_event_background,
+                filename=filename,
+                user_level=user_level,
+                chunk_ids=[]
+            )
+        logger.info(f"✅ [Kafka] {len(verified_filenames)} 个 delete 事件已加入后台队列")
 
     return {
         "success": success_count > 0,

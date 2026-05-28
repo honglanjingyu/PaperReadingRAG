@@ -58,6 +58,7 @@ def setup_file_logging():
         'app.service.core.retrieval',
         'app.service.core.rag',
         'app.service.core.vector_store',
+        'app.service.core.streaming',  # 添加 streaming 模块
         'app.api',
         'app.api.routes',
         'app.api.services',
@@ -92,11 +93,11 @@ def setup_file_logging():
 
 def setup_console_logging():
     """
-    配置控制台日志 - 只输出 INFO 及以上级别，同时保留 uvicorn 访问日志
+    配置控制台日志 - 只输出 WARNING 及以上级别，过滤 Kafka 详细日志
     """
-    # 创建控制台处理器 - 输出 INFO 及以上
+    # 创建控制台处理器 - 只输出 WARNING 及以上（改为 WARNING 级别）
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.WARNING)  # 改为 WARNING 级别，过滤 INFO 和 DEBUG
 
     # 简洁格式
     console_formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
@@ -104,7 +105,7 @@ def setup_console_logging():
 
     # 配置根日志器
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.WARNING)  # 根日志器也设置为 WARNING
 
     # 检查是否已有控制台处理器
     has_console = any(
@@ -116,44 +117,58 @@ def setup_console_logging():
 
     # 为 uvicorn 的访问日志单独配置控制台输出（保持简洁）
     uvicorn_access_logger = logging.getLogger("uvicorn.access")
-    uvicorn_access_logger.propagate = True  # 传播到根日志器
-    uvicorn_access_logger.setLevel(logging.INFO)
-
-    # 移除 uvicorn.access 默认的处理器，避免重复
-    for handler in uvicorn_access_logger.handlers[:]:
-        uvicorn_access_logger.removeHandler(handler)
+    uvicorn_access_logger.propagate = True
+    uvicorn_access_logger.setLevel(logging.WARNING)  # 改为 WARNING
 
 
 def suppress_noisy_loggers():
-    """压制部分第三方库的日志输出（在文件日志中仍然记录）"""
+    """压制第三方库的日志输出（包括 Kafka）"""
     noisy_loggers = [
         'urllib3.connectionpool',
         'requests.packages.urllib3',
         'httpcore.connection',
         'httpcore.http11',
-        # 添加以下日志器
         'elastic_transport.transport',
         'elasticsearch',
         'neo4j',
         'neo4j.notifications',
+        # ========== 添加 Kafka 相关日志器 ==========
+        'kafka',
+        'kafka.conn',
+        'kafka.client',
+        'kafka.consumer',
+        'kafka.consumer.subscription_state',
+        'kafka.coordinator',
+        'kafka.coordinator.consumer',
+        'kafka.cluster',
+        'kafka.producer',
+        'kafka.producer.sender',
     ]
 
     for logger_name in noisy_loggers:
         logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.WARNING)
+        logger.setLevel(logging.ERROR)  # 只显示 ERROR 及以上
+        # 确保不传播到根日志器
+        logger.propagate = False
+
+    # 单独设置 neo4j 通知
     neo4j_notifications = logging.getLogger("neo4j.notifications")
-    neo4j_notifications.setLevel(logging.ERROR)  # 只显示 ERROR 及以上
+    neo4j_notifications.setLevel(logging.ERROR)
+
+    # 额外设置 kafka 相关日志器，防止它们在控制台输出
+    for name in logging.root.manager.loggerDict:
+        if 'kafka' in name.lower():
+            logger = logging.getLogger(name)
+            logger.setLevel(logging.ERROR)
+            logger.propagate = False
 
 
 def init_logging():
     """初始化日志系统"""
-    setup_file_logging()
+    # 先设置控制台日志（在文件日志之前，确保控制台级别正确）
     setup_console_logging()
+    setup_file_logging()
     suppress_noisy_loggers()
-
-    # 打印日志文件位置（只在启动时输出一次）
-    print(f"📝 详细日志文件: {log_filename}")
-    print(f"📝 错误日志文件: {error_log_filename}")
 
     # 记录启动日志到文件
     logger = logging.getLogger(__name__)

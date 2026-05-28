@@ -1,7 +1,4 @@
 # app/api/main.py
-"""
-FastAPI应用创建 - 优化异步配置
-"""
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +7,6 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import logging
 from contextlib import asynccontextmanager
-import asyncio
 
 from app.api.routes import health, chat
 from app.api.routes.upload import router as upload_router
@@ -24,22 +20,47 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理 - 优化异步处理"""
+    """应用生命周期管理"""
     logger.info("应用启动中...")
 
-    # 初始化异步文档处理器
-    from app.service.core.rag.async_processor import init_async_processor, shutdown_async_processor
-    await init_async_processor()
-    logger.info("异步文档处理器已启动")
+    # ========== 移除异步文档处理器初始化 ==========
+    # 不再需要 AsyncDocumentProcessor
+
+    # ========== 启动 Kafka 流式消费者（唯一处理器） ==========
+    from app.service.core.streaming import get_stream_processor
+    stream_processor = get_stream_processor()
+    stream_processor.start_consumer()
+    logger.info("Kafka 流式消费者已启动（唯一文档处理器）")
 
     yield
 
     logger.info("应用关闭中...")
-    await shutdown_async_processor()
-    logger.info("异步文档处理器已关闭")
+    # 停止流式消费者
+    stream_processor.stop_consumer()
+    logger.info("Kafka 流式消费者已停止")
+
+
+def configure_uvicorn_logging():
+    """配置 uvicorn 日志，减少控制台输出"""
+    import logging
+
+    uvicorn_loggers = [
+        'uvicorn',
+        'uvicorn.error',
+        'uvicorn.access',
+        'uvicorn.asgi',
+        'uvicorn.lifespan'
+    ]
+
+    for logger_name in uvicorn_loggers:
+        log = logging.getLogger(logger_name)
+        log.setLevel(logging.WARNING)
+        log.propagate = False
 
 
 def create_app() -> FastAPI:
+    configure_uvicorn_logging()
+
     app = FastAPI(
         title="RAG文档问答系统",
         description="支持文档上传、智能分块、向量检索和智能问答",

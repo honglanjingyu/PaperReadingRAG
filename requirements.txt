@@ -153,7 +153,16 @@ imageio[ffmpeg]==2.34.0
 moviepy==1.0.3
 
 # ============================================================
-# 本地模型部署
+# 本地
 # ============================================================
 # sentence-transformers==2.2.2
 # java: sudo apt install openjdk-21-jdk # minerU API SDK
+# sudo apt-get install libsnappy-dev
+python-snappy==0.7.3
+
+# ============================================================
+# Kafka 流式处理
+# ============================================================
+kafka-python==2.0.2                     # Kafka 生产者和消费者客户端
+aiokafka==0.8.0                         # 异步 Kafka 客户端（推荐）
+confluent-kafka==2.3.0                  # Confluent Kafka 客户端（高性能，C实现）

@@ -259,6 +259,93 @@ class MilvusVectorStore:
             traceback.print_exc()
             return 0
 
+    def upsert(self, documents: List[Dict[str, Any]], index_name: str, user_level: str = "normal") -> int:
+        """
+        Upsert 操作 - 如果文档存在则更新，否则插入
+
+        性能优化：
+        1. 使用 Milvus 的 upsert API（如果版本支持）
+        2. 否则使用 delete + insert 策略
+
+        Returns:
+            受影响的行数
+        """
+        self._ensure_connected()
+
+        if not documents:
+            return 0
+
+        # 确保索引存在
+        vector_dim = None
+        for doc in documents:
+            if "vector" in doc and doc["vector"]:
+                vector_dim = len(doc["vector"])
+                break
+
+        if vector_dim is None:
+            logger.error("无法获取向量维度")
+            return 0
+
+        self.create_index(index_name, vector_dim)
+
+        try:
+            collection = Collection(index_name)
+            collection.load()
+
+            # 尝试使用 Milvus 2.3+ 的 upsert
+            try:
+                result = collection.upsert(documents)
+                collection.flush()
+                logger.info(f"Upsert 成功: {len(documents)} 条")
+                return len(documents)
+            except AttributeError:
+                # Milvus 版本不支持 upsert，使用 delete + insert
+                logger.debug("Milvus 不支持 upsert，使用 delete + insert")
+                return self._upsert_by_delete_insert(documents, index_name, collection, user_level)
+
+        except Exception as e:
+            logger.error(f"Upsert 失败: {e}")
+            return 0
+
+    def _upsert_by_delete_insert(
+            self,
+            documents: List[Dict],
+            index_name: str,
+            collection,
+            user_level: str
+    ) -> int:
+        """通过 delete + insert 实现 upsert"""
+        # 提取需要删除的 ID
+        doc_ids = [doc.get("id") for doc in documents if doc.get("id")]
+
+        if doc_ids:
+            ids_str = ', '.join([f"'{doc_id}'" for doc_id in doc_ids])
+            expr = f"id in [{ids_str}]"
+            collection.delete(expr)
+            collection.flush()
+
+        # 插入新文档
+        return self.insert(documents, index_name, user_level)
+
+    def batch_upsert_with_retry(
+            self,
+            documents: List[Dict[str, Any]],
+            index_name: str,
+            user_level: str = "normal",
+            max_retries: int = 3
+    ) -> int:
+        """带重试的批量 Upsert"""
+        for attempt in range(max_retries):
+            try:
+                return self.upsert(documents, index_name, user_level)
+            except Exception as e:
+                logger.warning(f"Upsert 失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(2 ** attempt)  # 指数退避
+
+        return 0
+
     def _truncate_string(self, s: str, max_length: int) -> str:
         """截断字符串到指定长度"""
         if not s:

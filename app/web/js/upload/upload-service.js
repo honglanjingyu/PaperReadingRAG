@@ -1,5 +1,5 @@
 // app/web/js/upload/upload-service.js
-// 上传核心逻辑模块 - 支持多模态
+// 上传核心逻辑模块 - 支持多模态，修复轮询逻辑
 
 import { elements, state } from './config.js';
 import { getAuthHeaders, showToast, logout, getMediaType, getMediaTypeHint, getProcessingMessage } from './utils.js';
@@ -25,9 +25,7 @@ function hideProgress() {
     }
 }
 
-// app/web/js/upload/upload-service.js - 修复版本
-
-// 开始轮询状态（支持多模态）
+// 开始轮询状态（支持多模态）- 修复版：正确停止轮询
 function startStatusPolling(taskId, filename, mediaType = null) {
     console.log(`开始轮询任务状态: taskId=${taskId}, filename=${filename}, mediaType=${mediaType}`);
 
@@ -98,7 +96,6 @@ function startStatusPolling(taskId, filename, mediaType = null) {
             }
 
             // ========== 关键修复：检查 completed 状态 ==========
-            // 确保正确比较状态字符串
             const currentStatus = String(statusData.status).toLowerCase();
 
             if (currentStatus === 'completed') {
@@ -137,6 +134,15 @@ function startStatusPolling(taskId, filename, mediaType = null) {
                 isCompleted = true;
                 return;
 
+            } else if (currentStatus === 'cancelled') {
+                console.log(`🛑 ${filename} 已取消`);
+                clearInterval(state.statusInterval);
+                state.statusInterval = null;
+                hideProgress();
+                showToast(`${filename} 已取消`, 'warning');
+                isCompleted = true;
+                return;
+
             } else if (pollCount >= maxPolls) {
                 console.log(`⏰ ${filename} 轮询超时`);
                 clearInterval(state.statusInterval);
@@ -163,7 +169,7 @@ function startStatusPolling(taskId, filename, mediaType = null) {
     }, 2000); // 每 2 秒轮询一次
 }
 
-// 上传单个文件（支持多模态）
+// 上传单个文件（支持多模态）- 修改为使用 /upload/async 接口
 export async function uploadFile(file) {
     const ext = '.' + file.name.split('.').pop().toLowerCase();
     const mediaType = getMediaType(file.name);
@@ -214,6 +220,7 @@ export async function uploadFile(file) {
     try {
         const headers = getAuthHeaders();
 
+        // 使用异步上传接口 /upload/async
         const response = await fetch(`${API_BASE}/upload/async`, {
             method: 'POST',
             headers: headers,
@@ -241,6 +248,7 @@ export async function uploadFile(file) {
                 elements.progressText.textContent = processMsg;
             }
 
+            // 开始轮询任务状态
             startStatusPolling(data.task_id, file.name, actualMediaType);
         } else {
             showToast(data.detail || data.message || '上传失败', 'error');
@@ -248,6 +256,32 @@ export async function uploadFile(file) {
     } catch (error) {
         console.error('上传错误:', error);
         showToast('上传失败: ' + error.message, 'error');
+    }
+}
+
+// 取消上传任务
+export async function cancelUploadTask(taskId, filename) {
+    if (!taskId) return false;
+
+    try {
+        const headers = getAuthHeaders();
+        const response = await fetch(`${API_BASE}/upload/task/${taskId}/cancel`, {
+            method: 'POST',
+            headers: headers
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(`${filename || '任务'} 已取消`, 'warning');
+            return true;
+        } else {
+            showToast(`取消失败: ${data.message}`, 'error');
+            return false;
+        }
+    } catch (error) {
+        console.error('取消任务失败:', error);
+        showToast(`取消失败: ${error.message}`, 'error');
+        return false;
     }
 }
 
