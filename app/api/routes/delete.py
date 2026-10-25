@@ -71,8 +71,6 @@ def _check_delete_permission(user_level: str, doc_level: str) -> tuple:
 
 def _get_document_level_sync(filename: str, index_name: str) -> str:
     """同步获取文档等级"""
-    from app.service.core.cache import get_document_cache
-    from app.service.core.vector_store import get_vector_store
     from pymilvus import Collection
 
     doc_cache = get_document_cache()

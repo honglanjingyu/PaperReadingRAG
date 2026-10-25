@@ -14,6 +14,9 @@ from app.auth.jwt_utils import get_user_id_from_token
 from app.db.database import get_db_manager
 from app.service.core.rag.async_processor import get_async_processor
 from app.service.core.multimodal import get_multimodal_parser, ExtractedContent
+from app.service.core.cache import get_cache_manager, get_document_cache
+from app.service.core.vector_store import get_vector_store
+from pymilvus import Collection
 from pydantic import BaseModel, Field
 from app.service.core.graphrag import get_graph_rag_service
 
@@ -158,7 +161,6 @@ async def upload_document(
         )
 
     # 记录多模态元数据到缓存
-    from app.service.core.cache import get_cache_manager
     cache = get_cache_manager()
     cache.set("multimodal", file.filename, {
         "media_type": media_type,
@@ -312,8 +314,6 @@ async def get_task_status(
         - media_type: 媒体类型（如果是多模态文件）
         - extracted_length: 提取的文字长度
     """
-    from app.service.core.rag.async_processor import get_async_processor
-
     processor = get_async_processor()
     task_status = await processor.get_task_status(task_id)
 
@@ -460,11 +460,6 @@ async def list_documents(
         page_size: int = Query(20, ge=1, le=100, description="每页数量")
 ) -> Dict[str, Any]:
     """列出已上传的文档（分页）- 显示媒体类型"""
-    from app.auth.jwt_utils import get_user_id_from_token
-    from app.db.database import get_db_manager
-    from app.service.core.cache import get_document_cache
-    from app.service.core.vector_store import get_vector_store
-    from pymilvus import Collection
 
     user_level = "normal"
     user_id = None
@@ -485,7 +480,6 @@ async def list_documents(
     upload_dir = UPLOAD_DIR
 
     # 获取多模态缓存
-    from app.service.core.cache import get_cache_manager
     cache = get_cache_manager()
 
     try:
@@ -619,7 +613,6 @@ async def get_document_stats(filename: str) -> Dict[str, Any]:
     media_type = MEDIA_TYPE_MAP.get(ext, "document")
 
     # 获取多模态元数据
-    from app.service.core.cache import get_cache_manager
     cache = get_cache_manager()
     multimodal_info = cache.get("multimodal", filename) or {}
 

@@ -12,12 +12,15 @@ import logging
 from contextlib import asynccontextmanager
 import asyncio
 
-from app.api.routes import health, chat
-from app.api.routes.upload import router as upload_router
-from app.api.routes.delete import router as delete_router
-from app.api.routes.graph_rag import router as graph_rag_router
+from app.api.routes import (
+    health,
+    chat,
+    upload_router,
+    delete_router,
+    graph_rag_router,
+    auth_router,
+)
 from app.api.config import settings
-from app.api.auth_routes import router as auth_router
 
 logger = logging.getLogger(__name__)
 

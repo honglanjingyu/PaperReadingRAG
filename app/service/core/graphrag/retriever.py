@@ -9,6 +9,10 @@ import logging
 from typing import List, Dict, Any, Optional, Set, Tuple
 from collections import defaultdict
 
+from app.service.core.embedding import get_embedding_service
+from app.service.core.vector_store import get_vector_search_service
+from .neo4j_store import get_neo4j_store
+
 # 导入配置管理器
 from app.service.graphrag_configs import get_graphrag_config
 
@@ -78,10 +82,6 @@ class GraphRetriever:
     """图检索器 - 使用 YAML 配置的实体提取和查询替换"""
 
     def __init__(self, vector_search_service=None, llm_service=None, neo4j_store=None):
-        from app.service.core.embedding import get_embedding_service
-        from app.service.core.vector_store import get_vector_search_service
-        from .neo4j_store import get_neo4j_store
-
         self.embedding = get_embedding_service()
         self.vector_search = vector_search_service or get_vector_search_service()
         self.neo4j = neo4j_store or get_neo4j_store()

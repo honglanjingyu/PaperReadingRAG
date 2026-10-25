@@ -41,7 +41,6 @@ async def create_new_session(
             effective_user_id = str(token_user_id) if token_user_id else user_id
             session_id = chat_service._memory_manager.get_or_create_session(user_id=effective_user_id)
         else:
-            from app.service.core.memory import get_memory_manager
             memory_manager = get_memory_manager()
             effective_user_id = str(token_user_id) if token_user_id else user_id
             session_id = memory_manager.get_or_create_session(user_id=effective_user_id)
@@ -79,7 +78,6 @@ async def get_session_info(
                 raise HTTPException(status_code=403, detail="无权访问此会话")
 
     try:
-        from app.service.core.memory import get_memory_manager
         memory = get_memory_manager()
 
         info = memory.get_session_info(session_id, user_id)
@@ -128,7 +126,6 @@ async def get_session_history(
                 raise HTTPException(status_code=403, detail="无权访问此会话")
 
     try:
-        from app.service.core.memory import get_memory_manager
         memory = get_memory_manager()
         history = memory.get_session_history(session_id, user_id, limit=limit)
 
@@ -398,7 +395,6 @@ async def clear_session(session_id: str) -> Dict[str, Any]:
 async def list_active_sessions() -> Dict[str, Any]:
     """列出所有活跃会话"""
     try:
-        from app.service.core.memory import get_memory_manager
         memory_manager = get_memory_manager()
 
         return {
@@ -451,7 +447,6 @@ async def graph_rag_ask(
 ) -> Dict[str, Any]:
     """GraphRAG 问答接口"""
     from app.service.core.graphrag import get_graph_rag_service
-    from app.service.core.memory import get_memory_manager
 
     user_level = "normal"
     if authorization:
@@ -510,7 +505,6 @@ async def graph_rag_ask_stream(
 ):
     """GraphRAG 流式问答"""
     from app.service.core.graphrag import get_graph_rag_service
-    from app.service.core.memory import get_memory_manager
 
     user_level = "normal"
     if authorization:

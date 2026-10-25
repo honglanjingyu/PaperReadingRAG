@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 import json
 import logging
 import asyncio
+import os
 
 from app.service.core.vector_store import get_vector_storage_service
 from app.auth.jwt_utils import get_user_id_from_token
@@ -181,7 +182,6 @@ async def get_graph_cache_stats(
         authorization: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
     """获取图谱缓存统计信息"""
-    import os
     graph_service = get_graph_rag_service()
 
     normal_cached = await asyncio.to_thread(graph_service.get_cached_graph, "normal")

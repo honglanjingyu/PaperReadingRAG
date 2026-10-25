@@ -7,6 +7,11 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
+from pymilvus import Collection
+
+from app.service.core.vector_store import get_vector_store
+from app.service.core.llm import get_llm_service
+
 from .core import EntityExtractor
 from .community import CommunityDetector
 from .retriever import GraphRetriever, GraphCache
@@ -71,7 +76,6 @@ class GraphRAGService:
         # 加载配置
         self.config = get_graphrag_config()
 
-        from app.service.core.llm import get_llm_service
         self.llm_service = get_llm_service()
         self.neo4j = get_neo4j_store()
         self.cache = GraphCache()
@@ -104,9 +108,6 @@ class GraphRAGService:
                     f"关系类型={len(self.relation_types)}")
 
     def _get_documents_version(self, user_level: str = None) -> str:
-        from app.service.core.vector_store import get_vector_store
-        from pymilvus import Collection
-
         store = get_vector_store()
         index_name = "rag_documents"
         if not store.index_exists(index_name):

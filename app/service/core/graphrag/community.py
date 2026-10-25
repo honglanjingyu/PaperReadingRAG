@@ -2,8 +2,8 @@
 """社区发现模块 - Leiden 算法"""
 
 import logging
+from collections import defaultdict, Counter
 from typing import List, Dict, Any, Set, Tuple, Optional
-from collections import defaultdict
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,6 @@ class CommunityDetector:
                 if len(w) >= 2:
                     words.append(w)
 
-        from collections import Counter
         comm.keywords = [w for w, _ in Counter(words).most_common(5)]
         comm.summary = f"社区包含 {comm.size} 个实体，密度={comm.density:.2f}，涉及 {', '.join(comm.keywords[:3]) if comm.keywords else '未识别主题'}"
 

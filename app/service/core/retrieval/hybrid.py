@@ -4,10 +4,18 @@
 """
 
 import os
+import json
+import hashlib
 import logging
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
+
+from app.service.core.vector_store import get_vector_store, get_vector_search_service
+from app.service.core.embedding import get_embedding_service
+from app.service.core.cache import get_cache_manager
+from .rewriter import QueryRewriter
+from .reranker import Reranker
 
 logger = logging.getLogger(__name__)
 
@@ -121,9 +129,6 @@ class HybridRetriever:
     """混合检索器 - 向量 + BM25，使用 RRF 融合"""
 
     def __init__(self, vector_store=None, embedding_manager=None):
-        from app.service.core.vector_store import get_vector_store
-        from app.service.core.embedding import get_embedding_service
-
         self.vector_store = vector_store or get_vector_store()
         self.embedding_service = embedding_manager or get_embedding_service()
         self.es_bm25 = None
@@ -135,6 +140,7 @@ class HybridRetriever:
     def _check_es_available(self) -> bool:
         """检查 ES 是否可用"""
         try:
+            # 保留函数内导入：elasticsearch 缺失时需在此降级，不能提到模块顶部
             from .es_bm25 import get_es_bm25_retriever
             self.es_bm25 = get_es_bm25_retriever()
             return self.es_bm25.is_available()
@@ -215,8 +221,6 @@ class ParentChildRetriever:
         self._init_services()
 
     def _init_services(self):
-        from app.service.core.embedding import get_embedding_service
-        from app.service.core.vector_store import get_vector_search_service
         self.vector_search = get_vector_search_service()
         self.embedding_service = get_embedding_service()
         self.hybrid_retriever = HybridRetriever()
@@ -300,9 +304,6 @@ class ParentChildRetriever:
             **kwargs
     ) -> Dict[str, Any]:
         """带查询改写的父子检索"""
-        from .rewriter import QueryRewriter
-        from .reranker import Reranker
-
         rewritten_query = question
 
         if enable_query_rewrite:
@@ -386,8 +387,6 @@ class ParentChildRetriever:
 
     def get_cache_key(self, params: Dict) -> str:
         """生成缓存key"""
-        import json
-        import hashlib
         params_str = json.dumps(params, sort_keys=True, ensure_ascii=False)
         return hashlib.md5(params_str.encode()).hexdigest()[:16]
 
@@ -402,8 +401,6 @@ class ParentChildRetriever:
             **kwargs
     ) -> Dict[str, Any]:
         """带缓存的父子检索"""
-        from app.service.core.cache import get_cache_manager
-
         cache_manager = get_cache_manager()
 
         # 生成缓存key
