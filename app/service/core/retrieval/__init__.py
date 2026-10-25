@@ -5,12 +5,12 @@ from .hybrid import (
     get_hybrid_retriever, ScoreMerger, normalize_scores, get_level_priority
 )
 from .es_bm25 import ESBM25Retriever, get_es_bm25_retriever
-from .reranker import Reranker, get_rerank_type
+from .reranker import Reranker
 from .rewriter import QueryRewriter
 
 __all__ = [
     'HybridRetriever', 'ParentChildRetriever', 'get_parent_child_retriever',
     'get_hybrid_retriever', 'ScoreMerger', 'normalize_scores', 'get_level_priority',
-    'ESBM25Retriever', 'get_es_bm25_retriever', 'Reranker', 'get_rerank_type',
+    'ESBM25Retriever', 'get_es_bm25_retriever', 'Reranker',
     'QueryRewriter'
 ]

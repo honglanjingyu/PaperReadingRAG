@@ -8,7 +8,6 @@ from typing import List, Optional
 
 from .base import BaseEmbeddingModel
 from .remote import RemoteEmbeddingModel
-from .local import LocalEmbeddingModel
 from ..cache import get_cache_manager
 
 logger = logging.getLogger(__name__)
@@ -17,17 +16,14 @@ logger = logging.getLogger(__name__)
 class CachedEmbeddingModel(BaseEmbeddingModel):
     """带缓存的 Embedding 模型"""
 
-    def __init__(self, model: BaseEmbeddingModel = None, model_type: str = None, cache_ttl: int = None):
+    def __init__(self, model: BaseEmbeddingModel = None, cache_ttl: int = None):
         self.cache = get_cache_manager()
         self.cache_ttl = cache_ttl or int(os.getenv("CACHE_EMBEDDING_TTL", "604800"))  # 7天
 
         if model:
             self._model = model
         else:
-            if model_type == "local":
-                self._model = LocalEmbeddingModel()
-            else:
-                self._model = RemoteEmbeddingModel()
+            self._model = RemoteEmbeddingModel()
 
         self._dimension = self._model.dimension
         self._model_name = self._model.model_name

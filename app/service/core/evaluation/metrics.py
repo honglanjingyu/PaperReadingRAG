@@ -19,11 +19,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ENABLE_LLM_EVAL = os.getenv("ENABLE_LLM_EVAL", "true").lower() == "true"
-EVALUATION_TYPE = os.getenv("EVALUATION_TYPE", "remote")
 EVALUATION_MODEL = os.getenv("EVALUATION_MODEL", "qwen-plus-2025-07-28")
 EVALUATION_BASE_URL = os.getenv("EVALUATION_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 EVALUATION_API_KEY = os.getenv("EVALUATION_API_KEY") or os.getenv("MODEL_API_KEY")
-LOCAL_EVALUATION_PATH = os.getenv("LOCAL_EVALUATION_PATH", "")
 
 
 @dataclass
@@ -139,12 +137,7 @@ class EvaluationLLM:
             logger.info("LLM 评估已禁用")
             return
 
-        if EVALUATION_TYPE == "remote":
-            self._init_remote()
-        elif EVALUATION_TYPE == "local":
-            self._init_local()
-        else:
-            self._init_remote()
+        self._init_remote()
 
     def _init_remote(self):
         """初始化远程 LLM"""
@@ -163,35 +156,16 @@ class EvaluationLLM:
         except Exception as e:
             logger.error(f"评估 LLM 初始化失败: {e}")
 
-    def _init_local(self):
-        """初始化本地 LLM"""
-        try:
-            from sentence_transformers import SentenceTransformer
-
-            if LOCAL_EVALUATION_PATH:
-                self._local_model = SentenceTransformer(LOCAL_EVALUATION_PATH)
-            else:
-                self._local_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-            logger.info("本地评估模型初始化成功")
-        except Exception as e:
-            logger.error(f"本地评估模型初始化失败: {e}")
-            self._local_model = None
-
     def is_available(self) -> bool:
         """检查评估 LLM 是否可用"""
-        return ENABLE_LLM_EVAL and (self._client is not None or self._local_model is not None)
+        return ENABLE_LLM_EVAL and self._client is not None
 
     def generate(self, prompt: str) -> Optional[str]:
         """生成评估结果"""
         if not self.is_available():
             return None
 
-        if EVALUATION_TYPE == "remote" and self._client:
-            return self._generate_remote(prompt)
-        elif EVALUATION_TYPE == "local" and hasattr(self, '_local_model'):
-            # 本地模型暂不支持直接生成，返回 None
-            return None
-        return None
+        return self._generate_remote(prompt)
 
     def _generate_remote(self, prompt: str) -> Optional[str]:
         """远程生成"""

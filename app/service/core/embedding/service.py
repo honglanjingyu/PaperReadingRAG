@@ -38,10 +38,6 @@ class VectorChunk:
         }
 
 
-def get_embedding_type() -> str:
-    return os.getenv("EMBEDDING_TYPE", "remote").lower()
-
-
 class EmbeddingService:
     """统一的 Embedding 服务（单例）"""
 
@@ -61,21 +57,16 @@ class EmbeddingService:
         self._init_model()
 
     def _init_model(self):
-        """初始化模型（带缓存）"""
-        model_type = get_embedding_type()
+        """初始化模型（带缓存），仅使用远程 API"""
         use_cache = os.getenv("ENABLE_EMBEDDING_CACHE", "true").lower() == "true"
 
         if use_cache:
-            self._model = CachedEmbeddingModel(model_type=model_type)
+            self._model = CachedEmbeddingModel()
         else:
             from .remote import RemoteEmbeddingModel
-            from .local import LocalEmbeddingModel
-            if model_type == "local":
-                self._model = LocalEmbeddingModel()
-            else:
-                self._model = RemoteEmbeddingModel()
+            self._model = RemoteEmbeddingModel()
 
-        logger.info(f"EmbeddingService 初始化: type={model_type}, model={self._model.model_name}")
+        logger.info(f"EmbeddingService 初始化: model={self._model.model_name}")
 
     @property
     def dimension(self) -> int:

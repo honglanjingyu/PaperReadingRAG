@@ -152,8 +152,4 @@ imageio-ffmpeg==0.5.1                   # ffmpeg 绑定
 imageio[ffmpeg]==2.34.0
 moviepy==1.0.3
 
-# ============================================================
-# 本地模型部署
-# ============================================================
-# sentence-transformers==2.2.2
 # java: sudo apt install openjdk-21-jdk # minerU API SDK

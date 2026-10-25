@@ -42,7 +42,7 @@ PaperReadingRAG 是一个生产级的 RAG（Retrieval-Augmented Generation）文
 | 文档解析      | MinerU API                     |
 | 图片OCR     | MinerU API                     |
 | 语音转文字     | Whisper / FunASR               |
-| Embedding | 远程API (DashScope) / 本地模型 (BGE) |
+| Embedding | 远程API (DashScope) |
 | LLM       | 远程API (Qwen系列)                 |
 
 ### 文档处理流程
@@ -195,7 +195,6 @@ PaperReadingRAG/
 │   │       ├── embedding/      # 向量化
 │   │       │   ├── service.py       # Embedding 服务
 │   │       │   ├── remote.py        # 远程 API
-│   │       │   ├── local.py         # 本地模型
 │   │       │   └── cached.py        # 缓存包装
 │   │       ├── vector_store/   # Milvus 存储
 │   │       │   ├── milvus_vector_store.py
@@ -304,7 +303,6 @@ LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 EMBEDDING_API_KEY=your-dashscope-api-key
 EMBEDDING_MODEL=text-embedding-v3
 EMBEDDING_DIMENSIONS=1024
-EMBEDDING_TYPE=remote
 
 # ========== MinerU 文档解析 ==========
 PARSE_API_TOKEN=your-mineru-token

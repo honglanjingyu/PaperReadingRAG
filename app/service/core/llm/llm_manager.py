@@ -15,11 +15,6 @@ class LLMType(Enum):
     REMOTE = "remote"
 
 
-def get_llm_type() -> str:
-    """获取 LLM 类型配置"""
-    return os.getenv("LLM_TYPE", "remote").lower()
-
-
 class LLMManager:
     _instance = None
 
@@ -35,12 +30,7 @@ class LLMManager:
         self._initialized = True
         self._models: dict = {}
         self._active_model: Optional[BaseLLM] = None
-        self._default_type = get_llm_type()
-        self._init_default_model()
-
-    def _init_default_model(self):
-        if self._default_type == "remote":
-            self._active_model = self.get_remote_model()
+        self._active_model = self.get_remote_model()
 
     def get_remote_model(self, **kwargs) -> RemoteLLM:
         if LLMType.REMOTE not in self._models:
@@ -51,9 +41,8 @@ class LLMManager:
     def get_active_model(self) -> BaseLLM:
         return self._active_model
 
-    def set_active_model(self, model_type: str):
-        if model_type == "remote":
-            self._active_model = self.get_remote_model()
+    def set_active_model(self, model_type: str = "remote"):
+        self._active_model = self.get_remote_model()
         logger.info(f"激活模型: {model_type}")
 
     def generate(self, messages: list, **kwargs) -> Optional[str]:
@@ -65,7 +54,7 @@ class LLMManager:
     def get_model_info(self) -> dict:
         model = self.get_active_model()
         return {
-            "type": self._default_type,
+            "type": "remote",
             "model_name": model.model_name,
         }
 

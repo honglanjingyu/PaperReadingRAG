@@ -23,7 +23,7 @@ async def health_check() -> Dict[str, Any]:
 async def get_config() -> Dict[str, Any]:
     """获取系统配置信息"""
     return {
-        "embedding_type": os.getenv("EMBEDDING_TYPE", "remote"),
+        "embedding_type": "remote",
         "vector_store_type": "milvus",  # 固定为 milvus
         "index_name": os.getenv("VECTOR_INDEX_NAME", "rag_documents"),
         "llm_model": os.getenv("LLM_MODEL", "qwen-turbo"),

@@ -1,0 +1,27 @@
+# Elasticsearch 配置（容器内路径：/usr/share/elasticsearch/config/elasticsearch.yml）
+# 大部分参数已在 docker-compose.yml 的 environment 中给出，这里只放不适合用环境变量表达的部分
+
+cluster.name: rag-cluster
+node.name: es-node-1
+
+# 开发环境单节点
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# 关闭安全认证（本机开发用）
+xpack.security.enabled: false
+xpack.security.enrollment.enabled: false
+
+# 单节点不需要集群发现
+# discovery.type 已通过环境变量 single-node 指定
+
+# 磁盘水位（开发机空间有限时放宽，避免索引被自动设为只读）
+cluster.routing.allocation.disk.threshold_enabled: true
+cluster.routing.allocation.disk.watermark.low: 92%
+cluster.routing.allocation.disk.watermark.high: 95%
+cluster.routing.allocation.disk.watermark.flood_stage: 98%
+
+# 关闭遥测
+xpack.ml.enabled: false
+telemetry.metrics.enabled: false

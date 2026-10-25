@@ -11,15 +11,11 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 
-def get_rerank_type() -> str:
-    return os.getenv("RERANK_TYPE", "auto").lower()
-
-
 class Reranker:
-    """重排序器"""
+    """重排序器（远程 API）"""
 
     def __init__(self, api_type: str = None):
-        self.api_type = api_type or get_rerank_type()
+        self.api_type = "remote"
         self.api_key = os.getenv("RERANK_API_KEY") or os.getenv("MODEL_API_KEY")
         self.base_url = os.getenv("RERANK_BASE_URL") or os.getenv("LLM_BASE_URL")
         self.model = os.getenv("RERANK_MODEL", "gte-rerank")
@@ -60,4 +56,4 @@ class Reranker:
         return documents[:top_k]
 
 
-__all__ = ['Reranker', 'get_rerank_type']
+__all__ = ['Reranker']
