@@ -440,7 +440,10 @@ class MilvusVectorStore:
             for hits in results:
                 for hit in hits:
                     raw_score = hit.score
-                    similarity = 1.0 - raw_score
+                    # Milvus 的 COSINE 是「越大越相近」（范围 -1~1）。
+                    # 之前误写成 1.0 - raw_score，等于把排序整个颠倒，
+                    # 导致最相似的反而排在最后、且被阈值大量误杀。
+                    similarity = raw_score
 
                     if similarity >= similarity_threshold:
                         doc = {

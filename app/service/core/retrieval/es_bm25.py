@@ -77,12 +77,34 @@ class ESBM25Retriever:
                         "parent_id": {"type": "keyword"},
                         "parent_content": {"type": "text"},
                         "chunk_type": {"type": "keyword"},
+                        # 图片块的原图路径；文本块为空串。只用于取回，不参与打分。
+                        "image_ref": {"type": "keyword"},
+                        # 多模态大模型给图片生成的中文描述。图片块的 content 里
+                        # 也拼了同一段文字，这里单独留字段，便于按「只看描述」
+                        # 加权，也便于回填脚本判断哪些块还没描述过。
+                        "caption": {"type": "text", "analyzer": "standard"},
                         "created_at": {"type": "date"}
                     }
                 }
             }
             self._client.indices.create(index=es_index, body=mapping)
             logger.info(f"ES 索引创建成功: {es_index}")
+        else:
+            # 老索引没有 caption 字段（图片描述上线之前建的），补一次映射。
+            # 已存在就忽略异常，不影响写入（ES 会把未知字段当动态字段处理）。
+            try:
+                props = self._client.indices.get_mapping(index=es_index)
+                fields = {}
+                for _, body in props.items():
+                    fields.update(body.get("mappings", {}).get("properties", {}))
+                if "caption" not in fields:
+                    self._client.indices.put_mapping(
+                        index=es_index,
+                        body={"properties": {"caption": {"type": "text", "analyzer": "standard"}}},
+                    )
+                    logger.info(f"ES 索引补齐 caption 字段: {es_index}")
+            except Exception as e:
+                logger.warning(f"补齐 caption 字段失败（忽略）: {e}")
 
         # 批量插入
         actions = []
@@ -139,7 +161,9 @@ class ESBM25Retriever:
         search_body = {
             "query": {
                 "bool": {
-                    "must": [{"multi_match": {"query": query, "fields": ["content^2", "content_with_weight^1.5"]}}],
+                    # caption 是图片块的视觉描述，权重给得比正文还高一点：
+                    # 用户搜「哪张图画了上升趋势」时，靠的就是这段文字。
+                    "must": [{"multi_match": {"query": query, "fields": ["caption^3", "content^2", "content_with_weight^1.5"]}}],
                     "filter": filter_queries if filter_queries else None
                 }
             },
@@ -160,6 +184,12 @@ class ESBM25Retriever:
                     "document_name": source.get("document_name", source.get("docnm", "")),
                     "docnm": source.get("docnm", ""),
                     "user_level": source.get("user_level", "normal"),
+                    # 图片块要带上这两个字段，BM25 命中的图片块才能参与原图回填
+                    "chunk_type": source.get("chunk_type", "child"),
+                    "image_ref": source.get("image_ref", ""),
+                    "caption": source.get("caption", ""),
+                    "parent_id": source.get("parent_id", ""),
+                    "parent_content": source.get("parent_content", ""),
                     "_search_type": "es_bm25"
                 })
             return results

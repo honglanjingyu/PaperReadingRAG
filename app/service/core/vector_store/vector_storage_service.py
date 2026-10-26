@@ -145,6 +145,14 @@ class VectorStorageService:
                         es_doc["parent_content"] = doc.get("parent_content")
                     if doc.get("chunk_type"):
                         es_doc["chunk_type"] = doc.get("chunk_type")
+                    # 图片块的原图路径也要同步到 ES，否则 BM25 单独命中图片块时
+                    # 拿不到 image_ref，生成阶段无法回填原图。
+                    if doc.get("image_ref"):
+                        es_doc["image_ref"] = doc.get("image_ref")
+                    # 多模态大模型给图片生成的描述。单独成字段，BM25 对它
+                    # 加权（es_bm25 里 caption^3），回填脚本也靠它判断是否已描述。
+                    if doc.get("caption"):
+                        es_doc["caption"] = doc.get("caption")
                     es_documents.append(es_doc)
 
                 # 存储到 ES

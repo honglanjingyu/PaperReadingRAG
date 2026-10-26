@@ -306,14 +306,27 @@ def process_document_with_text(
             if img_vec:
                 text_part = (text_content or "").strip()
                 snippet = text_part[:2000] if text_part else "（该图片未识别出文字，仅保留视觉特征）"
+                # BM25 只对 content / content_with_weight 的字面词打分。图片块光有
+                # 「[图片] 文件名 + OCR 文本」时，示意图、照片这类 OCR 出不了字的图
+                # 在 BM25 里等于空文档。这里用多模态大模型生成一段中文描述拼进
+                # content，图片块就能被文字检索到。失败时返回原文，不影响入库。
+                image_caption = ""
+                try:
+                    from app.service.core.multimodal.image_caption import build_image_payload
+                    image_content, image_caption = build_image_payload(image_path, file_name, text_part)
+                except Exception as e:
+                    logger.warning(f"图片描述生成失败，退回原文本 {file_name}: {e}")
+                    image_content = f"[图片] {file_name}\n{snippet}"
                 vector_chunks.append(types.SimpleNamespace(
                     id=hashlib.md5(f"img:{file_name}".encode()).hexdigest(),
-                    content=f"[图片] {file_name}\n{snippet}",
+                    content=image_content,
                     vector=img_vec,
                     metadata={
                         "media_type": "image",
                         "chunk_type": "image",
                         "image_ref": image_path,
+                        # 描述单独留一份，写进 ES 的 caption 字段单独加权
+                        "caption": image_caption,
                         "doc_id": hashlib.md5(file_name.encode()).hexdigest()[:16],
                     },
                     token_count=0,

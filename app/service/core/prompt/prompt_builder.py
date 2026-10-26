@@ -7,6 +7,7 @@ Prompt构造器 - 构建结构化Prompt
 from typing import List, Dict, Any, Optional
 from .templates import get_system_instruction, get_template
 from .context_constructor import ContextConstructor
+from .multimodal import build_multimodal_user_content
 
 
 class PromptBuilder:
@@ -83,7 +84,10 @@ class PromptBuilder:
                     })
 
         # 添加当前用户消息
-        messages.append({"role": "user", "content": user_content})
+        # 若检索结果里含图片块，把原图按 OpenAI 多模态格式一并注入；
+        # 没有可用图片时 content 仍是纯字符串，行为与原来完全一致。
+        user_payload = build_multimodal_user_content(user_content, results)
+        messages.append({"role": "user", "content": user_payload})
 
         return messages
 
