@@ -87,8 +87,15 @@ class RemoteLLM(BaseLLM):
                 stream=True
             )
             for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                # 流末尾 DashScope 会额外返回一个只带 usage 的 chunk，其 choices 为空列表，
+                # 直接取 choices[0] 会抛 IndexError，必须跳过
+                choices = getattr(chunk, 'choices', None)
+                if not choices:
+                    continue
+                delta = getattr(choices[0], 'delta', None)
+                content = getattr(delta, 'content', None) if delta is not None else None
+                if content:
+                    yield content
         except Exception as e:
-            logger.error(f"流式生成失败: {e}")
+            logger.exception(f"流式生成失败: {e}")
             yield f"生成失败: {e}"

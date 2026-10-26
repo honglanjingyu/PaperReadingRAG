@@ -234,17 +234,29 @@ def process_document_with_text(
         enable_storage: bool = True,
         index_name: str = None,
         user_level: str = "normal",
-        verbose: bool = False
+        verbose: bool = False,
+        image_path: str = "",
+        media_type: str = "document"
 ) -> List:
     """
     处理已提取文字的内容（用于图片/音频/视频的OCR/ASR结果）
+
+    image_path 非空且 embedding 模型支持图片编码时，会额外生成一个「图像向量块」：
+    它的向量由图像塔编码原图得到，与文本块同维度、同空间，写进同一个集合的
+    同一个 vector 字段，因此一次 ANN 就能同时命中文本块和图片块。
 
     Returns:
         List: 向量块列表，处理失败返回空列表
     """
     if not text_content or not text_content.strip():
-        logger.warning(f"文件 {file_name} 没有提取到文字内容")
-        return []
+        # 图片可能本来就没什么可 OCR 的文字（示意图、照片），但视觉特征仍要入库，
+        # 否则真一次 ANN 就退化成纯文本检索了。
+        if image_path:
+            logger.info(f"文件 {file_name} 未提取到文字，仅按图片视觉特征入库")
+            text_content = ""
+        else:
+            logger.warning(f"文件 {file_name} 没有提取到文字内容")
+            return []
 
     logger.info(f"开始处理文档: {file_name}, 文字长度={len(text_content)}, 用户等级={user_level}")
 
@@ -267,12 +279,11 @@ def process_document_with_text(
 
     if not doc.all_children:
         logger.warning(f"文件 {file_name} 分块后没有子块")
-        return []
 
-    # 2. 向量化
+    # 2. 向量化（文本块）
     vector_chunks = []
+    embedding = get_embedding_service() if enable_vectorization else None
     if enable_vectorization and doc.all_children:
-        embedding = get_embedding_service()
         vectors = embedding.generate_embeddings([c.content for c in doc.all_children])
         parent_map = {p.id: p for p in doc.parent_chunks}
 
@@ -283,6 +294,39 @@ def process_document_with_text(
                 vector_chunks.append(vc)
 
         logger.info(f"向量化完成: {len(vector_chunks)}/{len(doc.all_children)} 个块")
+
+    # 2.1 图片块（真一次 ANN 的关键）
+    #     图片用图像塔编码，向量维度/空间与文本块完全一致，写进同一个集合的
+    #     同一个 vector 字段。因此一次 ANN 就能同时命中文本块和图片块。
+    #     即使 OCR 没出文字（all_children 为空），图片块也要照常入库。
+    if image_path and enable_vectorization and embedding is not None and getattr(embedding, "supports_image", False):
+        try:
+            import types
+            img_vec = embedding.encode_image(image_path)
+            if img_vec:
+                text_part = (text_content or "").strip()
+                snippet = text_part[:2000] if text_part else "（该图片未识别出文字，仅保留视觉特征）"
+                vector_chunks.append(types.SimpleNamespace(
+                    id=hashlib.md5(f"img:{file_name}".encode()).hexdigest(),
+                    content=f"[图片] {file_name}\n{snippet}",
+                    vector=img_vec,
+                    metadata={
+                        "media_type": "image",
+                        "chunk_type": "image",
+                        "image_ref": image_path,
+                        "doc_id": hashlib.md5(file_name.encode()).hexdigest()[:16],
+                    },
+                    token_count=0,
+                    chunk_index=0,
+                    user_level=user_level,
+                    parent_id="",
+                    parent_content="",
+                ))
+                logger.info(f"图片向量块已生成: {file_name} dim={len(img_vec)}")
+            else:
+                logger.warning(f"图片编码返回空，跳过图片块: {file_name}")
+        except Exception as e:
+            logger.error(f"图片块生成失败 {file_name}: {e}", exc_info=True)
 
     if not vector_chunks:
         logger.warning(f"文件 {file_name} 向量化后没有有效块")

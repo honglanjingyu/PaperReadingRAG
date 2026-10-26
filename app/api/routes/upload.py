@@ -131,6 +131,7 @@ async def upload_document(
     # ========== 根据媒体类型选择不同的提交方式 ==========
     if media_type in ["image", "audio", "video"]:
         # 多模态文件：直接传递提取的文字，不创建临时文件
+        # file_path 传原图路径：图片要用图像塔编码，才能和文本进同一个 vector 字段
         task_id = await processor.submit_task_with_text(
             extracted_text=extracted.text_content,
             file_name=file.filename,
@@ -140,7 +141,8 @@ async def upload_document(
             user_level=user_level,
             chunk_size=chunk_size or settings.chunk_size,
             enable_vectorization=enable_vectorization,
-            enable_storage=enable_storage
+            enable_storage=enable_storage,
+            file_path=str(file_path)
         )
         # ⚠️ 注意：不删除原始上传文件，保留原文件
 
@@ -220,6 +222,7 @@ async def upload_document_async(
     # ========== 根据媒体类型选择不同的提交方式 ==========
     if media_type in ["image", "audio", "video"]:
         # 多模态文件：直接传递提取的文字
+        # file_path 传原图路径：图片要用图像塔编码，才能和文本进同一个 vector 字段
         task_id = await processor.submit_task_with_text(
             extracted_text=extracted.text_content,
             file_name=file.filename,
@@ -229,7 +232,8 @@ async def upload_document_async(
             user_level=user_level,
             chunk_size=chunk_size or settings.chunk_size,
             enable_vectorization=enable_vectorization,
-            enable_storage=enable_storage
+            enable_storage=enable_storage,
+            file_path=str(file_path)
         )
         # ⚠️ 注意：不删除原始上传文件，保留原文件
 
@@ -401,6 +405,7 @@ async def batch_upload(
             # ========== 根据媒体类型选择不同的提交方式 ==========
             if media_type in ["image", "audio", "video"]:
                 # 多模态文件：直接传递提取的文字
+                # file_path 传原图路径：图片要用图像塔编码，才能和文本进同一个 vector 字段
                 task_id = await processor.submit_task_with_text(
                     extracted_text=extracted.text_content,
                     file_name=file_name,
@@ -410,7 +415,8 @@ async def batch_upload(
                     user_level=user_level,
                     chunk_size=request.chunk_size or settings.chunk_size,
                     enable_vectorization=request.enable_vectorization,
-                    enable_storage=request.enable_storage
+                    enable_storage=request.enable_storage,
+                    file_path=str(file_path)
                 )
                 # ⚠️ 注意：不删除原始上传文件，保留原文件
 

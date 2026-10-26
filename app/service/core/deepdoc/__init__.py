@@ -39,20 +39,43 @@ class DocumentParser:
     def __init__(self):
         self._parser = RemoteDocumentParser()
 
+    # 远程解析不可用时可本地直读的纯文本类型
+    _LOCAL_TEXT_EXT = {'.txt', '.md', '.markdown'}
+
+    def _parse_local_text(self, file_path: str):
+        """本地直读纯文本文件，返回 (sections, total_pages)"""
+        for enc in ('utf-8', 'utf-8-sig', 'gbk', 'latin-1'):
+            try:
+                with open(file_path, 'r', encoding=enc) as f:
+                    text = f.read()
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        else:
+            logger.error(f"本地读取失败（编码不支持）: {file_path}")
+            return [], 1
+        text = text or ''
+        return ([(text, 'text')] if text.strip() else []), 1
+
     def parse(self, file_path: str, from_page: int = 0, to_page: int = 100000,
               enable_cleaning: bool = True, verbose: bool = False):
         """
         兼容 parse 方法，返回 ParsedDocument 对象
 
-        注意：enable_cleaning 和 verbose 参数被忽略（远程解析已包含清洗）
+        远程解析器不可用时，对 txt/md 等纯文本文件回退到本地直读。
         """
+        ext = os.path.splitext(file_path)[1].lower()
+        if not self._parser.is_available() and ext in self._LOCAL_TEXT_EXT:
+            logger.warning(f"远程解析不可用，回退本地直读: {file_path}")
+            sections, total_pages = self._parse_local_text(file_path)
+            return ParsedDocument(file_path, sections, total_pages)
         sections, tables, total_pages = self._parser.parse_document(file_path, from_page, to_page)
         return ParsedDocument(file_path, sections, total_pages)
 
     def parse_to_text(self, file_path: str, from_page: int = 0, to_page: int = 100000, **kwargs) -> str:
         """兼容 parse_to_text 方法"""
-        sections, _, _ = self._parser.parse_document(file_path, from_page, to_page)
-        return "\n".join([text for text, _ in sections]) if sections else ""
+        parsed = self.parse(file_path, from_page, to_page)
+        return parsed.cleaned_text
 
 
 # 导出兼容类

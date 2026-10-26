@@ -99,6 +99,28 @@ class CachedEmbeddingModel(BaseEmbeddingModel):
 
         return results
 
+    @property
+    def supports_image(self) -> bool:
+        return callable(getattr(self._model, "encode_image", None))
+
+    def encode_image(self, image_path: str) -> Optional[List[float]]:
+        """图片编码透传。
+
+        图片一般只编码一次就入库，命中率低，不走 Redis 缓存；
+        而 cache key 若只按路径构造，文件被替换后会命中脏数据，风险更大。
+        """
+        fn = getattr(self._model, "encode_image", None)
+        if fn is None:
+            logger.warning("底层模型不支持图片编码")
+            return None
+        return fn(image_path)
+
+    def encode_images(self, image_paths: List[str]) -> List[Optional[List[float]]]:
+        fn = getattr(self._model, "encode_images", None)
+        if fn is None:
+            return [None] * len(image_paths or [])
+        return fn(image_paths)
+
     def clear_cache(self):
         """清空所有 embedding 缓存"""
         self.cache.delete_pattern("embedding")

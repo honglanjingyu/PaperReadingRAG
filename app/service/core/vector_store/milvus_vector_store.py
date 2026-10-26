@@ -100,6 +100,9 @@ class MilvusVectorStore:
             FieldSchema(name="parent_id", dtype=DataType.VARCHAR, max_length=200),
             FieldSchema(name="parent_content", dtype=DataType.VARCHAR, max_length=65535),
             FieldSchema(name="chunk_type", dtype=DataType.VARCHAR, max_length=20),
+            # 图片块的原图路径。真一次 ANN 下图片块与文本块同集合，
+            # 靠这个字段区分出图片并在生成阶段回填原图；文本块留空串。
+            FieldSchema(name="image_ref", dtype=DataType.VARCHAR, max_length=1000),
             FieldSchema(name="parent_chunk_index", dtype=DataType.INT32),
             FieldSchema(name="child_chunk_index", dtype=DataType.INT32),
             FieldSchema(name="docnm", dtype=DataType.VARCHAR, max_length=500),
@@ -175,6 +178,7 @@ class MilvusVectorStore:
         token_counts = []
         chunk_indices = []
         timestamps = []
+        image_refs = []
         vectors = []
 
         for doc in documents:
@@ -214,6 +218,7 @@ class MilvusVectorStore:
             token_counts.append(int(doc.get("token_count", 0)))
             chunk_indices.append(int(doc.get("chunk_index", 0)))
             timestamps.append(float(doc.get("create_timestamp_flt", 0.0)))
+            image_refs.append(self._truncate_string(doc.get("image_ref", "") or "", 1000))
             vectors.append(vector)
 
         if not ids:
@@ -232,6 +237,7 @@ class MilvusVectorStore:
                 parent_ids,
                 parent_contents,
                 chunk_types,
+                image_refs,
                 parent_chunk_indices,
                 child_chunk_indices,
                 docnms,
@@ -426,7 +432,7 @@ class MilvusVectorStore:
                     "id", "content", "content_with_weight", "docnm",
                     "docnm_kwd", "doc_id", "kb_id", "token_count",
                     "chunk_index", "create_timestamp_flt", "user_level",
-                    "parent_id","parent_content"
+                    "parent_id","parent_content", "chunk_type", "image_ref"
                 ]
             )
 
@@ -452,7 +458,10 @@ class MilvusVectorStore:
                             "user_level": hit.entity.get("user_level", "normal"),
                             # ========== 关键修复：添加 parent_id 和 parent_content ==========
                             "parent_id": hit.entity.get("parent_id", ""),
-                            "parent_content": hit.entity.get("parent_content", "")
+                            "parent_content": hit.entity.get("parent_content", ""),
+                            # 真一次 ANN 下图片块与文本块同集合，靠这两个字段区分
+                            "chunk_type": hit.entity.get("chunk_type", "child"),
+                            "image_ref": hit.entity.get("image_ref", "")
                         }
                         logger.info(
                             f"检索结果: id={hit.id}, docnm={doc['docnm']}, parent_id={doc['parent_id'][:20] if doc['parent_id'] else 'N/A'}, similarity={similarity}")

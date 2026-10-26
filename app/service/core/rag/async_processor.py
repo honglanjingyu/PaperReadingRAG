@@ -231,15 +231,20 @@ class AsyncDocumentProcessor:
         user_level: str = "normal",
         chunk_size: int = 256,
         enable_vectorization: bool = True,
-        enable_storage: bool = True
+        enable_storage: bool = True,
+        file_path: str = ""
     ) -> str:
         """
         提交异步处理任务（多模态类型，已提取文字）
+
+        file_path 传原文件路径（图片必须传，否则无法做图像向量编码）。
+        它只用于取原图，不会被当作待解析文档，也不会在清理阶段被删除
+        （清理只针对 .extracted.txt 临时文件）。
         """
         task_id = hashlib.md5(f"{file_name}_{time.time()}".encode()).hexdigest()[:16]
         task = DocumentTask(
             task_id=task_id,
-            file_path="",
+            file_path=file_path or "",
             file_name=file_name,
             original_filename=original_filename or file_name,
             media_type=media_type,
@@ -335,6 +340,10 @@ class AsyncDocumentProcessor:
         logger.info(f"开始处理多模态任务: task_id={task.task_id}, 文件={task.file_name}, 文字长度={len(task.extracted_text)}")
 
         try:
+            # 图片任务要把原图路径传下去，否则无法做图像塔编码
+            # （真一次 ANN 要求图片向量与文本向量进同一个 vector 字段）
+            img_path = task.file_path if task.media_type == "image" else ""
+
             result = process_document_with_text(
                 text_content=task.extracted_text,
                 file_name=task.original_filename or task.file_name,
@@ -342,7 +351,9 @@ class AsyncDocumentProcessor:
                 enable_vectorization=task.enable_vectorization,
                 enable_storage=task.enable_storage,
                 user_level=task.user_level,
-                verbose=False
+                verbose=False,
+                image_path=img_path,
+                media_type=task.media_type
             )
 
             logger.info(f"process_document_with_text 返回: type={type(result)}, len={len(result) if result else 0}")

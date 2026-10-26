@@ -280,7 +280,7 @@ def _invalidate_cache(filename: str) -> bool:
         doc_cache.delete_document_level(filename)
 
         search_cache = CachedSearchService()
-        search_cache.invalidate_cache(pattern=f"*{filename}*")
+        search_cache.invalidate(pattern=f"*{filename}*")
 
         # 清理多模态缓存
         from app.service.core.cache import get_cache_manager
@@ -502,7 +502,7 @@ def _batch_invalidate_cache(filenames: List[str]) -> Dict[str, bool]:
     for filename in filenames:
         try:
             doc_cache.delete_document_level(filename)
-            search_cache.invalidate_cache(pattern=f"*{filename}*")
+            search_cache.invalidate(pattern=f"*{filename}*")
             results[filename] = True
         except Exception as e:
             logger.error(f"缓存失效失败 {filename}: {e}")

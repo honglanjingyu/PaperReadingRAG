@@ -57,16 +57,58 @@ class EmbeddingService:
         self._init_model()
 
     def _init_model(self):
-        """初始化模型（带缓存），仅使用远程 API"""
+        """初始化模型。
+
+        EMBEDDING_PROVIDER=multimodal（默认）走中文 CLIP：文本塔与图像塔输出同一
+        向量空间、同一维度，文本块与图片块写同一个 Milvus 集合的同一个 vector 字段，
+        检索时一次 ANN 同时命中两者。
+        设为 remote 则退回原来的远程文本 embedding API（不支持图片）。
+        """
+        provider = os.getenv("EMBEDDING_PROVIDER", "multimodal").strip().lower()
         use_cache = os.getenv("ENABLE_EMBEDDING_CACHE", "true").lower() == "true"
 
-        if use_cache:
-            self._model = CachedEmbeddingModel()
+        if provider in ("multimodal", "clip", "chinese_clip", "chinese-clip"):
+            from .chinese_clip import ChineseClipEmbeddingModel
+            base_model = ChineseClipEmbeddingModel()
         else:
             from .remote import RemoteEmbeddingModel
-            self._model = RemoteEmbeddingModel()
+            base_model = RemoteEmbeddingModel()
 
-        logger.info(f"EmbeddingService 初始化: model={self._model.model_name}")
+        if use_cache:
+            self._model = CachedEmbeddingModel(model=base_model)
+        else:
+            self._model = base_model
+
+        logger.info(
+            f"EmbeddingService 初始化: provider={provider} model={self._model.model_name} dim={self._model.dimension}"
+        )
+
+    @property
+    def supports_image(self) -> bool:
+        """当前模型是否支持图片编码（决定能否做真一次 ANN）"""
+        return hasattr(self._model, "encode_image")
+
+    def encode_image(self, image_path: str) -> Optional[List[float]]:
+        """把图片编码成与文本同一空间的向量；模型不支持时返回 None"""
+        fn = getattr(self._model, "encode_image", None)
+        if fn is None:
+            logger.warning("当前 embedding 模型不支持图片编码，图片将只按 caption 文本入库")
+            return None
+        try:
+            return fn(image_path)
+        except Exception as e:
+            logger.error(f"图片编码失败 {image_path}: {e}")
+            return None
+
+    def encode_images(self, image_paths: List[str]) -> List[Optional[List[float]]]:
+        fn = getattr(self._model, "encode_images", None)
+        if fn is None:
+            return [None] * len(image_paths or [])
+        try:
+            return fn(image_paths)
+        except Exception as e:
+            logger.error(f"批量图片编码失败: {e}")
+            return [None] * len(image_paths or [])
 
     @property
     def dimension(self) -> int:
