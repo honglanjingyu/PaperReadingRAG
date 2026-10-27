@@ -18,6 +18,29 @@ os.environ['PADDLE_DEBUG'] = '0'
 logger = logging.getLogger(__name__)
 
 
+def resolve_frames_root() -> str:
+    """视频关键帧的持久化根目录（uploads/frames）。
+
+    关键帧不能再放临时目录：它是视频进「真一次 ANN」的唯一视觉载体，
+    入库后生成阶段还要按 image_ref 回填原图，所以必须落盘并长期保留。
+    """
+    try:
+        from app.api.config import UPLOAD_DIR  # 与原始上传文件同级，便于统一清理
+        return str(UPLOAD_DIR / "frames")
+    except Exception:
+        # 兜底：app/service/core/multimodal/__init__.py -> 仓库根 / uploads / frames
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))))
+        return os.path.join(root, "uploads", "frames")
+
+
+def safe_dir_name(name: str) -> str:
+    """把文件名转成可用作目录名的安全串（保留可读性）。"""
+    import re
+    base = re.sub(r'[\\/:*?"<>|\s]+', '_', name or "video")
+    return base.strip('._') or "video"
+
+
 class MediaType(str, Enum):
     DOCUMENT = "document"
     IMAGE = "image"
@@ -434,9 +457,13 @@ class MultimodalParser:
 
         temp_files = []
         all_texts = []
+        # 关键帧是视频唯一的视觉载体：要进 VISTA 一次 ANN、生成阶段还要按
+        # image_ref 回填原图，所以抽到持久目录而不是临时目录，也不在 finally 删除。
+        frame_paths: List[str] = []
+        frame_items: List[Dict] = []
 
         try:
-            # 1. 提取音频并转文字
+            # 1. 提取音频并转文字（音频仍是临时文件，用完即删）
             audio_path = processor.extract_audio(file_path)
             if audio_path:
                 temp_files.append(audio_path)
@@ -445,15 +472,25 @@ class MultimodalParser:
                     all_texts.append(f"[视频音频内容]\n{audio_content.text_content}")
                     content.transcript_confidence = audio_content.transcript_confidence
 
-            # 2. 提取关键帧并使用 MinerU 进行 OCR
-            frame_paths = processor.extract_keyframes(file_path, num_frames=5)
-            temp_files.extend(frame_paths)
+            # 2. 提取关键帧（持久化）并使用 MinerU 进行 OCR
+            frames_dir = os.path.join(resolve_frames_root(), safe_dir_name(file_name))
+            frame_paths = processor.extract_keyframes(
+                file_path, num_frames=5, output_dir=frames_dir
+            )
 
             frame_texts = []
             for i, frame_path in enumerate(frame_paths):
                 frame_content = self.parse_image(frame_path, f"{file_name}_frame_{i}")
+                frame_text = ""
                 if frame_content.success and frame_content.text_content:
-                    frame_texts.append(f"[视频画面 {i + 1}]\n{frame_content.text_content}")
+                    frame_text = frame_content.text_content
+                    frame_texts.append(f"[视频画面 {i + 1}]\n{frame_text}")
+                # 逐帧保留路径 + 该帧 OCR 文本，供 rag 层生成 image 块（content/caption）
+                frame_items.append({
+                    "path": frame_path,
+                    "index": i,
+                    "text": frame_text,
+                })
 
             if frame_texts:
                 all_texts.append("\n\n".join(frame_texts))
@@ -465,10 +502,18 @@ class MultimodalParser:
                 "file_size": os.path.getsize(file_path),
                 "duration": content.duration_seconds,
                 "keyframe_count": len(frame_paths),
-                "has_audio": audio_path is not None
+                "has_audio": audio_path is not None,
+                "frames_dir": frames_dir,
+                # 关键字段：帧图路径列表（持久化、不删除），下游按它做视觉向量
+                "frame_paths": list(frame_paths),
+                "frame_items": frame_items,
+                "image_path": frame_paths[0] if frame_paths else ""
             }
 
-            logger.info(f"视频解析完成: {file_name}, 文字长度={len(content.text_content)}")
+            logger.info(
+                f"视频解析完成: {file_name}, 文字长度={len(content.text_content)}, "
+                f"关键帧 {len(frame_paths)} 张已持久化到 {frames_dir}"
+            )
 
         except Exception as e:
             logger.error(f"视频解析失败: {file_name}, {e}")
@@ -476,7 +521,7 @@ class MultimodalParser:
             content.error = str(e)
 
         finally:
-            # 清理临时文件
+            # 只清理音频等真临时文件；关键帧必须保留（已持久化到 frames_dir）
             processor.cleanup(temp_files)
 
         return content
@@ -595,8 +640,19 @@ class VideoProcessor:
             logger.error(f"音频提取失败: {e}")
             return None
 
-    def extract_keyframes(self, video_path: str, num_frames: int = 5) -> List[str]:
-        """提取关键帧"""
+    def extract_keyframes(
+        self,
+        video_path: str,
+        num_frames: int = 5,
+        output_dir: Optional[str] = None,
+    ) -> List[str]:
+        """提取关键帧。
+
+        output_dir 为 None 时沿用临时目录（老行为，帧图需调用方自行清理）；
+        显式给出 output_dir 时把帧图持久化到该目录（视频视觉入库需要长期保留，
+        生成阶段还要按 image_ref 回填原图），文件名固定为 frame_00.jpg 形式，
+        重复处理同一视频时覆盖旧帧。
+        """
         if not self._ffmpeg_available:
             return []
 
@@ -606,12 +662,23 @@ class VideoProcessor:
         if duration <= 0:
             return []
 
+        persistent = bool(output_dir)
+        if persistent:
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except Exception as e:
+                logger.error(f"创建关键帧目录失败 {output_dir}: {e}")
+                return []
+
         frame_paths = []
         time_points = [duration * (i + 0.5) / num_frames for i in range(num_frames)]
 
         for i, time_point in enumerate(time_points):
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                frame_path = tmp.name
+            if persistent:
+                frame_path = os.path.join(output_dir, f"frame_{i:02d}.jpg")
+            else:
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                    frame_path = tmp.name
 
             try:
                 cmd = [
@@ -626,7 +693,13 @@ class VideoProcessor:
                     os.unlink(frame_path)
             except Exception as e:
                 logger.error(f"关键帧提取失败: {e}")
+                if os.path.exists(frame_path):
+                    try:
+                        os.unlink(frame_path)
+                    except Exception:
+                        pass
 
+        logger.info(f"关键帧提取完成: {len(frame_paths)}/{num_frames} 帧 (持久化={persistent})")
         return frame_paths
 
     def get_duration(self, video_path: str) -> float:

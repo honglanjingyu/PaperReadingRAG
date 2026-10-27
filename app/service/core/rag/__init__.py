@@ -3,7 +3,7 @@
 import os
 import hashlib
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -236,7 +236,8 @@ def process_document_with_text(
         user_level: str = "normal",
         verbose: bool = False,
         image_path: str = "",
-        media_type: str = "document"
+        media_type: str = "document",
+        frame_items: Optional[List[Dict[str, Any]]] = None
 ) -> List:
     """
     处理已提取文字的内容（用于图片/音频/视频的OCR/ASR结果）
@@ -245,14 +246,22 @@ def process_document_with_text(
     它的向量由图像塔编码原图得到，与文本块同维度、同空间，写进同一个集合的
     同一个 vector 字段，因此一次 ANN 就能同时命中文本块和图片块。
 
+    frame_items 仅视频使用：[{path, index, text}]，每个关键帧各生成一个图像向量块
+    （带 image_ref 指向帧图，生成阶段可回填原帧）。给了 frame_items 时
+    image_path 不再单独成块，避免同一张图重复入库。
+
     Returns:
         List: 向量块列表，处理失败返回空列表
     """
+    # 视频的视觉载体是帧图，不是视频文件本身；有帧就按帧入库
+    frame_items = [f for f in (frame_items or []) if f and f.get("path")]
+    has_visual = bool(image_path) or bool(frame_items)
+
     if not text_content or not text_content.strip():
         # 图片可能本来就没什么可 OCR 的文字（示意图、照片），但视觉特征仍要入库，
         # 否则真一次 ANN 就退化成纯文本检索了。
-        if image_path:
-            logger.info(f"文件 {file_name} 未提取到文字，仅按图片视觉特征入库")
+        if has_visual:
+            logger.info(f"文件 {file_name} 未提取到文字，仅按视觉特征入库")
             text_content = ""
         else:
             logger.warning(f"文件 {file_name} 没有提取到文字内容")
@@ -299,7 +308,8 @@ def process_document_with_text(
     #     图片用图像塔编码，向量维度/空间与文本块完全一致，写进同一个集合的
     #     同一个 vector 字段。因此一次 ANN 就能同时命中文本块和图片块。
     #     即使 OCR 没出文字（all_children 为空），图片块也要照常入库。
-    if image_path and enable_vectorization and embedding is not None and getattr(embedding, "supports_image", False):
+    # 视频走 frame_items 分支，image_path 不再单独成块（避免同一张图重复入库）
+    if image_path and not frame_items and enable_vectorization and embedding is not None and getattr(embedding, "supports_image", False):
         try:
             import types
             img_vec = embedding.encode_image(image_path)
@@ -340,6 +350,69 @@ def process_document_with_text(
                 logger.warning(f"图片编码返回空，跳过图片块: {file_name}")
         except Exception as e:
             logger.error(f"图片块生成失败 {file_name}: {e}", exc_info=True)
+
+    # 2.2 视频关键帧块（每个关键帧一个图像向量块）
+    #     视频没法直接进 VISTA 的视觉塔，视觉载体是抽出来的关键帧。每帧都用
+    #     图像塔编码，向量与文本块同维度、写同一个 vector 字段，一次 ANN 就能
+    #     命中「某段画面」；image_ref 指向持久化的帧图，生成阶段可回填原帧。
+    if frame_items and enable_vectorization and embedding is not None and getattr(embedding, "supports_image", False):
+        try:
+            import types
+            doc_id = hashlib.md5(file_name.encode()).hexdigest()[:16]
+            ok_frames = 0
+            for item in frame_items:
+                frame_path = item.get("path") or ""
+                idx = item.get("index", ok_frames)
+                if not frame_path or not os.path.exists(frame_path):
+                    logger.warning(f"跳过缺失的视频帧: {frame_path}")
+                    continue
+                try:
+                    frame_vec = embedding.encode_image(frame_path)
+                except Exception as e:
+                    logger.warning(f"视频帧编码失败 {frame_path}: {e}")
+                    continue
+                if not frame_vec:
+                    logger.warning(f"视频帧编码返回空，跳过: {frame_path}")
+                    continue
+
+                frame_text = (item.get("text") or "").strip()
+                frame_name = f"{file_name}#frame{idx}"
+                snippet = frame_text[:2000] if frame_text else "（该帧未识别出文字，仅保留视觉特征）"
+                # 与图片块同一套逻辑：生成一段中文描述拼进 content，让 BM25 也能
+                # 检索到画面语义（纯 OCR 文本对示意图/照片几乎是空文档）。
+                frame_caption = ""
+                try:
+                    from app.service.core.multimodal.image_caption import build_image_payload
+                    frame_content, frame_caption = build_image_payload(frame_path, frame_name, frame_text)
+                except Exception as e:
+                    logger.warning(f"视频帧描述生成失败，退回原文本 {frame_name}: {e}")
+                    frame_content = f"[视频画面] {file_name} 第 {idx + 1} 帧\n{snippet}"
+
+                vector_chunks.append(types.SimpleNamespace(
+                    id=hashlib.md5(f"frame:{file_name}:{idx}".encode()).hexdigest(),
+                    content=frame_content,
+                    vector=frame_vec,
+                    metadata={
+                        "media_type": "image",
+                        "chunk_type": "image",
+                        # 生成阶段按它把原帧转 base64 回填给多模态 LLM
+                        "image_ref": frame_path,
+                        "caption": frame_caption,
+                        "doc_id": doc_id,
+                        "source_video": file_name,
+                        "frame_index": idx,
+                    },
+                    token_count=0,
+                    chunk_index=idx,
+                    user_level=user_level,
+                    parent_id="",
+                    parent_content="",
+                ))
+                ok_frames += 1
+
+            logger.info(f"视频帧向量块已生成: {file_name} {ok_frames}/{len(frame_items)} 帧")
+        except Exception as e:
+            logger.error(f"视频帧块生成失败 {file_name}: {e}", exc_info=True)
 
     if not vector_chunks:
         logger.warning(f"文件 {file_name} 向量化后没有有效块")

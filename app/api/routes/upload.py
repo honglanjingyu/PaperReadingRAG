@@ -142,7 +142,10 @@ async def upload_document(
             chunk_size=chunk_size or settings.chunk_size,
             enable_vectorization=enable_vectorization,
             enable_storage=enable_storage,
-            file_path=str(file_path)
+            file_path=str(file_path),
+            # 视频关键帧已由 parse_video 持久化，带下去做逐帧图像向量
+            frame_paths=(extracted.metadata or {}).get("frame_paths") or [],
+            frame_items=(extracted.metadata or {}).get("frame_items") or []
         )
         # ⚠️ 注意：不删除原始上传文件，保留原文件
 
@@ -233,7 +236,10 @@ async def upload_document_async(
             chunk_size=chunk_size or settings.chunk_size,
             enable_vectorization=enable_vectorization,
             enable_storage=enable_storage,
-            file_path=str(file_path)
+            file_path=str(file_path),
+            # 视频关键帧已由 parse_video 持久化，带下去做逐帧图像向量
+            frame_paths=(extracted.metadata or {}).get("frame_paths") or [],
+            frame_items=(extracted.metadata or {}).get("frame_items") or []
         )
         # ⚠️ 注意：不删除原始上传文件，保留原文件
 
@@ -284,7 +290,7 @@ def _get_status_message(status: str, media_type: str = None) -> str:
         elif media_type == "audio":
             return "正在通过 ASR 转写音频..."
         elif media_type == "video":
-            return "正在处理视频（提取音频+关键帧OCR）..."
+            return "正在处理视频（提取音频+关键帧OCR+视觉编码）..."
         return "正在处理文档..."
     elif status == "completed":
         if media_type == "image":
@@ -416,7 +422,10 @@ async def batch_upload(
                     chunk_size=request.chunk_size or settings.chunk_size,
                     enable_vectorization=request.enable_vectorization,
                     enable_storage=request.enable_storage,
-                    file_path=str(file_path)
+                    file_path=str(file_path),
+                    # 视频关键帧已由 parse_video 持久化，带下去做逐帧图像向量
+                    frame_paths=(extracted.metadata or {}).get("frame_paths") or [],
+                    frame_items=(extracted.metadata or {}).get("frame_items") or []
                 )
                 # ⚠️ 注意：不删除原始上传文件，保留原文件
 

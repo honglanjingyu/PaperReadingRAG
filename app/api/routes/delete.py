@@ -103,8 +103,30 @@ def _get_document_level_sync(filename: str, index_name: str) -> str:
     return "normal"
 
 
+def _remove_frames_dir(filename: str) -> bool:
+    """删除视频关键帧持久化目录 uploads/frames/<视频名>/。
+
+    视频进 VISTA 真一次 ANN 后，关键帧不再放临时目录，而是长期落盘在
+    uploads/frames 下供 image_ref 回填原帧。删文档时必须一并清掉，否则会残留。
+    非视频文件没有该目录，直接跳过。
+    """
+    try:
+        import shutil
+        from app.service.core.multimodal import resolve_frames_root, safe_dir_name
+
+        frames_dir = os.path.join(resolve_frames_root(), safe_dir_name(filename))
+        if os.path.isdir(frames_dir):
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            logger.info(f"视频关键帧目录已删除: {frames_dir}")
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"删除视频关键帧目录失败 {filename}: {e}")
+        return False
+
+
 def _delete_from_local_storage(filename: str) -> bool:
-    """删除本地存储的文件（包括提取的临时文本文件）"""
+    """删除本地存储的文件（包括提取的临时文本文件、视频关键帧目录）"""
     try:
         file_path = UPLOAD_DIR / filename
         if file_path.exists():
@@ -116,6 +138,9 @@ def _delete_from_local_storage(filename: str) -> bool:
         if temp_text_path.exists():
             temp_text_path.unlink()
             logger.info(f"临时文本文件已删除: {filename}.extracted.txt")
+
+        # 视频的持久化关键帧目录（uploads/frames/<视频名>/）
+        _remove_frames_dir(filename)
 
         return True
     except Exception as e:
@@ -313,6 +338,9 @@ def _batch_delete_from_local_storage(filenames: List[str]) -> Dict[str, bool]:
             temp_text_path = UPLOAD_DIR / f"{filename}.extracted.txt"
             if temp_text_path.exists():
                 temp_text_path.unlink()
+
+            # 视频的持久化关键帧目录（uploads/frames/<视频名>/）
+            _remove_frames_dir(filename)
 
         except Exception as e:
             logger.error(f"本地文件删除失败 {filename}: {e}")

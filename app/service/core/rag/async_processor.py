@@ -9,7 +9,7 @@ import asyncio
 import time
 import logging
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 
@@ -48,6 +48,11 @@ class DocumentTask:
     result: Optional[Any] = None
     progress: int = 0  # 进度百分比
     message: str = ""  # 状态消息
+    # 视频关键帧（持久化后的绝对路径）：每个帧要单独生成一个 image 向量块，
+    # 走图像塔编码进同一个 vector 字段，才能被一次 ANN 命中。
+    frame_paths: List[str] = field(default_factory=list)
+    # 与 frame_paths 一一对应的逐帧信息 [{path, index, text}]，text 是该帧 OCR 文本
+    frame_items: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
         if self.created_at is None:
@@ -77,7 +82,9 @@ class DocumentTask:
             "error": self.error,
             "result": self.result,
             "progress": self.progress,
-            "message": self.message
+            "message": self.message,
+            "frame_paths": list(self.frame_paths or []),
+            "frame_items": list(self.frame_items or [])
         }
 
 
@@ -148,7 +155,9 @@ class AsyncDocumentProcessor:
                     error=d.get('error'),
                     result=d.get('result'),
                     progress=d.get('progress', 0),
-                    message=d.get('message', '')
+                    message=d.get('message', ''),
+                    frame_paths=d.get('frame_paths', []) or [],
+                    frame_items=d.get('frame_items', []) or []
                 )
         except Exception as e:
             logger.error(f"加载任务失败 {task_id}: {e}")
@@ -232,7 +241,9 @@ class AsyncDocumentProcessor:
         chunk_size: int = 256,
         enable_vectorization: bool = True,
         enable_storage: bool = True,
-        file_path: str = ""
+        file_path: str = "",
+        frame_paths: Optional[List[str]] = None,
+        frame_items: Optional[List[Dict[str, Any]]] = None
     ) -> str:
         """
         提交异步处理任务（多模态类型，已提取文字）
@@ -240,6 +251,9 @@ class AsyncDocumentProcessor:
         file_path 传原文件路径（图片必须传，否则无法做图像向量编码）。
         它只用于取原图，不会被当作待解析文档，也不会在清理阶段被删除
         （清理只针对 .extracted.txt 临时文件）。
+
+        frame_paths / frame_items 仅视频使用：关键帧已由 parse_video 持久化，
+        每帧都要单独做图像塔编码，进与文本块相同的 vector 字段。
         """
         task_id = hashlib.md5(f"{file_name}_{time.time()}".encode()).hexdigest()[:16]
         task = DocumentTask(
@@ -256,11 +270,16 @@ class AsyncDocumentProcessor:
             to_page=100000,
             enable_vectorization=enable_vectorization,
             enable_storage=enable_storage,
-            message=self._get_init_message(media_type)
+            message=self._get_init_message(media_type),
+            frame_paths=list(frame_paths or []),
+            frame_items=list(frame_items or [])
         )
         self._save_task(task)
         await self._task_queue.put(task)
-        logger.info(f"任务提交: {task_id} - {file_name} (类型={media_type}, 文字长度={len(extracted_text)})")
+        logger.info(
+            f"任务提交: {task_id} - {file_name} (类型={media_type}, 文字长度={len(extracted_text)}, "
+            f"关键帧={len(task.frame_paths)})"
+        )
         return task_id
 
     def _get_init_message(self, media_type: str) -> str:
@@ -310,7 +329,7 @@ class AsyncDocumentProcessor:
             elif task.media_type == "audio":
                 return f"正在通过 ASR 转写音频... ({task.progress}%)"
             elif task.media_type == "video":
-                return f"正在处理视频（提取音频+关键帧OCR）... ({task.progress}%)"
+                return f"正在处理视频（提取音频+关键帧OCR+视觉编码）... ({task.progress}%)"
             return f"正在处理文档... ({task.progress}%)"
         elif task.status == TaskStatus.COMPLETED:
             if task.media_type == "image":
@@ -343,6 +362,8 @@ class AsyncDocumentProcessor:
             # 图片任务要把原图路径传下去，否则无法做图像塔编码
             # （真一次 ANN 要求图片向量与文本向量进同一个 vector 字段）
             img_path = task.file_path if task.media_type == "image" else ""
+            # 视频的视觉载体是持久化的关键帧，每帧单独做图像塔编码
+            frames = list(task.frame_items or []) if task.media_type == "video" else []
 
             result = process_document_with_text(
                 text_content=task.extracted_text,
@@ -353,7 +374,8 @@ class AsyncDocumentProcessor:
                 user_level=task.user_level,
                 verbose=False,
                 image_path=img_path,
-                media_type=task.media_type
+                media_type=task.media_type,
+                frame_items=frames
             )
 
             logger.info(f"process_document_with_text 返回: type={type(result)}, len={len(result) if result else 0}")
