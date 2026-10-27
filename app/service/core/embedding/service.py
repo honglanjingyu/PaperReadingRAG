@@ -62,6 +62,9 @@ class EmbeddingService:
         EMBEDDING_PROVIDER=multimodal（默认）走中文 CLIP：文本塔与图像塔输出同一
         向量空间、同一维度，文本块与图片块写同一个 Milvus 集合的同一个 vector 字段，
         检索时一次 ANN 同时命中两者。
+        设为 vista 则走 VISTA / bge-visualized-m3（1024 维，文本塔 bge-m3 +
+        视觉塔 EVA02-CLIP-L-14），同样是同空间真一次 ANN，但模型跑在独立 conda
+        环境 vista 的子进程里（原因见 vista.py 文件头）。
         设为 remote 则退回原来的远程文本 embedding API（不支持图片）。
         """
         provider = os.getenv("EMBEDDING_PROVIDER", "multimodal").strip().lower()
@@ -70,6 +73,9 @@ class EmbeddingService:
         if provider in ("multimodal", "clip", "chinese_clip", "chinese-clip"):
             from .chinese_clip import ChineseClipEmbeddingModel
             base_model = ChineseClipEmbeddingModel()
+        elif provider in ("vista", "visualized_bge", "visualized-bge", "bge_visualized"):
+            from .vista import VistaEmbeddingModel
+            base_model = VistaEmbeddingModel()
         else:
             from .remote import RemoteEmbeddingModel
             base_model = RemoteEmbeddingModel()

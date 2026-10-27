@@ -1,9 +1,9 @@
 """中文 CLIP 多模态 Embedding 模型（真一次 ANN 的统一向量空间）
 
-文本塔与图像塔输出同一空间、同一维度（512）的向量，因此文本 chunk 与图片 chunk
+文本塔与图像塔输出同一空间、同一维度（768）的向量，因此文本 chunk 与图片 chunk
 可以写入 Milvus 同一个集合的同一个 ``vector`` 字段，用一次 ANN 检索同时命中两者。
 
-模型：OFA-Sys/chinese-clip-vit-base-patch16（188M 参数，512 维，实测峰值显存 0.75GB）
+模型：OFA-Sys/chinese-clip-vit-large-patch14-336px（407M 参数，768 维，图像 336px）
 """
 
 import os
@@ -14,8 +14,8 @@ from .base import BaseEmbeddingModel
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "OFA-Sys/chinese-clip-vit-base-patch16"
-DEFAULT_DIM = 512
+DEFAULT_MODEL = "OFA-Sys/chinese-clip-vit-large-patch14-336px"
+DEFAULT_DIM = 768
 
 
 def _as_tensor(out):
