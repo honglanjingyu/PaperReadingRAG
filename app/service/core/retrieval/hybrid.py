@@ -212,8 +212,11 @@ class HybridRetriever:
         for r in results:
             r['final_score'] = r.get('rrf_score', 0)
 
-        min_score = float(os.getenv("RRF_MIN_SCORE", "0.01"))
-        return [r for r in results if r.get('rrf_score', 0) >= min_score][:top_k]
+        # RRF 单路分数上限约 weight/(k+1)（k=100 时约 0.0099、单通道 0.6/61≈0.0098），
+        # 固定 0.01 门限会在 k 偏大或 BM25 降级时把整批结果截成空。默认不再做分数过滤，
+        # 只过滤掉 rrf_score 为 0 的无效项；需要门限时用 RRF_MIN_SCORE 显式配置。
+        min_score = float(os.getenv("RRF_MIN_SCORE", "0"))
+        return [r for r in results if r.get('rrf_score', 0) > 0 and r.get('rrf_score', 0) >= min_score][:top_k]
 
 
 # ============================================================

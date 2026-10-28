@@ -2,7 +2,9 @@
 """Milvus 向量数据库存储实现"""
 
 import os
+import time
 import logging
+import threading
 import numpy as np
 from typing import List, Dict, Any, Optional
 from pymilvus import (
@@ -31,6 +33,15 @@ class MilvusVectorStore:
         self.user = user or os.getenv("VECTOR_STORE_USER", "")
         self.password = password or os.getenv("VECTOR_STORE_PASSWORD", "")
         self._connected = False
+
+        # 性能优化（报告 1.2）：Collection 句柄按 index_name 缓存，load() 只做一次。
+        # 之前每次 search() 都 Collection(name) + load()，两次 RPC 是纯固定开销，
+        # 实测向量段占端到端 63.8%（P50 20.4 ms）。
+        self._collection_cache: Dict[str, Collection] = {}
+        self._collection_lock = threading.RLock()
+        # has_collection 结果短期缓存，避免每次检索都多打一次 RPC
+        self._has_collection_cache: Dict[str, tuple] = {}
+        self._has_collection_ttl = float(os.getenv("VECTOR_STORE_HAS_COLLECTION_TTL", "30"))
 
         self._connect()
 
@@ -61,6 +72,41 @@ class MilvusVectorStore:
         """确保连接有效"""
         if not self._connected:
             self._connect()
+
+    def _collection_exists(self, index_name: str) -> bool:
+        """判断集合是否存在（结果短期缓存，避免每次检索多打一次 RPC）"""
+        now = time.time()
+        cached = self._has_collection_cache.get(index_name)
+        if cached and now - cached[0] < self._has_collection_ttl:
+            return cached[1]
+        exists = utility.has_collection(index_name)
+        self._has_collection_cache[index_name] = (now, exists)
+        return exists
+
+    def _get_collection(self, index_name: str) -> Optional[Collection]:
+        """
+        获取已 load 的 Collection 句柄（报告 1.2）。
+
+        之前每次 search() 都 Collection(name) + load()，两次 RPC 是纯固定开销。
+        现在按 index_name 缓存句柄，load() 只在首次获取时做一次；
+        集合删除/重建时必须调用 _invalidate_collection() 清缓存，否则会拿到脏句柄。
+        """
+        with self._collection_lock:
+            collection = self._collection_cache.get(index_name)
+            if collection is not None:
+                return collection
+            if not self._collection_exists(index_name):
+                return None
+            collection = Collection(index_name)
+            collection.load()
+            self._collection_cache[index_name] = collection
+            return collection
+
+    def _invalidate_collection(self, index_name: str) -> None:
+        """集合被删除/重建后清掉句柄缓存与 has_collection 缓存"""
+        with self._collection_lock:
+            self._collection_cache.pop(index_name, None)
+            self._has_collection_cache.pop(index_name, None)
 
     def create_index(self, index_name: str, vector_dim: int = None,
                      metric_type: str = "COSINE", **kwargs) -> bool:
@@ -315,9 +361,12 @@ class MilvusVectorStore:
             if utility.has_collection(index_name):
                 utility.drop_collection(index_name)
                 logger.info(f"集合删除成功: {index_name}")
+            # 集合已 drop，必须清掉句柄缓存，否则后续检索会拿到失效句柄（报告 1.2）
+            self._invalidate_collection(index_name)
             return True
         except Exception as e:
             logger.error(f"集合删除失败: {e}")
+            self._invalidate_collection(index_name)
             return False
 
     # app/service/core/vector_store/milvus_vector_store.py
@@ -381,12 +430,12 @@ class MilvusVectorStore:
         self._ensure_connected()
 
         try:
-            if not utility.has_collection(index_name):
+            # 报告 1.2：句柄按 index_name 缓存，load() 只在首次获取时做一次，
+            # 不再每次 search() 都打 has_collection + Collection() + load() 两次 RPC。
+            collection = self._get_collection(index_name)
+            if collection is None:
                 logger.warning(f"集合不存在: {index_name}")
                 return []
-
-            collection = Collection(index_name)
-            collection.load()
 
             # 确保查询向量是浮点数列表
             query_vector = [float(v) for v in query_vector]
@@ -466,7 +515,9 @@ class MilvusVectorStore:
                             "chunk_type": hit.entity.get("chunk_type", "child"),
                             "image_ref": hit.entity.get("image_ref", "")
                         }
-                        logger.info(
+                        # 报告 1.3：逐条命中日志降为 debug，避免 top_k=20、8 路并发时
+                        # 每秒上千行日志 I/O 并污染日志；循环结束后仍有一条汇总 info。
+                        logger.debug(
                             f"检索结果: id={hit.id}, docnm={doc['docnm']}, parent_id={doc['parent_id'][:20] if doc['parent_id'] else 'N/A'}, similarity={similarity}")
                         formatted_results.append(doc)
 
