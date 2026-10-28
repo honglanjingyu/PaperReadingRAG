@@ -5,7 +5,7 @@
 import hashlib
 import logging
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from .types import ParentChildDocument, ParentChunk, ChildChunk
 
@@ -45,19 +45,33 @@ class ParentChildSplitter:
         # token 估算的小文本 LRU 缓存（同一段文本在过滤、写 token_count、
         # overlap 校验里会被反复数，缓存能直接消掉这部分重复）
         self._token_cache: Dict[str, int] = {}
+        # 字符计数缓存：_post_split_oversize、_apply_overlap、写 token_count
+        # 都会对刚数过的同一段文本再数一次，按 text 缓存 (cjk, other) 结果
+        self._char_cache: Dict[str, Tuple[int, int]] = {}
 
-    _TOKEN_CACHE_MAX_TEXT = 512
+    # 字符计数 / token 估算共用的缓存阈值：父块 430~450 字要能覆盖（512 时
+    # 正好卡在边缘，命中率上不去）
+    _CACHE_MAX_TEXT = 1024
     _TOKEN_CACHE_MAX_ENTRIES = 4096
+    _CHAR_CACHE_MAX_ENTRIES = 1024
 
-    @staticmethod
-    def _char_counts(text: str):
-        """返回 (中文字符数, 其他字符数)"""
+    def _char_counts(self, text: str):
+        """返回 (中文字符数, 其他字符数)，短文本走缓存"""
         if not text:
             return 0, 0
+        cached = self._char_cache.get(text)
+        if cached is not None:
+            return cached
         if text.isascii():
-            return 0, len(text)
-        cjk = len(_CJK_RE.findall(text))
-        return cjk, len(text) - cjk
+            counts = (0, len(text))
+        else:
+            cjk = len(_CJK_RE.findall(text))
+            counts = (cjk, len(text) - cjk)
+        if len(text) <= self._CACHE_MAX_TEXT:
+            if len(self._char_cache) >= self._CHAR_CACHE_MAX_ENTRIES:
+                self._char_cache.clear()
+            self._char_cache[text] = counts
+        return counts
 
     @staticmethod
     def _is_cjk(ch: str) -> bool:
@@ -71,15 +85,25 @@ class ParentChildSplitter:
         if cached is not None:
             return cached
         tokens = _tokens_from_counts(*self._char_counts(text))
-        if len(text) <= self._TOKEN_CACHE_MAX_TEXT:
+        if len(text) <= self._CACHE_MAX_TEXT:
             if len(self._token_cache) >= self._TOKEN_CACHE_MAX_ENTRIES:
                 self._token_cache.clear()
             self._token_cache[text] = tokens
         return tokens
 
-    def _split_by_separator(self, text: str, max_size: int) -> List[str]:
-        """按分隔符分割文本"""
-        if self._count_tokens(text) <= max_size:
+    def _split_by_separator(
+            self, text: str, max_size: int,
+            text_counts: Optional[Tuple[int, int]] = None
+    ) -> List[str]:
+        """按分隔符分割文本
+
+        text_counts 给定时直接用调用方已算好的 (cjk, other)，不再对 text
+        整段重扫（父块切子块时由 split_document 传下来）。
+        """
+        if text_counts is not None:
+            if _tokens_from_counts(*text_counts) <= max_size:
+                return [text]
+        elif self._count_tokens(text) <= max_size:
             return [text]
 
         for separator in self.separators:
@@ -208,13 +232,21 @@ class ParentChildSplitter:
         chunks = self._split_by_separator(text, max_size)
         return self._apply_overlap(chunks, self.parent_overlap, self.parent_chunk_size)
 
-    def split_parent_to_children(self, parent_text: str, parent_id: str) -> List[ChildChunk]:
-        """将父块切分为子块"""
+    def split_parent_to_children(
+            self, parent_text: str, parent_id: str,
+            parent_counts: Optional[Tuple[int, int]] = None
+    ) -> List[ChildChunk]:
+        """将父块切分为子块
+
+        parent_counts 是父文本的 (cjk, other) 计数。split_document 已经算过，
+        传下来后子块切分就不必对父文本整段再做一次正则扫描。
+        """
         if not parent_text:
             return []
         # 子块按完整 child_chunk_size 切，overlap 由 _apply_overlap 逐字收缩，
         # 避免扣预算后块长低于 min_child_size 被子块过滤掉
-        child_texts = self._split_by_separator(parent_text, self.child_chunk_size)
+        child_texts = self._split_by_separator(
+            parent_text, self.child_chunk_size, parent_counts)
         child_texts = self._apply_overlap(child_texts, self.child_overlap, self.child_chunk_size)
         children = []
         for child_text in child_texts:
@@ -260,7 +292,12 @@ class ParentChildSplitter:
             parent_hash = hashlib.md5(f"{document_id}_{i}_{parent_text[:100]}".encode()).hexdigest()[:16]
             parent_id = f"parent_{parent_hash}"
 
-            children = self.split_parent_to_children(parent_text, parent_id)
+            # 父块计数只算这一次：既用于父块 token_count，也传给子块切分做
+            # 入口判定，不再让 split_parent_to_children 整段重扫
+            parent_counts = self._char_counts(parent_text)
+            parent_token_count = _tokens_from_counts(*parent_counts)
+
+            children = self.split_parent_to_children(parent_text, parent_id, parent_counts)
 
             for child in children:
                 child.metadata = base_metadata.copy()
@@ -273,7 +310,7 @@ class ParentChildSplitter:
                 child_ids=[c.id for c in children],
                 children=children,
                 chunk_index=i,
-                token_count=self._count_tokens(parent_text),
+                token_count=parent_token_count,
                 metadata=base_metadata.copy()
             ))
             all_children.extend(children)
