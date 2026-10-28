@@ -25,16 +25,25 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 def normalize_scores(scores: List[float], min_val: float = 0.05, max_val: float = 0.95) -> List[float]:
-    """归一化分数"""
+    """归一化分数
+
+    输出与输入等长、下标一一对应（调用方会按下标对齐结果）。
+    非正值不参与确定 min/max 区间，但仍占位，统一落到 min_val；
+    全为非正或全部相等时，整体给同一个中位/下限分。
+    """
     if not scores:
         return []
-    scores = [s for s in scores if s > 0]
-    if not scores:
-        return [min_val] * len(scores)
-    s_min, s_max = min(scores), max(scores)
+    n = len(scores)
+    positive = [s for s in scores if s > 0]
+    if not positive:
+        return [min_val] * n
+    s_min, s_max = min(positive), max(positive)
     if s_max == s_min:
-        return [(min_val + max_val) / 2] * len(scores)
-    return [min_val + (s - s_min) / (s_max - s_min) * (max_val - min_val) for s in scores]
+        return [(min_val + max_val) / 2] * n
+    return [
+        min_val + (s - s_min) / (s_max - s_min) * (max_val - min_val) if s > 0 else min_val
+        for s in scores
+    ]
 
 
 def get_level_priority(level: str) -> int:

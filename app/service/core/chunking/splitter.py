@@ -56,6 +56,13 @@ class ParentChildSplitter:
                 for part in parts:
                     if not part.strip():
                         continue
+                    # 单个 part 本身已超限时，继续拼接只会更超，先落盘再做二次切分
+                    if self._count_tokens(part) > max_size:
+                        if current:
+                            chunks.append(current)
+                            current = ""
+                        chunks.extend(self._split_by_length(part, max_size))
+                        continue
                     test_current = current + separator + part if current else part
                     if self._count_tokens(test_current) <= max_size:
                         current = test_current
@@ -67,9 +74,19 @@ class ParentChildSplitter:
                 if current:
                     chunks.append(current)
                 if len(chunks) > 1:
-                    return chunks
+                    return self._post_split_oversize(chunks, max_size)
 
         return self._split_by_length(text, max_size)
+
+    def _post_split_oversize(self, chunks: List[str], max_size: int) -> List[str]:
+        """兜底：把仍然超过 max_size 的块再按长度切一次"""
+        result = []
+        for chunk in chunks:
+            if self._count_tokens(chunk) <= max_size:
+                result.append(chunk)
+            else:
+                result.extend(self._split_by_length(chunk, max_size))
+        return result
 
     def _split_by_length(self, text: str, max_size: int) -> List[str]:
         """按长度切分"""
@@ -86,16 +103,32 @@ class ParentChildSplitter:
             chunks.append(current)
         return chunks
 
-    def _apply_overlap(self, chunks: List[str], overlap: int) -> List[str]:
-        """应用重叠"""
+    def _overlap_token_budget(self, overlap: int) -> int:
+        """把 overlap 的字符数换算成保守的 token 预算（中文最费 token，按 1 字 1.5 token 算）"""
+        if overlap <= 0:
+            return 0
+        return int(overlap * 4 / 1.5) + 1
+
+    def _apply_overlap(self, chunks: List[str], overlap: int, max_size: int = None) -> List[str]:
+        """应用重叠
+
+        max_size 给定时逐字校验：叠加后的块长仍不超过 max_size，放不下的尾部
+        字符一律截掉，不再靠调用方预留预算兜底。
+        """
         if overlap <= 0 or len(chunks) <= 1:
             return chunks
         overlapped = []
         for i, chunk in enumerate(chunks):
             if i > 0:
                 prev_chunk = chunks[i - 1]
-                prev_tokens = list(prev_chunk)
-                overlap_text = ''.join(prev_tokens[-min(overlap * 4, len(prev_tokens)):])
+                overlap_text = prev_chunk[-min(overlap * 4, len(prev_chunk)):]
+                if max_size is not None:
+                    # 从尾部往前收，直到 前缀+chunk 的 token 数落在上限内
+                    while overlap_text and self._count_tokens(overlap_text + chunk) > max_size:
+                        overlap_text = overlap_text[1:]
+                    if not overlap_text:
+                        overlapped.append(chunk)
+                        continue
                 chunk = overlap_text + chunk
             overlapped.append(chunk)
         return overlapped
@@ -104,15 +137,20 @@ class ParentChildSplitter:
         """切分为父块"""
         if not text:
             return []
-        chunks = self._split_by_separator(text, self.parent_chunk_size)
-        return self._apply_overlap(chunks, self.parent_overlap)
+        # 先给 overlap 预留 token 预算，叠加后总长才不会越过 parent_chunk_size
+        budget = self._overlap_token_budget(self.parent_overlap)
+        max_size = max(1, self.parent_chunk_size - budget)
+        chunks = self._split_by_separator(text, max_size)
+        return self._apply_overlap(chunks, self.parent_overlap, self.parent_chunk_size)
 
     def split_parent_to_children(self, parent_text: str, parent_id: str) -> List[ChildChunk]:
         """将父块切分为子块"""
         if not parent_text:
             return []
+        # 子块按完整 child_chunk_size 切，overlap 由 _apply_overlap 逐字收缩，
+        # 避免扣预算后块长低于 min_child_size 被子块过滤掉
         child_texts = self._split_by_separator(parent_text, self.child_chunk_size)
-        child_texts = self._apply_overlap(child_texts, self.child_overlap)
+        child_texts = self._apply_overlap(child_texts, self.child_overlap, self.child_chunk_size)
         child_texts = [t for t in child_texts if self._count_tokens(t) >= self.min_child_size]
 
         children = []
@@ -215,9 +253,17 @@ def chunk_document_parent_child(
 
 
 def chunk_text_simple(text: str, chunk_size: int = 256) -> List[str]:
-    """简单分块（兼容原函数）"""
-    splitter = ParentChildSplitter(parent_chunk_size=chunk_size, child_chunk_size=chunk_size)
-    return splitter.split_to_parents(text)
+    """简单分块（兼容原函数）
+
+    语义就是「按块长切」：每块字符数不超过 chunk_size，块之间不重叠，
+    拼接后与原文本逐字一致。不走 split_to_parents 的 overlap 逻辑。
+    """
+    if not text:
+        return []
+    chunk_size = max(1, int(chunk_size))
+    if len(text) <= chunk_size:
+        return [text]
+    return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 
 __all__ = [
