@@ -12,6 +12,9 @@ from .types import ParentChildDocument, ParentChunk, ChildChunk
 logger = logging.getLogger(__name__)
 
 _CJK_RE = re.compile(r'[\u4e00-\u9fff]')
+# 非 ASCII 且非汉字（U+4E00-U+9FFF 之外的全部字符），把 2/3/4 字节区一网打尽，
+# 用来从「非 ASCII 字符数」里扣掉标点、全角、扩展区、假名、谚文、emoji 等非汉字
+_NON_HAN_RE = re.compile(r'[\u0080-\u4dff\ua000-\uffff\U00010000-\U0010ffff]')
 
 
 def _tokens_from_counts(cjk_count: int, other_count: int) -> int:
@@ -56,7 +59,14 @@ class ParentChildSplitter:
     _CHAR_CACHE_MAX_ENTRIES = 1024
 
     def _char_counts(self, text: str):
-        """返回 (中文字符数, 其他字符数)，短文本走缓存"""
+        """返回 (中文字符数, 其他字符数)，短文本走缓存
+
+        汉字数不再逐字符 findall，改成「非 ASCII 字符数 - 非汉字字符数」，
+        两次 C 层扫描即可，与 _CJK_RE.findall 严格等价。等价性：非 ASCII 字符里
+        除 U+4E00-U+9FFF 外全部落在 _NON_HAN_RE 的区间内，两者互补，差集即汉字。
+        对拍见 work/eval/scripts/bench_cjk_v3.py：固定 14 例 + 随机 300 例全部
+        一致，30 万字 33.56ms -> 4.25ms（7.9x）。
+        """
         if not text:
             return 0, 0
         cached = self._char_cache.get(text)
@@ -65,7 +75,8 @@ class ParentChildSplitter:
         if text.isascii():
             counts = (0, len(text))
         else:
-            cjk = len(_CJK_RE.findall(text))
+            non_ascii = len(text) - len(text.encode("ascii", "ignore"))
+            cjk = non_ascii - len(_NON_HAN_RE.findall(text))
             counts = (cjk, len(text) - cjk)
         if len(text) <= self._CACHE_MAX_TEXT:
             if len(self._char_cache) >= self._CHAR_CACHE_MAX_ENTRIES:
@@ -158,29 +169,79 @@ class ParentChildSplitter:
                 result.extend(self._split_by_length(chunk, max_size))
         return result
 
-    def _split_by_length(self, text: str, max_size: int) -> List[str]:
-        """按长度切分
+    # 纯 CJK 时 1 个字折算的 token 数，用来给定长粗切定上界
+    _CJK_TOKENS_PER_CHAR = 1.5
 
-        逐字推进时只累加当前块的字符计数（O(1)），不再对 current + ch 全量重数，
-        整体复杂度由 O(n²) 降为 O(n)。切分点与逐个字符判定完全一致。
+    def _split_by_length(self, text: str, max_size: int) -> List[str]:
+        """按长度切分：定长粗切 + 边界微调
+
+        旧实现逐字推进（O(n) 但每个字一次 Python 循环，纯 Python 里 0.13 μs/字）。
+        新实现先按「全是汉字」的最坏情况定长切：token 公式 int(cjk/1.5+other/4)
+        下 cjk/1.5 <= max_size，所以一块最多 int(1.5*max_size)+1 个字，按这个步长
+        粗切后每块只需一次 _char_counts（两次 C 层扫描）再微调边界：
+
+          1) 超限就从尾部删字（纯汉字时最多删 1 个）；
+          2) 还有余量就按本块中英密度估算右扩，最多 3 轮；
+          3) 逐字收尾，直到再加一个字就超限。
+
+        微调后每块都是「再加一个字就超限」的最大前缀，因此切分点与逐字版
+        **完全一致**，输出逐块不变。
         """
+        n = len(text)
+        if n == 0:
+            return []
+        # 纯 CJK 时一块能放下的最大字数；+1 是 int() 截断的余量
+        step = int(self._CJK_TOKENS_PER_CHAR * max_size) + 1
+        if step < 1:
+            step = 1
+        # q = 8*cjk + 3*other 是 token 数的 12 倍分子，int(q/12) <= max_size
+        # 等价于 q <= 12*max_size + 11
+        limit_q = 12 * max_size + 11
         chunks = []
         start = 0
-        cur_cjk = cur_other = 0
-        for i, ch in enumerate(text):
-            add_cjk = 1 if self._is_cjk(ch) else 0
-            new_cjk = cur_cjk + add_cjk
-            new_other = cur_other + (1 - add_cjk)
-            if _tokens_from_counts(new_cjk, new_other) <= max_size:
-                cur_cjk, cur_other = new_cjk, new_other
-            else:
-                if i > start:
-                    chunks.append(text[start:i])
-                start = i
-                cur_cjk = add_cjk
-                cur_other = 1 - add_cjk
-        if start < len(text):
-            chunks.append(text[start:])
+        while start < n:
+            end = min(start + step, n)
+            cjk, other = self._char_counts(text[start:end])
+            # 1) 超限就收缩（纯 CJK 时最多收缩 1 个字）
+            while end > start + 1 and 8 * cjk + 3 * other > limit_q:
+                end -= 1
+                if self._is_cjk(text[end]):
+                    cjk -= 1
+                else:
+                    other -= 1
+            # 2) 还有余量就按本块中英密度估算右扩，最多 3 轮
+            for _ in range(3):
+                if end >= n:
+                    break
+                q = 8 * cjk + 3 * other
+                length = end - start
+                avg_cost = max(3, q // length) if length else 3
+                extra = (limit_q - q) // avg_cost
+                if extra <= 0:
+                    break
+                new_end = min(end + extra, n)
+                seg_cjk, seg_other = self._char_counts(text[end:new_end])
+                cjk += seg_cjk
+                other += seg_other
+                end = new_end
+                while end > start + 1 and 8 * cjk + 3 * other > limit_q:
+                    end -= 1
+                    if self._is_cjk(text[end]):
+                        cjk -= 1
+                    else:
+                        other -= 1
+            # 3) 逐字收尾：扩到再加一个字就超限为止（残量已被前两步压到很小）
+            while end < n:
+                if self._is_cjk(text[end]):
+                    nc, no = cjk + 1, other
+                else:
+                    nc, no = cjk, other + 1
+                if 8 * nc + 3 * no > limit_q:
+                    break
+                cjk, other = nc, no
+                end += 1
+            chunks.append(text[start:end])
+            start = end
         return chunks
 
     def _overlap_token_budget(self, overlap: int) -> int:
