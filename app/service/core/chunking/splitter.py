@@ -11,6 +11,15 @@ from .types import ParentChildDocument, ParentChunk, ChildChunk
 
 logger = logging.getLogger(__name__)
 
+_CJK_RE = re.compile(r'[\u4e00-\u9fff]')
+
+
+def _tokens_from_counts(cjk_count: int, other_count: int) -> int:
+    """由中文字符数与其他字符数估算 token，与原公式 int(cjk/1.5 + other/4) 逐位一致"""
+    if cjk_count <= 0 and other_count <= 0:
+        return 0
+    return int(cjk_count / 1.5 + other_count / 4)
+
 
 class ParentChildSplitter:
     """父子分块器"""
@@ -33,14 +42,40 @@ class ParentChildSplitter:
             "\n\n", "\n", "。", "！", "？", "；",
             ". ", "! ", "? ", "; ", "，", ", ", " ",
         ]
+        # token 估算的小文本 LRU 缓存（同一段文本在过滤、写 token_count、
+        # overlap 校验里会被反复数，缓存能直接消掉这部分重复）
+        self._token_cache: Dict[str, int] = {}
+
+    _TOKEN_CACHE_MAX_TEXT = 512
+    _TOKEN_CACHE_MAX_ENTRIES = 4096
+
+    @staticmethod
+    def _char_counts(text: str):
+        """返回 (中文字符数, 其他字符数)"""
+        if not text:
+            return 0, 0
+        if text.isascii():
+            return 0, len(text)
+        cjk = len(_CJK_RE.findall(text))
+        return cjk, len(text) - cjk
+
+    @staticmethod
+    def _is_cjk(ch: str) -> bool:
+        return '\u4e00' <= ch <= '\u9fff'
 
     def _count_tokens(self, text: str) -> int:
-        """估算token数量"""
+        """估算token数量（与原公式等价，短文本走缓存）"""
         if not text:
             return 0
-        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
-        other_chars = len(text) - chinese_chars
-        return int(chinese_chars / 1.5 + other_chars / 4)
+        cached = self._token_cache.get(text)
+        if cached is not None:
+            return cached
+        tokens = _tokens_from_counts(*self._char_counts(text))
+        if len(text) <= self._TOKEN_CACHE_MAX_TEXT:
+            if len(self._token_cache) >= self._TOKEN_CACHE_MAX_ENTRIES:
+                self._token_cache.clear()
+            self._token_cache[text] = tokens
+        return tokens
 
     def _split_by_separator(self, text: str, max_size: int) -> List[str]:
         """按分隔符分割文本"""
@@ -49,27 +84,38 @@ class ParentChildSplitter:
 
         for separator in self.separators:
             if separator in text:
+                sep_cjk, sep_other = self._char_counts(separator)
                 parts = text.split(separator)
                 chunks = []
                 current = ""
+                # 维护 current 的字符计数，拼接时只做加法，不再全量重数
+                cur_cjk = cur_other = 0
 
                 for part in parts:
                     if not part.strip():
                         continue
+                    part_cjk, part_other = self._char_counts(part)
                     # 单个 part 本身已超限时，继续拼接只会更超，先落盘再做二次切分
-                    if self._count_tokens(part) > max_size:
+                    if _tokens_from_counts(part_cjk, part_other) > max_size:
                         if current:
                             chunks.append(current)
                             current = ""
+                            cur_cjk = cur_other = 0
                         chunks.extend(self._split_by_length(part, max_size))
                         continue
-                    test_current = current + separator + part if current else part
-                    if self._count_tokens(test_current) <= max_size:
-                        current = test_current
+                    if current:
+                        new_cjk = cur_cjk + sep_cjk + part_cjk
+                        new_other = cur_other + sep_other + part_other
+                    else:
+                        new_cjk, new_other = part_cjk, part_other
+                    if _tokens_from_counts(new_cjk, new_other) <= max_size:
+                        current = current + separator + part if current else part
+                        cur_cjk, cur_other = new_cjk, new_other
                     else:
                         if current:
                             chunks.append(current)
                         current = part
+                        cur_cjk, cur_other = part_cjk, part_other
 
                 if current:
                     chunks.append(current)
@@ -89,18 +135,28 @@ class ParentChildSplitter:
         return result
 
     def _split_by_length(self, text: str, max_size: int) -> List[str]:
-        """按长度切分"""
+        """按长度切分
+
+        逐字推进时只累加当前块的字符计数（O(1)），不再对 current + ch 全量重数，
+        整体复杂度由 O(n²) 降为 O(n)。切分点与逐个字符判定完全一致。
+        """
         chunks = []
-        current = ""
-        for ch in text:
-            if self._count_tokens(current + ch) <= max_size:
-                current += ch
+        start = 0
+        cur_cjk = cur_other = 0
+        for i, ch in enumerate(text):
+            add_cjk = 1 if self._is_cjk(ch) else 0
+            new_cjk = cur_cjk + add_cjk
+            new_other = cur_other + (1 - add_cjk)
+            if _tokens_from_counts(new_cjk, new_other) <= max_size:
+                cur_cjk, cur_other = new_cjk, new_other
             else:
-                if current:
-                    chunks.append(current)
-                current = ch
-        if current:
-            chunks.append(current)
+                if i > start:
+                    chunks.append(text[start:i])
+                start = i
+                cur_cjk = add_cjk
+                cur_other = 1 - add_cjk
+        if start < len(text):
+            chunks.append(text[start:])
         return chunks
 
     def _overlap_token_budget(self, overlap: int) -> int:
@@ -123,8 +179,17 @@ class ParentChildSplitter:
                 prev_chunk = chunks[i - 1]
                 overlap_text = prev_chunk[-min(overlap * 4, len(prev_chunk)):]
                 if max_size is not None:
-                    # 从尾部往前收，直到 前缀+chunk 的 token 数落在上限内
-                    while overlap_text and self._count_tokens(overlap_text + chunk) > max_size:
+                    # 从尾部往前收，直到 前缀+chunk 的 token 数落在上限内；
+                    # 用增量计数代替每次重数字符串，避免收缩过程退化成 O(len²)
+                    chunk_cjk, chunk_other = self._char_counts(chunk)
+                    ov_cjk, ov_other = self._char_counts(overlap_text)
+                    while overlap_text and _tokens_from_counts(
+                            ov_cjk + chunk_cjk, ov_other + chunk_other) > max_size:
+                        drop = overlap_text[0]
+                        if self._is_cjk(drop):
+                            ov_cjk -= 1
+                        else:
+                            ov_other -= 1
                         overlap_text = overlap_text[1:]
                     if not overlap_text:
                         overlapped.append(chunk)
@@ -151,17 +216,19 @@ class ParentChildSplitter:
         # 避免扣预算后块长低于 min_child_size 被子块过滤掉
         child_texts = self._split_by_separator(parent_text, self.child_chunk_size)
         child_texts = self._apply_overlap(child_texts, self.child_overlap, self.child_chunk_size)
-        child_texts = [t for t in child_texts if self._count_tokens(t) >= self.min_child_size]
-
         children = []
-        for i, child_text in enumerate(child_texts):
+        for child_text in child_texts:
+            token_count = self._count_tokens(child_text)
+            if token_count < self.min_child_size:
+                continue
+            i = len(children)
             child_hash = hashlib.md5(f"{parent_id}_{i}_{child_text[:100]}".encode()).hexdigest()[:16]
             children.append(ChildChunk(
                 id=f"child_{child_hash}",
                 content=child_text,
                 parent_id=parent_id,
                 chunk_index=i,
-                token_count=self._count_tokens(child_text)
+                token_count=token_count
             ))
         return children
 
