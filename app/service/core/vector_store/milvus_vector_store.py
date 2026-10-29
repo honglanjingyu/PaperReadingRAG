@@ -42,6 +42,8 @@ class MilvusVectorStore:
         # has_collection 结果短期缓存，避免每次检索都多打一次 RPC
         self._has_collection_cache: Dict[str, tuple] = {}
         self._has_collection_ttl = float(os.getenv("VECTOR_STORE_HAS_COLLECTION_TTL", "30"))
+        # 集合实际索引类型缓存（报告 2.1）：查询参数必须与它匹配
+        self._index_type_cache: Dict[str, str] = {}
 
         self._connect()
 
@@ -107,6 +109,66 @@ class MilvusVectorStore:
         with self._collection_lock:
             self._collection_cache.pop(index_name, None)
             self._has_collection_cache.pop(index_name, None)
+            self._index_type_cache.pop(index_name, None)
+
+    # ---------- 索引参数（报告 2.1） ----------
+
+    def _build_index_params(self, metric_type: str = "COSINE") -> Dict[str, Any]:
+        """按环境变量生成建索引参数，默认 HNSW。
+
+        MILVUS_INDEX_TYPE=HNSW（默认）| IVF_FLAT；
+        HNSW 用 MILVUS_HNSW_M（默认 16）、MILVUS_HNSW_EF_CONSTRUCTION（默认 200）；
+        IVF_FLAT 用 MILVUS_IVF_NLIST（默认 128）。
+        注意：已有集合换索引类型必须显式重建，本类不自动重建。
+        """
+        index_type = os.getenv("MILVUS_INDEX_TYPE", "HNSW").strip().upper()
+        if index_type == "IVF_FLAT":
+            return {
+                "metric_type": metric_type,
+                "index_type": "IVF_FLAT",
+                "params": {"nlist": int(os.getenv("MILVUS_IVF_NLIST", "128"))},
+            }
+        return {
+            "metric_type": metric_type,
+            "index_type": "HNSW",
+            "params": {
+                "M": int(os.getenv("MILVUS_HNSW_M", "16")),
+                "efConstruction": int(os.getenv("MILVUS_HNSW_EF_CONSTRUCTION", "200")),
+            },
+        }
+
+    def get_index_type(self, index_name: str) -> Optional[str]:
+        """读集合实际索引类型（按 index_name 缓存），查询参数必须与它匹配。"""
+        with self._collection_lock:
+            cached = self._index_type_cache.get(index_name)
+            if cached:
+                return cached
+        collection = self._get_collection(index_name)
+        if collection is None:
+            return None
+        index_type = None
+        try:
+            index = collection.index()
+            params = getattr(index, "params", None) or {}
+            index_type = params.get("index_type")
+        except Exception as e:
+            logger.warning("读取集合 %s 索引信息失败: %s", index_name, e)
+        if index_type:
+            with self._collection_lock:
+                self._index_type_cache[index_name] = index_type
+        return index_type
+
+    def _build_search_params(self, index_type: Optional[str], top_k: int) -> Dict[str, Any]:
+        """查询参数：HNSW 用随 top_k 自适应的 ef，IVF_FLAT 用 nprobe。"""
+        top_k = max(int(top_k or 1), 1)
+        if (index_type or "").upper() == "HNSW":
+            fixed_ef = int(os.getenv("MILVUS_HNSW_EF", "0") or 0)
+            ef = fixed_ef if fixed_ef > 0 else max(64, top_k * 8)
+            return {"metric_type": "COSINE", "params": {"ef": ef}}
+        return {
+            "metric_type": "COSINE",
+            "params": {"nprobe": int(os.getenv("MILVUS_IVF_NPROBE", "20"))},
+        }
 
     def create_index(self, index_name: str, vector_dim: int = None,
                      metric_type: str = "COSINE", **kwargs) -> bool:
@@ -123,15 +185,21 @@ class MilvusVectorStore:
             try:
                 # 确保索引存在
                 collection.index()
+                # 报告 2.1：不自动重建集合。索引类型与当前配置不一致时只告警，
+                # 重建必须显式走 work/scripts/db/mm_rebuild_index.py（先备份）。
+                existing_type = self.get_index_type(index_name)
+                desired_type = self._build_index_params(metric_type).get("index_type")
+                if existing_type and desired_type and existing_type.upper() != desired_type.upper():
+                    logger.warning(
+                        "集合 %s 现有索引 %s 与配置的 %s 不一致，需显式重建后再切流量"
+                        "（work/scripts/db/mm_rebuild_index.py）",
+                        index_name, existing_type, desired_type,
+                    )
                 logger.info(f"索引已存在，跳过创建")
             except Exception as e:
                 logger.warning(f"索引不存在，正在创建: {e}")
                 # 创建索引
-                index_params = {
-                    "metric_type": metric_type,
-                    "index_type": "IVF_FLAT",
-                    "params": {"nlist": 128}
-                }
+                index_params = self._build_index_params(metric_type)
                 collection.create_index("vector", index_params)
                 collection.load()  # 重要：加载集合到内存
                 logger.info(f"索引创建成功并已加载")
@@ -165,12 +233,8 @@ class MilvusVectorStore:
         schema = CollectionSchema(fields, description=f"RAG 文档集合: {index_name}")
         collection = Collection(index_name, schema)
 
-        # 创建索引
-        index_params = {
-            "metric_type": metric_type,
-            "index_type": "IVF_FLAT",
-            "params": {"nlist": 128}
-        }
+        # 创建索引（报告 2.1：默认 HNSW，参数可由环境变量覆盖）
+        index_params = self._build_index_params(metric_type)
         collection.create_index("vector", index_params)
 
         # 重要：加载集合到内存，使其立即可搜索
@@ -464,11 +528,11 @@ class MilvusVectorStore:
 
             expr = " and ".join(expr_parts) if expr_parts else None
 
-            # 搜索参数
-            search_params = {
-                "metric_type": "COSINE",
-                "params": {"nprobe": 20}
-            }
+            # 搜索参数（报告 2.1）：按集合实际索引类型选 ef / nprobe，
+            # HNSW 的 ef 随 top_k 自适应为 max(64, top_k*8)。
+            search_params = self._build_search_params(
+                self.get_index_type(index_name), top_k
+            )
 
             # 执行搜索
             results = collection.search(

@@ -35,9 +35,20 @@ async def lifespan(app: FastAPI):
     await init_async_processor()
     logger.info("异步文档处理器已启动")
 
+    # 报告 2.4：后台预热 embedding，避免第一个真实请求吃满 45~78 s 的冷启动。
+    # 不 await，启动不被阻塞；失败只记日志，不影响服务可用性。
+    from app.service.core.embedding.warmup import warmup_embedding_async
+    warmup_task = asyncio.create_task(warmup_embedding_async())
+    warmup_task.add_done_callback(
+        lambda t: t.exception() if not t.cancelled() else None
+    )
+    logger.info("embedding 预热任务已在后台启动")
+
     yield
 
     logger.info("应用关闭中...")
+    if not warmup_task.done():
+        warmup_task.cancel()
     await shutdown_async_processor()
     logger.info("异步文档处理器已关闭")
 

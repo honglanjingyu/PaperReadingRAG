@@ -10,6 +10,7 @@ import logging
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 from app.service.core.vector_store import get_vector_store, get_vector_search_service
 from app.service.core.embedding import get_embedding_service
@@ -196,12 +197,40 @@ class HybridRetriever:
                 r['docnm'] = r.get('document_name', '')
         return results
 
+    def _parallel_recall(self, query: str, index_name: str, recall_k: int,
+                         user_level: str = None) -> Tuple[List[Dict], List[Dict]]:
+        """报告 2.2：向量检索与 BM25 并行执行。
+
+        两路互不依赖，并行后端到端延迟由「两者之和」降到「两者较大者」。
+        任一路失败只降级该路为空，不影响另一路（与原先串行时的行为一致）。
+        线程数固定为 2，按需创建，不常驻。
+        """
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="recall") as pool:
+            vec_future = pool.submit(
+                self._vector_search, query, index_name, recall_k, user_level
+            )
+            kw_future = pool.submit(
+                self._bm25_search, query, index_name, recall_k, user_level
+            )
+
+            def _safe(future, name: str) -> List[Dict]:
+                try:
+                    return future.result() or []
+                except Exception as e:
+                    logger.warning("%s 检索失败，已降级为空: %s", name, e)
+                    return []
+
+            return _safe(vec_future, "向量"), _safe(kw_future, "BM25")
+
     def hybrid_search(self, query: str, index_name: str, top_k: int = 5,
                       recall_k: int = 20, user_level: str = None) -> List[Dict]:
         """混合检索"""
         recall_k = max(top_k * 4, recall_k)
-        vector_results = self._vector_search(query, index_name, recall_k, user_level)
-        keyword_results = self._bm25_search(query, index_name, recall_k, user_level)
+        # 报告 2.2：向量检索与 BM25 原本串行，两路互不依赖，改为并行执行，
+        # 端到端延迟从「两者之和」降到「两者较大者」。
+        vector_results, keyword_results = self._parallel_recall(
+            query, index_name, recall_k, user_level
+        )
 
         if not vector_results and not keyword_results:
             return []

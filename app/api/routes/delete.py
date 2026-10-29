@@ -304,8 +304,10 @@ def _invalidate_cache(filename: str) -> bool:
         doc_cache = get_document_cache()
         doc_cache.delete_document_level(filename)
 
+        # 报告 2.3：检索缓存 key 是 md5(params)，按文件名 pattern 永远匹配不上。
+        # 改为按集合粒度清空该集合的检索缓存（文档增删后整集失效，保守但正确）。
         search_cache = CachedSearchService()
-        search_cache.invalidate(pattern=f"*{filename}*")
+        search_cache.invalidate(index_name=os.getenv("VECTOR_INDEX_NAME", "rag_documents"))
 
         # 清理多模态缓存
         from app.service.core.cache import get_cache_manager
@@ -530,11 +532,17 @@ def _batch_invalidate_cache(filenames: List[str]) -> Dict[str, bool]:
     for filename in filenames:
         try:
             doc_cache.delete_document_level(filename)
-            search_cache.invalidate(pattern=f"*{filename}*")
             results[filename] = True
         except Exception as e:
             logger.error(f"缓存失效失败 {filename}: {e}")
             results[filename] = False
+
+    # 报告 2.3：批量删除完统一按集合清一次检索缓存（key 是 md5(params)，
+    # 逐文件名 pattern 匹配不上）。放在循环外，避免每个文件都扫一遍 Redis。
+    try:
+        search_cache.invalidate(index_name=os.getenv("VECTOR_INDEX_NAME", "rag_documents"))
+    except Exception as e:
+        logger.error(f"检索缓存失效失败: {e}")
 
     return results
 
