@@ -39,6 +39,16 @@ _PROMPT = (
     "5) 只输出描述正文，不要加「好的」「以下是」这类前缀，不要重复图片文件名。"
 )
 
+# 报告 3.1 第 2 条：结构化 caption。在自由描述之外，再要求一句「形状/颜色/布局/数量」的
+# 结构化标注，提升 BM25 对纯视觉 query（如「四根蓝色柱子」「三个方框用箭头连接」）的首命中率。
+# 单独成段、固定前缀「结构化标注:」，便于回填脚本与评测按字段抽取，也不干扰自然语言描述。
+_STRUCTURED_SUFFIX = (
+    "\n\n另外，在描述最后另起一行，用固定前缀「结构化标注:」输出一句结构化摘要，"
+    "按「布局方向、元素类型与数量、主色、形状」的顺序写，例如："
+    "「结构化标注: 横向布局，3 个方框用箭头依次连接，主色蓝色，矩形。」"
+    "数量与颜色不确定时写「约」或省略该项，不要编造。"
+)
+
 _cache_lock = threading.Lock()
 _cache: dict = {}
 
@@ -61,7 +71,10 @@ def _cache_key(image_path: str) -> str:
         size = os.path.getsize(image_path)
     except OSError:
         mtime, size = 0, 0
-    raw = f"{os.path.abspath(image_path)}|{mtime}|{size}"
+    # 报告 3.1 第 2 条：把结构化开关状态并进 key，关掉开关后不会命中旧的
+    # 「带结构化标注」描述（开关默认开，未设置时与改动前行为一致）。
+    structured = "s1" if structured_enabled() else "s0"
+    raw = f"{os.path.abspath(image_path)}|{mtime}|{size}|{structured}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
@@ -124,13 +137,19 @@ def _cache_put(key: str, value: str):
         _cache[key] = value
 
 
+def structured_enabled() -> bool:
+    """报告 3.1 第 2 条：是否要求模型额外出结构化标注。默认开启，可关掉做 A/B。"""
+    return _env_bool("IMAGE_CAPTION_STRUCTURED", True)
+
+
 def _build_messages(data: bytes, mime: str) -> list:
     b64 = base64.b64encode(data).decode("ascii")
+    prompt = _PROMPT + _STRUCTURED_SUFFIX if structured_enabled() else _PROMPT
     return [
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": _PROMPT},
+                {"type": "text", "text": prompt},
                 {"type": "image_url",
                  "image_url": {"url": f"data:{mime};base64,{b64}"}},
             ],

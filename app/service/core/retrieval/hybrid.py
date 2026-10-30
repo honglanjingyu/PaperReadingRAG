@@ -158,9 +158,37 @@ class HybridRetriever:
             logger.warning(f"ES BM25 不可用: {e}")
             return False
 
+    # 报告 3.1：视觉意图 query 的识别词。只认明确的图片词，不用单字「图」，
+    # 避免「图书馆」「试图」之类误判；可用 HYBRID_IMAGE_INTENT_KEYWORDS 逗号分隔覆盖。
+    _DEFAULT_IMAGE_INTENT_KEYWORDS = (
+        "图片", "图像", "图表", "截图", "示意图", "流程图", "架构图",
+        "柱状图", "饼图", "散点图", "折线图", "曲线图", "混淆矩阵",
+        "配图", "插图", "如图所示", "看图", "图中",
+    )
+
     def _load_weights(self):
         self.vector_weight = float(os.getenv("HYBRID_VECTOR_WEIGHT", "0.6"))
         self.keyword_weight = float(os.getenv("HYBRID_KEYWORD_WEIGHT", "0.4"))
+        # 报告 3.1：视觉意图 query 的条件权重。实测视觉 query 用 0.5:1.0 时 MRR 0.7→0.8，
+        # 只对命中图片意图的 query 生效，不改全局 0.6:0.4，文本组配比不受影响。
+        self.image_vector_weight = float(os.getenv("HYBRID_IMAGE_VECTOR_WEIGHT", "0.5"))
+        self.image_keyword_weight = float(os.getenv("HYBRID_IMAGE_KEYWORD_WEIGHT", "1.0"))
+        # 报告 3.1 第 3 条：RRF 之后对 chunk_type=image 的小幅位置加权。
+        # 默认 0（关闭），须与条件权重一起评测后再打开，避免把文本组 MRR 拉下来。
+        self.image_boost = float(os.getenv("HYBRID_IMAGE_BOOST", "0"))
+        raw_kw = os.getenv("HYBRID_IMAGE_INTENT_KEYWORDS", "")
+        kws = raw_kw.split(",") if raw_kw else self._DEFAULT_IMAGE_INTENT_KEYWORDS
+        self.image_intent_keywords = tuple(k.strip() for k in kws if k and k.strip())
+        # 报告 3.2：余弦门限原来写死 0.1，不同 embedding 模型余弦分布差别很大
+        # （VISTA 与旧 CLIP 不是一个量纲），提为按模型标定的配置项。
+        self.vector_sim_threshold = float(os.getenv("HYBRID_VECTOR_SIM_THRESHOLD", "0.1"))
+
+    def _is_image_intent(self, query: str) -> bool:
+        """判断 query 是否在问图片内容（报告 3.1 条件权重的触发条件）。"""
+        if not query or not self.image_intent_keywords:
+            return False
+        q = query.lower()
+        return any(kw.lower() in q for kw in self.image_intent_keywords)
 
     def _vector_search(self, query: str, index_name: str, top_k: int,
                        user_level: str = None) -> List[Dict]:
@@ -169,9 +197,11 @@ class HybridRetriever:
         if not query_vector:
             return []
 
+        # 报告 3.2：门限由 HYBRID_VECTOR_SIM_THRESHOLD 按 embedding 模型标定，
+        # 不再写死 0.1（VISTA 与旧 CLIP 的余弦分布不是一个量纲）。
         results = self.vector_store.search(
             query_vector=query_vector, index_name=index_name, top_k=top_k,
-            similarity_threshold=0.1, user_level=user_level
+            similarity_threshold=self.vector_sim_threshold, user_level=user_level
         )
         for r in results:
             r['_search_type'] = 'vector'
@@ -235,11 +265,28 @@ class HybridRetriever:
         if not vector_results and not keyword_results:
             return []
 
+        # 报告 3.1 第 1 条：视觉意图 query 改用条件权重（默认 0.5:1.0，实测视觉 MRR 0.7→0.8），
+        # 非图片意图 query 仍用全局 0.6:0.4，文本组配比不受影响。
+        if self._is_image_intent(query):
+            vector_weight, keyword_weight = self.image_vector_weight, self.image_keyword_weight
+        else:
+            vector_weight, keyword_weight = self.vector_weight, self.keyword_weight
+
         results = ScoreMerger.rrf_normalize_results(
-            vector_results, keyword_results, self.vector_weight, self.keyword_weight, self._rrf_k
+            vector_results, keyword_results, vector_weight, keyword_weight, self._rrf_k
         )
         for r in results:
             r['final_score'] = r.get('rrf_score', 0)
+
+        # 报告 3.1 第 3 条：RRF 之后对 chunk_type=image 的块做小幅位置加权。
+        # 默认 HYBRID_IMAGE_BOOST=0（关闭），须与条件权重一起评测后再打开，
+        # 避免把文本组 MRR 拉下来。
+        if self.image_boost > 0:
+            for r in results:
+                if str(r.get('chunk_type', '') or '') == 'image':
+                    r['rrf_score'] = r.get('rrf_score', 0) * (1.0 + self.image_boost)
+                    r['final_score'] = r['rrf_score']
+            results.sort(key=lambda x: x.get('rrf_score', 0), reverse=True)
 
         # RRF 单路分数上限约 weight/(k+1)（k=100 时约 0.0099、单通道 0.6/61≈0.0098），
         # 固定 0.01 门限会在 k 偏大或 BM25 降级时把整批结果截成空。默认不再做分数过滤，
