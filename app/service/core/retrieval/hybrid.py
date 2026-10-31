@@ -182,6 +182,16 @@ class HybridRetriever:
         # 报告 3.2：余弦门限原来写死 0.1，不同 embedding 模型余弦分布差别很大
         # （VISTA 与旧 CLIP 不是一个量纲），提为按模型标定的配置项。
         self.vector_sim_threshold = float(os.getenv("HYBRID_VECTOR_SIM_THRESHOLD", "0.1"))
+        # 大规模评测第 13 条：RRF 之后按 docnm 限流。同主题 40 篇干扰 vs 1 篇锚点时，
+        # RRF 会放大「多者通吃」，同一文档的多块、同主题多文档挤占 top_k 名额。
+        # 默认 0 = 关闭，保持既有行为；>0 时同一 docnm 最多保留 N 条候选。
+        # 注：2026-10-31 大规模评测实测该项对未命中 query 零增益（top5 本就是 5 篇
+        # 不同 docnm），根因不在此，仅作为可选的去冗余开关保留。
+        self.per_doc_cap = int(os.getenv("HYBRID_PER_DOC_CAP", "0"))
+        # 大规模评测第 13 条（真因）：RRF 奖励「两路都在榜中游」、惩罚「单路极强、
+        # 另一路缺席」。实测锚点 BM25 第 1 / 向量第 50 时 RRF 后掉到第 27。
+        # 打开后把两路各自 Top-1 保送到结果最前面，默认开启；设为 0 可关闭。
+        self.single_route_top1 = int(os.getenv("HYBRID_SINGLE_ROUTE_TOP1", "1")) > 0
 
     def _is_image_intent(self, query: str) -> bool:
         """判断 query 是否在问图片内容（报告 3.1 条件权重的触发条件）。"""
@@ -292,7 +302,49 @@ class HybridRetriever:
         # 固定 0.01 门限会在 k 偏大或 BM25 降级时把整批结果截成空。默认不再做分数过滤，
         # 只过滤掉 rrf_score 为 0 的无效项；需要门限时用 RRF_MIN_SCORE 显式配置。
         min_score = float(os.getenv("RRF_MIN_SCORE", "0"))
-        return [r for r in results if r.get('rrf_score', 0) > 0 and r.get('rrf_score', 0) >= min_score][:top_k]
+        filtered = [r for r in results
+                    if r.get('rrf_score', 0) > 0 and r.get('rrf_score', 0) >= min_score]
+
+        # 大规模评测第 13 条：RRF 之后按 docnm 限流，抑制「同主题多者通吃」。
+        # 限流作用在完整候选集（两路各 recall_k 条合并后）上，再截断 top_k ——
+        # 先截断再限流会让名额空着，锚点仍然提不上来。docnm 为空的块不参与合并。
+        if self.per_doc_cap > 0:
+            kept, seen = [], {}
+            for r in filtered:
+                key = str(r.get('docnm') or r.get('document_name') or '').strip()
+                if not key:
+                    kept.append(r)
+                    continue
+                n = seen.get(key, 0)
+                if n >= self.per_doc_cap:
+                    continue
+                seen[key] = n + 1
+                kept.append(r)
+            filtered = kept
+
+        # 大规模评测第 13 条：单路 Top-1 保送。
+        # RRF 的名次倒数对「单路第一、另一路缺席」极不友好：向量第 50 + BM25 第 1
+        # 的锚点只有 ~1/(60+1) 分，而两路都在第 20 名的干扰文档有 ~2/(60+20) 分。
+        # 这里把两路各自的 Top-1 无条件和进候选最前面（按 RRF 分高者在前），再截断 top_k。
+        if self.single_route_top1 and filtered:
+            by_id = {}
+            for r in filtered:
+                rid = r.get('_id') or r.get('id')
+                if rid:
+                    by_id[rid] = r
+            promoted = []
+            for src in (vector_results, keyword_results):
+                if not src:
+                    continue
+                rid = src[0].get('_id') or src[0].get('id')
+                if rid and rid in by_id and by_id[rid] not in promoted:
+                    promoted.append(by_id[rid])
+            if promoted:
+                promoted.sort(key=lambda x: x.get('rrf_score', 0), reverse=True)
+                head = set(id(r) for r in promoted)
+                filtered = promoted + [r for r in filtered if id(r) not in head]
+
+        return filtered[:top_k]
 
 
 # ============================================================
