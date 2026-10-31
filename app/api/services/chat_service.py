@@ -248,7 +248,13 @@ class ChatService:
                 "total_returned": retrieval_result.get("total_returned", 0),
                 "enable_rerank": enable_rerank,
                 "enable_query_rewrite": enable_query_rewrite,
-                "rerank_model": retrieval_result.get("rerank_model", "unknown")
+                "rerank_model": retrieval_result.get("rerank_model") or "unknown",
+                # rerank 可观测性：是否真正生效、未生效原因
+                "rerank_applied": bool(retrieval_result.get("rerank_applied", False)),
+                "rerank_reason": retrieval_result.get("rerank_reason", "unknown"),
+                # rerank 远程调用耗时（毫秒）与名次变化条数
+                "rerank_ms": retrieval_result.get("rerank_ms"),
+                "rank_changed_count": retrieval_result.get("rank_changed_count", 0)
             },
             "model_info": generation_result.get("model_info", {})
         }
@@ -330,7 +336,12 @@ class ChatService:
             "total_recalled": result.get("total_recalled", 0),
             "total_returned": result.get("total_returned", 0),
             "results": result.get("results", []),
-            "error": result.get("error")
+            "error": result.get("error"),
+            # rerank 可观测性：是否真正生效、未生效原因、模型名
+            "rerank_applied": bool(result.get("rerank_applied", False)),
+            "rerank_reason": result.get("rerank_reason", "unknown"),
+            "rerank_model": result.get("rerank_model") or "unknown",
+            "rerank_meta": result.get("rerank_meta"),
         }
 
     async def generate_only(

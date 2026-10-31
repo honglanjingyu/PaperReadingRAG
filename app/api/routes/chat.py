@@ -276,7 +276,14 @@ async def ask_question_stream(request: ChatRequest, authorization: Optional[str]
                         "total_recalled": retrieval_result.get("total_recalled", 0),
                         "total_returned": len(formatted_results),
                         "enable_rerank": enable_rerank,
-                        "enable_query_rewrite": enable_query_rewrite
+                        "enable_query_rewrite": enable_query_rewrite,
+                        # rerank 可观测性：是否真正生效、未生效原因、模型名
+                        "rerank_applied": bool(retrieval_result.get("rerank_applied", False)),
+                        "rerank_reason": retrieval_result.get("rerank_reason", "unknown"),
+                        "rerank_model": retrieval_result.get("rerank_model") or "unknown",
+                        # rerank 远程调用耗时（毫秒）与名次变化条数
+                        "rerank_ms": retrieval_result.get("rerank_ms"),
+                        "rank_changed_count": retrieval_result.get("rank_changed_count", 0)
                     }
                 }) + "\n"
 

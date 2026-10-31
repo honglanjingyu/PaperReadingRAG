@@ -470,9 +470,16 @@ class ParentChildRetriever:
                 "results": []
             }
 
-        # 重排序
+        # 重排序（每次调用都记录是否真正生效，避免静默降级）
         final_results = parent_results
+        rerank_meta = {
+            "rerank_applied": False,
+            "rerank_reason": "disabled" if not enable_rerank else "no_candidates",
+            "rerank_model": None,
+            "rerank_input_count": len(parent_results),
+        }
         if enable_rerank and parent_results:
+            reranker = None
             try:
                 reranker = Reranker(api_type=rerank_type)
                 docs_for_rerank = []
@@ -495,13 +502,27 @@ class ParentChildRetriever:
                 if reranked:
                     final_results = reranked[:top_k]
             except Exception as e:
-                logger.warning(f"重排序失败: {e}")
+                logger.warning(f"重排序失败: {type(e).__name__}: {e}")
+
+            meta = getattr(reranker, 'last_meta', None) if reranker is not None else None
+            if meta:
+                rerank_meta.update(meta)
+            elif reranker is None:
+                rerank_meta["rerank_reason"] = "init_error"
+            else:
+                rerank_meta["rerank_reason"] = "no_meta"
+
+        if not rerank_meta["rerank_applied"]:
+            logger.info(
+                f"rerank 未生效: reason={rerank_meta.get('rerank_reason')} "
+                f"候选={rerank_meta.get('rerank_input_count')} enable_rerank={enable_rerank}"
+            )
 
         # 格式化结果
         formatted_results = []
         for i, result in enumerate(final_results, 1):
             doc_name = result.get('document_name') or result.get('docnm') or ''
-            formatted_results.append({
+            item = {
                 "rank": i,
                 "score": result.get("rerank_score", result.get("score", 0)),
                 "content": result.get("content", ""),
@@ -510,7 +531,13 @@ class ParentChildRetriever:
                 "document_name": doc_name,
                 "docnm": doc_name,
                 "is_parent": result.get("is_parent", True)
-            })
+            }
+            # rerank 生效时带上名次变化，便于判断 rerank 到底有没有贡献
+            if "original_rank" in result:
+                item["original_rank"] = result.get("original_rank")
+            if "new_rank" in result:
+                item["new_rank"] = result.get("new_rank")
+            formatted_results.append(item)
 
         return {
             "success": True,
@@ -522,7 +549,16 @@ class ParentChildRetriever:
             "total_returned": len(formatted_results),
             "results": formatted_results,
             "enable_rerank": enable_rerank,
-            "enable_query_rewrite": enable_query_rewrite
+            "enable_query_rewrite": enable_query_rewrite,
+            # rerank 可观测性：是否真正生效、未生效原因、模型名
+            "rerank_applied": rerank_meta.get("rerank_applied", False),
+            "rerank_reason": rerank_meta.get("rerank_reason", "unknown"),
+            "rerank_model": rerank_meta.get("rerank_model") or (None if not enable_rerank else "unknown"),
+            # 远程 rerank 调用耗时（毫秒）与名次变化明细（判断 rerank 有没有贡献的直接证据）
+            "rerank_ms": rerank_meta.get("rerank_ms"),
+            "rank_changed_count": rerank_meta.get("rank_changed_count", 0),
+            "rank_changes": rerank_meta.get("rank_changes", []),
+            "rerank_meta": rerank_meta
         }
 
     def get_cache_key(self, params: Dict) -> str:

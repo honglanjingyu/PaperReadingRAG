@@ -42,6 +42,11 @@ class A2ARAGResponse(BaseModel):
     documents: Optional[list] = Field(None, description="检索到的文档")
     session_id: Optional[str] = Field(None, description="会话ID")
     error: Optional[str] = Field(None, description="错误信息")
+    # rerank 可观测性：是否真正生效、未生效原因、模型名
+    rerank_applied: Optional[bool] = Field(None, description="rerank 是否真正生效")
+    rerank_reason: Optional[str] = Field(None, description="rerank 未生效原因")
+    rerank_model: Optional[str] = Field(None, description="rerank 模型名")
+    retrieval_info: Optional[dict] = Field(None, description="检索层可观测信息")
 
 
 class A2AHealthResponse(BaseModel):
@@ -152,11 +157,30 @@ class A2AService:
                     for doc in results[:request.top_k]
                 ]
 
+            rerank_applied = bool(retrieval_result.get("rerank_applied", False))
+            rerank_reason = retrieval_result.get("rerank_reason", "unknown")
+            rerank_model = retrieval_result.get("rerank_model") or "unknown"
+            logger.info(
+                f"A2A rerank 状态: applied={rerank_applied} reason={rerank_reason} model={rerank_model}"
+            )
+
             return A2ARAGResponse(
                 success=True,
                 answer=answer,
                 documents=documents,
-                session_id=session_id
+                session_id=session_id,
+                rerank_applied=rerank_applied,
+                rerank_reason=rerank_reason,
+                rerank_model=rerank_model,
+                retrieval_info={
+                    "total_recalled": retrieval_result.get("total_recalled", 0),
+                    "total_returned": retrieval_result.get("total_returned", 0),
+                    "enable_rerank": retrieval_result.get("enable_rerank"),
+                    "enable_query_rewrite": retrieval_result.get("enable_query_rewrite"),
+                    "rerank_applied": rerank_applied,
+                    "rerank_reason": rerank_reason,
+                    "rerank_model": rerank_model,
+                },
             )
 
         except Exception as e:
