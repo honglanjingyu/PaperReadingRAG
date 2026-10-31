@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "updated": "2026-10-31",
+  "comment": "面向论文语料的领域术语归一表（方案 Q2）。每条形如 {canonical, aliases, expansions}：query 命中 canonical 或任一 alias（大小写不敏感）时，把该条全部 expansions 追加为 BM25 should 子句。只会进 BM25，绝不进 embedding。可用环境变量 TERM_MAP_PATH 指向自定义 JSON 覆盖本文件。",
+  "terms": [
+    {
+      "canonical": "自注意力",
+      "aliases": ["Query Key Value", "QKV", "query-key-value", "Q K V", "self attention"],
+      "expansions": ["self-attention", "self attention", "scaled dot-product attention", "query key value", "Q K V"]
+    },
+    {
+      "canonical": "注意力",
+      "aliases": ["attention", "attention score", "注意力分数"],
+      "expansions": ["attention", "attention score", "softmax", "scaled dot-product"]
+    },
+    {
+      "canonical": "多头注意力",
+      "aliases": ["multi-head attention", "Multi Head Attention", "MHA", "多头"],
+      "expansions": ["multi-head attention", "multi head attention", "MHA", "head"]
+    },
+    {
+      "canonical": "位置编码",
+      "aliases": ["positional encoding", "position encoding", "PE", "位置嵌入"],
+      "expansions": ["positional encoding", "position encoding", "sinusoidal", "position embedding"]
+    },
+    {
+      "canonical": "注意力分数怎么算",
+      "aliases": ["注意力怎么算", "attention score"],
+      "expansions": ["attention score", "softmax", "scaled dot-product attention", "QK"]
+    }
+  ]
+}

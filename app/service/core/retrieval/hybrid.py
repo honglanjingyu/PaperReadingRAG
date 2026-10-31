@@ -143,6 +143,8 @@ class HybridRetriever:
         self.embedding_service = embedding_manager or get_embedding_service()
         self.es_bm25 = None
         self.use_es_bm25 = self._check_es_available()
+        # 方案 Q2：术语归一器懒加载后缓存在这里（词表只读一次）
+        self._rewriter = None
 
         self._rrf_k = int(os.getenv("RRF_K", "60"))
         self._load_weights()
@@ -220,15 +222,35 @@ class HybridRetriever:
                 r['docnm'] = r.get('document_name', '')
         return results
 
+    def _term_expansions(self, query: str) -> List[str]:
+        """术语归一（方案 Q2）：返回要追加给 BM25 的扩展词。
+
+        词表在 QueryRewriter 里懒加载并缓存（term_map.json / TERM_MAP_PATH），
+        任何异常都降级为空列表，不影响检索主链路。
+        """
+        try:
+            if getattr(self, "_rewriter", None) is None:
+                self._rewriter = QueryRewriter()
+            return self._rewriter.expand_terms(query)
+        except Exception as e:
+            logger.warning("术语归一失败，本次不做扩展: %s: %s", type(e).__name__, e)
+            return []
+
     def _bm25_search(self, query: str, index_name: str, top_k: int,
-                     user_level: str = None) -> List[Dict]:
-        """BM25 检索"""
+                     user_level: str = None,
+                     expand_terms: List[str] = None) -> List[Dict]:
+        """BM25 检索
+
+        expand_terms：术语归一扩展词（方案 Q2），只在本路追加成 should 子句，
+        向量路不接收、也不会用到这些词。
+        """
         if not self.use_es_bm25 or not self.es_bm25:
             return []
 
         results = self.es_bm25.search(
             query=query, index_name=index_name, top_k=top_k,
-            min_score=0.05, user_level=user_level
+            min_score=0.05, user_level=user_level,
+            expand_terms=expand_terms
         )
         for r in results:
             r['_search_type'] = 'bm25'
@@ -238,7 +260,8 @@ class HybridRetriever:
         return results
 
     def _parallel_recall(self, query: str, index_name: str, recall_k: int,
-                         user_level: str = None) -> Tuple[List[Dict], List[Dict]]:
+                         user_level: str = None,
+                         expand_terms: List[str] = None) -> Tuple[List[Dict], List[Dict]]:
         """报告 2.2：向量检索与 BM25 并行执行。
 
         两路互不依赖，并行后端到端延迟由「两者之和」降到「两者较大者」。
@@ -249,8 +272,9 @@ class HybridRetriever:
             vec_future = pool.submit(
                 self._vector_search, query, index_name, recall_k, user_level
             )
+            # 方案 Q2：术语扩展词只喂 BM25，向量路始终用原 query。
             kw_future = pool.submit(
-                self._bm25_search, query, index_name, recall_k, user_level
+                self._bm25_search, query, index_name, recall_k, user_level, expand_terms
             )
 
             def _safe(future, name: str) -> List[Dict]:
@@ -263,13 +287,21 @@ class HybridRetriever:
             return _safe(vec_future, "向量"), _safe(kw_future, "BM25")
 
     def hybrid_search(self, query: str, index_name: str, top_k: int = 5,
-                      recall_k: int = 20, user_level: str = None) -> List[Dict]:
-        """混合检索"""
+                      recall_k: int = 20, user_level: str = None,
+                      term_expand: bool = None) -> List[Dict]:
+        """混合检索
+
+        term_expand：是否做术语归一（方案 Q2）。None 时读环境变量
+        ENABLE_TERM_EXPAND（默认 true）。扩展词**只喂 BM25**，向量路始终用原 query。
+        """
         recall_k = max(top_k * 4, recall_k)
+        if term_expand is None:
+            term_expand = os.getenv("ENABLE_TERM_EXPAND", "true").lower() == "true"
+        expand_terms = self._term_expansions(query) if term_expand else []
         # 报告 2.2：向量检索与 BM25 原本串行，两路互不依赖，改为并行执行，
         # 端到端延迟从「两者之和」降到「两者较大者」。
         vector_results, keyword_results = self._parallel_recall(
-            query, index_name, recall_k, user_level
+            query, index_name, recall_k, user_level, expand_terms
         )
 
         if not vector_results and not keyword_results:
@@ -447,10 +479,14 @@ class ParentChildRetriever:
         return results[:top_k]
 
     def search_parents(self, query: str, index_name: str, top_k: int = 5,
-                       recall_k: int = 20, user_level: str = None) -> Tuple[List[Dict], List[Dict]]:
-        """父子检索主接口"""
+                       recall_k: int = 20, user_level: str = None,
+                       term_expand: bool = None) -> Tuple[List[Dict], List[Dict]]:
+        """父子检索主接口
+
+        term_expand：是否做术语归一（方案 Q2，只作用于 BM25 路）。
+        """
         child_results = self.hybrid_retriever.hybrid_search(
-            query, index_name, top_k, recall_k, user_level
+            query, index_name, top_k, recall_k, user_level, term_expand
         ) if self.hybrid_retriever else []
         return self.retrieve_parents_from_children(child_results, top_k), child_results
 
@@ -469,23 +505,35 @@ class ParentChildRetriever:
             user_level: str = None,
             **kwargs
     ) -> Dict[str, Any]:
-        """带查询改写的父子检索"""
-        rewritten_query = question
+        """带查询改写的父子检索
 
+        Q1（方案第 3 节）：原 `strategy='synonym'` 产出的 `(A OR B)` 字面串已停用。
+        它对论文语料零命中，且会污染向量路；现在**改写不再产出新字符串**，
+        query 原样用于向量与 BM25 的 must。
+
+        Q2：术语归一改为「扩展词追加为 BM25 的 should 子句」，在
+        hybrid_search -> _bm25_search 内部完成，向量路不受影响。
+        """
+        # 原 query 就是检索 query：不再做字面串改写（Q1）
+        rewritten_query = question
+        term_expansions: List[str] = []
         if enable_query_rewrite:
             try:
-                rewriter = QueryRewriter()
-                rewritten_query = rewriter.rewrite(question, strategy='synonym')
+                # 仅用于观测/回传，真正的扩展在 hybrid_search 内部喂给 BM25
+                term_expansions = self.hybrid_retriever._term_expansions(question)
             except Exception as e:
-                logger.warning(f"查询改写失败: {e}")
+                logger.warning(f"术语归一失败: {type(e).__name__}: {e}")
 
         # 执行父子检索
+        # 术语归一开关沿用 enable_query_rewrite：Q1 之后它只控制「BM25 是否做术语扩展」，
+        # 不再控制任何字面串改写（向量路永远用原 query）。
         parent_results, child_results = self.search_parents(
             query=rewritten_query,
             index_name=index_name,
             top_k=top_k,
             recall_k=recall_k,
-            user_level=user_level
+            user_level=user_level,
+            term_expand=enable_query_rewrite
         )
 
         if not parent_results:
@@ -586,7 +634,11 @@ class ParentChildRetriever:
         return {
             "success": True,
             "question": question,
-            "rewritten_query": rewritten_query if enable_query_rewrite else None,
+            # Q1 之后 query 不再被改写，原样回传便于前端/日志对照
+            "rewritten_query": rewritten_query,
+            # Q2 术语归一的观测字段：命中的扩展词（只喂 BM25 should 子句）
+            "term_expansions": term_expansions,
+            "term_expand_applied": bool(term_expansions),
             "top_k": top_k,
             "recall_k": recall_k,
             "total_recalled": len(child_results),

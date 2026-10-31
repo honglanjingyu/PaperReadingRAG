@@ -19,6 +19,11 @@ except ImportError:
     JIEBA_AVAILABLE = False
 
 
+# 方案 Q2：术语归一扩展词的 should 子句 boost。低于原 query（must）的权重，
+# 只起「同义写法也能加分」的作用，不该盖过原 query 的字面命中。
+_TERM_EXPANSION_BOOST = float(os.getenv("BM25_TERM_EXPANSION_BOOST", "0.5"))
+
+
 class ESBM25Retriever:
     """ES BM25 检索器"""
 
@@ -140,8 +145,14 @@ class ESBM25Retriever:
             return 0
 
     def search(self, query: str, index_name: str, top_k: int = 10,
-               min_score: float = 0.1, user_level: str = None) -> List[Dict]:
-        """BM25 搜索"""
+               min_score: float = 0.1, user_level: str = None,
+               expand_terms: List[str] = None) -> List[Dict]:
+        """BM25 搜索
+
+        expand_terms：术语归一扩展词（方案 Q2）。只在本方法里追加成 should 子句，
+        原 query 仍是 must；两者都命中的文档因为 should 加分排在前面。
+        该参数只作用于 BM25，向量路不传、也永远不会用到这些扩展词。
+        """
         # 确保 index_name 是字符串
         if not isinstance(index_name, str):
             index_name = str(index_name)
@@ -158,15 +169,32 @@ class ESBM25Retriever:
             allowed = [l for l, p in level_priority.items() if p <= current]
             filter_queries.append({"terms": {"user_level": allowed}})
 
-        search_body = {
-            "query": {
-                "bool": {
-                    # caption 是图片块的视觉描述，权重给得比正文还高一点：
-                    # 用户搜「哪张图画了上升趋势」时，靠的就是这段文字。
-                    "must": [{"multi_match": {"query": query, "fields": ["caption^3", "content^2", "content_with_weight^1.5"]}}],
-                    "filter": filter_queries if filter_queries else None
+        # 方案 Q2：术语归一扩展词追加为 should 子句，不拼成字面串进 query。
+        # minimum_should_match=0 —— should 只加分、不做硬过滤，原 query 的召回不受影响。
+        should_clauses = []
+        for term in (expand_terms or []):
+            if not term:
+                continue
+            should_clauses.append({
+                "multi_match": {
+                    "query": term,
+                    "fields": ["caption^3", "content^2", "content_with_weight^1.5"],
+                    "boost": _TERM_EXPANSION_BOOST,
                 }
-            },
+            })
+
+        bool_query = {
+            # caption 是图片块的视觉描述，权重给得比正文还高一点：
+            # 用户搜「哪张图画了上升趋势」时，靠的就是这段文字。
+            "must": [{"multi_match": {"query": query, "fields": ["caption^3", "content^2", "content_with_weight^1.5"]}}],
+            "filter": filter_queries if filter_queries else None
+        }
+        if should_clauses:
+            bool_query["should"] = should_clauses
+            bool_query["minimum_should_match"] = 0
+
+        search_body = {
+            "query": {"bool": bool_query},
             "size": top_k,
             "min_score": min_score
         }
