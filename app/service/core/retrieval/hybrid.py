@@ -386,7 +386,13 @@ class ParentChildRetriever:
                     'child_scores': [result.get('_score', 0)],  # 添加这行
                     'docnm': doc_name,
                     'document_name': doc_name,
-                    'is_parent': False
+                    'is_parent': False,
+                    # R4：图片块的语义主要在 caption / image_ref，聚合时必须保留，
+                    # 否则 rerank 拿到空 content 会把整块丢掉（视觉组掉块）。
+                    'chunk_type': result.get('chunk_type', '') or '',
+                    'image_ref': result.get('image_ref', '') or '',
+                    'caption': result.get('caption', '') or '',
+                    'content_with_weight': result.get('content_with_weight', '') or '',
                 }
             else:
                 if parent_id not in parent_map:
@@ -399,11 +405,25 @@ class ParentChildRetriever:
                         'children': [],
                         'docnm': doc_name,
                         'document_name': doc_name,
-                        'is_parent': True
+                        'is_parent': True,
+                        'chunk_type': '',
+                        'image_ref': '',
+                        'caption': '',
+                        'content_with_weight': '',
                     }
                 parent_map[parent_id]['child_count'] += 1
                 parent_map[parent_id]['child_scores'].append(result.get('_score', 0))  # 现在可以安全访问
                 parent_map[parent_id]['score'] = max(parent_map[parent_id]['score'], result.get('_score', 0))
+                # R4：父块聚合默认取父正文，但只要组内出现图片块，就要把视觉字段
+                # 并到父块上，否则后面的 rerank / 原图回填都看不到这张图。
+                if str(result.get('chunk_type', '') or '') == 'image':
+                    parent_map[parent_id]['chunk_type'] = 'image'
+                    if result.get('image_ref'):
+                        parent_map[parent_id]['image_ref'] = result.get('image_ref')
+                    if result.get('caption'):
+                        parent_map[parent_id]['caption'] = result.get('caption')
+                if not parent_map[parent_id].get('content_with_weight') and result.get('content_with_weight'):
+                    parent_map[parent_id]['content_with_weight'] = result.get('content_with_weight')
 
         results = []
         for d in parent_map.values():
@@ -414,7 +434,13 @@ class ParentChildRetriever:
                 'child_count': d['child_count'],
                 'is_parent': d.get('is_parent', True),
                 'docnm': d.get('docnm', ''),
-                'document_name': d.get('document_name', '')
+                'document_name': d.get('document_name', ''),
+                # R4：视觉字段必须带出聚合层，否则下游 rerank 的入参、原图回填
+                # 都拿不到 chunk_type / image_ref（之前这里只挑 7 个字段，全丢了）。
+                'chunk_type': d.get('chunk_type', '') or '',
+                'image_ref': d.get('image_ref', '') or '',
+                'caption': d.get('caption', '') or '',
+                'content_with_weight': d.get('content_with_weight', '') or '',
             })
 
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
@@ -484,13 +510,26 @@ class ParentChildRetriever:
                 reranker = Reranker(api_type=rerank_type)
                 docs_for_rerank = []
                 for r in parent_results:
+                    # R4：图片块 / 只有 caption 的块 content 可能为空，
+                    # reranker 会按空串过滤掉它们（等于视觉命中被丢弃）。
+                    # 这里统一给一份「可被 rerank 打分」的文本：
+                    # content > content_with_weight > caption > docnm。
+                    text = (r.get('content') or r.get('content_with_weight')
+                            or r.get('caption') or '').strip()
+                    if not text:
+                        text = r.get('caption', '') or r.get('docnm', '') or ''
                     docs_for_rerank.append({
-                        'content': r.get('content', ''),
+                        'content': text,
+                        'content_with_weight': text,
                         'parent_id': r.get('parent_id', ''),
                         'child_count': r.get('child_count', 0),
                         'original_score': r.get('score', 0),
                         'docnm': r.get('docnm', ''),
-                        'document_name': r.get('document_name', '')
+                        'document_name': r.get('document_name', ''),
+                        # 视觉字段必须跟着 rerank 结果回来，后面原图回填要用
+                        'chunk_type': r.get('chunk_type', '') or '',
+                        'image_ref': r.get('image_ref', '') or '',
+                        'caption': r.get('caption', '') or '',
                     })
 
                 reranked = reranker.rerank(
@@ -530,7 +569,12 @@ class ParentChildRetriever:
                 "child_count": result.get("child_count", 0),
                 "document_name": doc_name,
                 "docnm": doc_name,
-                "is_parent": result.get("is_parent", True)
+                "is_parent": result.get("is_parent", True),
+                # R4：视觉字段透传到最终结果，供上游原图回填 / 前端展示图片块
+                "chunk_type": result.get("chunk_type", "") or "",
+                "image_ref": result.get("image_ref", "") or "",
+                "caption": result.get("caption", "") or "",
+                "content_with_weight": result.get("content_with_weight", "") or "",
             }
             # rerank 生效时带上名次变化，便于判断 rerank 到底有没有贡献
             if "original_rank" in result:
