@@ -6,6 +6,10 @@ import logging
 from typing import Dict, Any, Optional
 
 from app.service.core.cache import get_cache_manager
+from app.service.core.retrieval.cache_fingerprint import (
+    retrieval_config_fingerprint,
+    retrieval_config_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +22,19 @@ class CachedSearchService:
         self.cache_ttl = cache_ttl
 
     def _get_cache_key(self, params: Dict) -> str:
-        """生成缓存 key"""
-        params_str = json.dumps(params, sort_keys=True, ensure_ascii=False)
+        """生成缓存 key（P1-4：把进程级检索配置也算进哈希输入）
+
+        原来只哈希调用方传进来的 params，而 ENABLE_TERM_EXPAND /
+        BM25_TERM_EXPANSION_BOOST / TERM_MAP_PATH（以及 HYBRID_*、RERANK_*）
+        都不在 params 里：改了词表或 boost 之后，同样的 query 仍会命中旧缓存，
+        评测结果与线上行为都会骗人。
+
+        这里并入 retrieval_config_fingerprint()，配置（含词表内容摘要）一改，
+        key 就变，旧条目自然不会再被命中。
+        """
+        key_params = dict(params)
+        key_params["__retrieval_config__"] = retrieval_config_fingerprint()
+        params_str = json.dumps(key_params, sort_keys=True, ensure_ascii=False, default=str)
         return hashlib.md5(params_str.encode()).hexdigest()[:16]
 
     @staticmethod

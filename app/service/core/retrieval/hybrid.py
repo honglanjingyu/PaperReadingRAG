@@ -17,6 +17,7 @@ from app.service.core.embedding import get_embedding_service
 from app.service.core.cache import get_cache_manager
 from .rewriter import QueryRewriter
 from .reranker import Reranker
+from .cache_fingerprint import retrieval_config_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -658,8 +659,16 @@ class ParentChildRetriever:
         }
 
     def get_cache_key(self, params: Dict) -> str:
-        """生成缓存key"""
-        params_str = json.dumps(params, sort_keys=True, ensure_ascii=False)
+        """生成缓存key（P1-4：并入进程级检索配置指纹）
+
+        原来只哈希 params。ENABLE_TERM_EXPAND / BM25_TERM_EXPANSION_BOOST /
+        TERM_MAP_PATH（以及 HYBRID_*、RERANK_*）都不在 params 里，改了词表或
+        boost 之后同样的 query 仍会命中旧缓存，结果骗人。
+        并入 retrieval_config_fingerprint() 后，配置一改 key 就变。
+        """
+        key_params = dict(params)
+        key_params["__retrieval_config__"] = retrieval_config_fingerprint()
+        params_str = json.dumps(key_params, sort_keys=True, ensure_ascii=False, default=str)
         return hashlib.md5(params_str.encode()).hexdigest()[:16]
 
     def search_with_cache(
