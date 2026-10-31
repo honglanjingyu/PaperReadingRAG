@@ -83,6 +83,21 @@ class QueryRewriter:
 
     # ---------- 术语归一 ----------
 
+    @staticmethod
+    def _trigger_hit(trigger: str, q: str) -> bool:
+        """判断某个触发词是否命中 query（q 已小写）。
+
+        纯 ASCII 触发词（PE / QKV / MHA / attention 等）按**词边界**匹配，
+        避免短词误命中：PE 不再命中 pipeline、paper、type 里的 pe。
+        含中文的触发词仍用子串匹配 —— 中文没有空格分词，子串即是词。
+        """
+        if not trigger:
+            return False
+        if re.fullmatch(r"[\x00-\x7f]+", trigger):
+            pattern = r"(?<![a-z0-9])" + re.escape(trigger) + r"(?![a-z0-9])"
+            return re.search(pattern, q) is not None
+        return trigger in q
+
     def expand_terms(self, query: str) -> List[str]:
         """识别 query 中的领域术语，返回要追加给 BM25 的扩展词（去重、保序）。
 
@@ -94,7 +109,7 @@ class QueryRewriter:
         seen = set()
         expansions: List[str] = []
         for term in self._terms:
-            hit = any(t and t in q for t in term["triggers"])
+            hit = any(self._trigger_hit(t, q) for t in term["triggers"])
             if not hit:
                 continue
             for e in term["expansions"]:
