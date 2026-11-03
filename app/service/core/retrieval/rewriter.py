@@ -2,7 +2,7 @@
 """
 查询改写器 —— 术语归一（Q1 + Q2）
 
-设计要点（见 work/eval/reports/reranker与query改写优化方案.md 第 3 节）：
+设计要点（见 work/eval/reports/检索层优化/reranker与query改写优化方案.md 第 3 节）：
 
 Q1：原 `SYNONYMS` 业务同义词表（营收/利润/客户…）对论文语料零命中，且产出的
     `(A OR B)` 字面串会同时污染 ES 的 multi_match 和 embedding 向量路，现停用。

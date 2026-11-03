@@ -20,6 +20,8 @@ class Reranker:
         self.api_key = os.getenv("RERANK_API_KEY") or os.getenv("MODEL_API_KEY")
         self.base_url = os.getenv("RERANK_BASE_URL") or os.getenv("LLM_BASE_URL")
         self.model = os.getenv("RERANK_MODEL", "gte-rerank")
+        # 协议：dashscope（阿里云百炼专有协议）/ siliconflow、jina、cohere（顶层 query+documents）
+        self.provider = (os.getenv("RERANK_PROVIDER") or "dashscope").strip().lower()
         # 最近一次 rerank 的可观测信息（供上层透传到响应/评测报告）
         self.last_meta: Dict[str, Any] = {
             "rerank_applied": False,
@@ -76,15 +78,35 @@ class Reranker:
 
         t0 = time.perf_counter()
         try:
+            top_n = min(top_k, len(texts))
+            if self.provider == "dashscope":
+                payload = {
+                    "model": self.model,
+                    "input": {"query": query, "documents": texts},
+                    "parameters": {"top_n": top_n},
+                }
+            else:
+                # siliconflow / jina / cohere：顶层 query + documents
+                payload = {
+                    "model": self.model,
+                    "query": query,
+                    "documents": texts,
+                    "top_n": top_n,
+                    "return_documents": False,
+                }
             response = requests.post(
                 self.base_url, headers={"Authorization": f"Bearer {self.api_key}"},
-                json={"model": self.model, "input": {"query": query, "documents": texts},
-                      "parameters": {"top_n": min(top_k, len(texts))}},
+                json=payload,
                 timeout=30
             )
             elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
             if response.status_code == 200:
-                results = response.json().get("output", {}).get("results", [])
+                body = response.json()
+                if self.provider == "dashscope":
+                    results = body.get("output", {}).get("results", [])
+                else:
+                    # siliconflow / jina / cohere：顶层 results
+                    results = body.get("results", []) or []
                 reranked = []
                 for r in results:
                     sent_idx = r.get("index")

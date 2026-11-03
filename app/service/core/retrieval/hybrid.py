@@ -4,6 +4,7 @@
 """
 
 import os
+import re
 import json
 import hashlib
 import logging
@@ -195,6 +196,18 @@ class HybridRetriever:
         # 另一路缺席」。实测锚点 BM25 第 1 / 向量第 50 时 RRF 后掉到第 27。
         # 打开后把两路各自 Top-1 保送到结果最前面，默认开启；设为 0 可关闭。
         self.single_route_top1 = int(os.getenv("HYBRID_SINGLE_ROUTE_TOP1", "1")) > 0
+        # P1.2 混合组 noise 争抢治理（2026-11-03）：按「主题」而不是「文档」限流。
+        # 背景：noise 干扰图是按主题成批造的（noise_error_194.txt / noise_error_014.txt ...），
+        # 同一 query 里挤进 top5 的噪声块几乎都同主题，主题词密度又远高于锚点块，
+        # 而 per_doc_cap 按 docnm 限流对这些「同主题不同文档名」完全无效（200 档实测零效果）。
+        # 打开后同一主题最多保留 N 条候选，默认 0 = 关闭，保持既有行为。
+        self.topic_cap = int(os.getenv("HYBRID_TOPIC_CAP", "0"))
+        # 主题键只从符合该模式的文档名里抽（形如 noise_error_194.txt → noise_error），
+        # 抽不出主题的文档（真实论文文档）不参与限流，避免误伤锚点。
+        self.topic_pattern = os.getenv(
+            "HYBRID_TOPIC_PATTERN", r"^(noise_[a-z]+)_\d+$"
+        )
+        self._topic_re = re.compile(self.topic_pattern) if self.topic_cap > 0 else None
 
     def _is_image_intent(self, query: str) -> bool:
         """判断 query 是否在问图片内容（报告 3.1 条件权重的触发条件）。"""
@@ -354,6 +367,34 @@ class HybridRetriever:
                 seen[key] = n + 1
                 kept.append(r)
             filtered = kept
+
+        # P1.2（2026-11-03）：混合组 noise 争抢治理——按「主题」限流。
+        # 与 per_doc_cap 的区别：noise 干扰块是成批造的（noise_error_194.txt /
+        # noise_error_014.txt 各自 docnm 不同），按 docnm 限流完全拦不住；
+        # 这里从 docnm 抽出主题键（noise_error_194.txt → noise_error），同一主题
+        # 最多保留 topic_cap 条。抽不出主题的文档（真实论文文档、图块）原样保留。
+        if self.topic_cap > 0 and self._topic_re is not None:
+            kept, topic_seen = [], {}
+            dropped_by_topic = 0
+            for r in filtered:
+                dn = str(r.get('docnm') or r.get('document_name') or '').strip()
+                base_name = os.path.splitext(dn)[0] if dn else ''
+                m = self._topic_re.match(base_name) if base_name else None
+                if not m:
+                    kept.append(r)
+                    continue
+                tk = m.group(1)
+                n = topic_seen.get(tk, 0)
+                if n >= self.topic_cap:
+                    dropped_by_topic += 1
+                    continue
+                topic_seen[tk] = n + 1
+                kept.append(r)
+            filtered = kept
+            if dropped_by_topic:
+                logger.info(
+                    f"topic_cap 生效: cap={self.topic_cap} 丢弃同主题候选 {dropped_by_topic} 条"
+                )
 
         # 大规模评测第 13 条：单路 Top-1 保送。
         # RRF 的名次倒数对「单路第一、另一路缺席」极不友好：向量第 50 + BM25 第 1
