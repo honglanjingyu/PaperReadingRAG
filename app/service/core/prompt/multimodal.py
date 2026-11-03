@@ -12,8 +12,11 @@
 """
 
 import base64
+import io
 import logging
 import os
+import threading
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -21,6 +24,57 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_IMAGES = 4
 DEFAULT_MAX_IMAGE_MB = 2.0
 DEFAULT_MAX_TOTAL_MB = 6.0
+
+# P0-2：降采样与缓存默认值
+def _env_str(name: str, default: str) -> str:
+    v = os.getenv(name)
+    return v.strip() if v and v.strip() else default
+
+DEFAULT_MAX_EDGE = 1280
+DEFAULT_JPEG_QUALITY = 85
+DEFAULT_CACHE_SIZE = 32
+# 原图超过这个大小就不读盘（降采样后载荷很小，这里只防超大文件拖慢进程）
+HARD_RAW_LIMIT_MB = 32.0
+
+# 进程内 LRU：key=(abs_path, mtime, size, max_edge, quality) -> (mime, b64, payload_bytes)
+_CACHE_MAX = 32
+_cache: "OrderedDict[Tuple, Tuple[str, str, int]]" = OrderedDict()
+_cache_lock = threading.Lock()
+_cache_hit = 0
+_cache_miss = 0
+
+
+def _cache_get(key: Tuple) -> Optional[Tuple[str, str, int]]:
+    global _cache_hit
+    with _cache_lock:
+        val = _cache.get(key)
+        if val is not None:
+            _cache.move_to_end(key)
+            _cache_hit += 1
+        return val
+
+
+def _cache_put(key: Tuple, val: Tuple[str, str, int]) -> None:
+    global _cache_miss
+    with _cache_lock:
+        _cache[key] = val
+        _cache.move_to_end(key)
+        while len(_cache) > _CACHE_MAX:
+            _cache.popitem(last=False)
+        _cache_miss += 1
+
+
+def cache_stats() -> Dict[str, int]:
+    with _cache_lock:
+        return {"hit": _cache_hit, "miss": _cache_miss, "size": len(_cache), "capacity": _CACHE_MAX}
+
+
+def clear_cache() -> None:
+    global _cache_hit, _cache_miss
+    with _cache_lock:
+        _cache.clear()
+        _cache_hit = 0
+        _cache_miss = 0
 
 _IMAGE_MIME = {
     ".jpg": "image/jpeg",
@@ -79,18 +133,93 @@ def _mime_of(path: str) -> str:
     return _IMAGE_MIME.get(ext, "image/jpeg")
 
 
-def _encode_image(path: str, max_bytes: int) -> Optional[Tuple[str, str]]:
-    """读图并转 base64，返回 (mime, b64)。超限或失败返回 None。"""
+def _shrink_to_jpeg(raw: bytes, max_edge: int, quality: int) -> Optional[bytes]:
+    """把原始图片字节降采样成长边不超过 max_edge 的 JPEG 字节。
+
+    - 透明通道（PNG/WebP）铺白底后再转 JPEG，否则透明区域会变黑
+    - EXIF 方向先转正，避免手机拍的照片躺倒
+    - 已经比 max_edge 小、且本来就是 JPEG 的，仍会重新压一遍（quality 统一）
+    """
     try:
-        size = os.path.getsize(path)
-        if size <= 0 or size > max_bytes:
+        from PIL import Image, ImageOps
+    except ImportError:
+        logger.warning("未安装 Pillow，跳过降采样，回退原始字节")
+        return None
+
+    try:
+        with Image.open(io.BytesIO(raw)) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                img = img.convert("RGBA")
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[-1])
+                img = bg
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+
+            w, h = img.size
+            long_edge = max(w, h)
+            if long_edge > max_edge > 0:
+                scale = max_edge / float(long_edge)
+                new_size = (max(1, int(round(w * scale))), max(1, int(round(h * scale))))
+                img = img.resize(new_size, Image.LANCZOS)
+
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            return buf.getvalue()
+    except Exception as e:
+        logger.warning(f"降采样失败，回退原始字节: {e}")
+        return None
+
+
+def _encode_image(
+    path: str,
+    max_edge: int = None,
+    quality: int = None,
+) -> Optional[Tuple[str, str, int]]:
+    """读图 → 降采样 → base64，返回 (mime, b64, payload_bytes)。失败返回 None。
+
+    payload_bytes 是 base64 解码后的实际字节数，用于总预算统计。
+    """
+    max_edge = max_edge if max_edge is not None else _env_int("MULTIMODAL_MAX_EDGE", DEFAULT_MAX_EDGE)
+    quality = quality if quality is not None else _env_int("MULTIMODAL_JPEG_QUALITY", DEFAULT_JPEG_QUALITY)
+
+    try:
+        st = os.stat(path)
+        if st.st_size <= 0:
+            logger.info(f"跳过图片（空文件）: {path}")
+            return None
+        if st.st_size > HARD_RAW_LIMIT_MB * 1024 * 1024:
             logger.info(
-                f"跳过图片（大小 {size / 1024 / 1024:.2f} MB 超限 {max_bytes / 1024 / 1024:.1f} MB）: {path}"
+                f"跳过图片（原始文件 {st.st_size / 1024 / 1024:.1f} MB 超过硬上限 {HARD_RAW_LIMIT_MB:.0f} MB）: {path}"
             )
             return None
+
+        key = (os.path.abspath(path), st.st_mtime_ns, st.st_size, max_edge, quality)
+        cached = _cache_get(key)
+        if cached is not None:
+            return cached
+
         with open(path, "rb") as f:
             raw = f.read()
-        return _mime_of(path), base64.b64encode(raw).decode("ascii")
+
+        shrunk = _shrink_to_jpeg(raw, max_edge, quality)
+        # 小尺寸 PNG（线条图/示意图）本身压缩率极高，转 JPEG 反而会膨胀
+        # （实测 3.7KB → 15.2KB）。只有确实更小才采用降采样结果，否则保留原图。
+        if shrunk and len(shrunk) < len(raw):
+            data, mime = shrunk, "image/jpeg"
+        elif shrunk:
+            logger.info(
+                f"降采样反而变大（{len(raw) / 1024:.1f} KB → {len(shrunk) / 1024:.1f} KB），保留原图: {path}"
+            )
+            data, mime = raw, _mime_of(path)
+        else:
+            data, mime = raw, _mime_of(path)
+
+        b64 = base64.b64encode(data).decode("ascii")
+        val = (mime, b64, len(data))
+        _cache_put(key, val)
+        return val
     except Exception as e:
         logger.warning(f"读取图片失败 {path}: {e}")
         return None
@@ -113,15 +242,19 @@ def collect_image_refs(results: List[Dict[str, Any]]) -> List[str]:
     return refs
 
 
-def build_image_parts(
+def build_image_parts_detailed(
     results: List[Dict[str, Any]],
     max_images: int = None,
     max_image_mb: float = None,
     max_total_mb: float = None,
-) -> List[Dict[str, Any]]:
-    """把命中的图片块转成 OpenAI 多模态 image_url 片段列表。"""
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """把命中的图片块转成 image_url 片段，并返回真正注入成功的 image_ref 列表。
+
+    返回 (injected_refs, parts)。injected_refs 与 parts 一一对应，用于 P0-1
+    只对成功注入的图片块去掉 caption（未注入的必须保留 caption，否则丢信息）。
+    """
     if os.getenv("MULTIMODAL_BACKFILL_ENABLED", "true").lower() != "true":
-        return []
+        return [], []
 
     max_images = max_images or _env_int("MULTIMODAL_MAX_IMAGES", DEFAULT_MAX_IMAGES)
     max_image_mb = max_image_mb or _env_float("MULTIMODAL_MAX_IMAGE_MB", DEFAULT_MAX_IMAGE_MB)
@@ -132,44 +265,79 @@ def build_image_parts(
 
     refs = collect_image_refs(results)[:max_images]
     if not refs:
-        return []
+        return [], []
+
+    max_edge = _env_int("MULTIMODAL_MAX_EDGE", DEFAULT_MAX_EDGE)
+    quality = _env_int("MULTIMODAL_JPEG_QUALITY", DEFAULT_JPEG_QUALITY)
 
     parts: List[Dict[str, Any]] = []
+    injected_refs: List[str] = []
     used = 0
+    raw_total = 0
     for ref in refs:
         path = _resolve_path(ref)
         if not path:
             logger.info(f"跳过图片（文件不存在）: {ref}")
             continue
-        size = os.path.getsize(path)
-        if used + size > total_budget:
-            logger.info(f"跳过图片（总预算 {max_total_mb:.1f} MB 已用完）: {ref}")
-            continue
-        encoded = _encode_image(path, max_bytes)
+        encoded = _encode_image(path, max_edge, quality)
         if not encoded:
             continue
-        mime, b64 = encoded
-        used += size
+        mime, b64, payload = encoded
+        # 单张降采样后仍超过 max_bytes（极端长图）就跳过
+        if payload > max_bytes:
+            logger.info(
+                f"跳过图片（降采样后 {payload / 1024 / 1024:.2f} MB 仍超单张上限 {max_image_mb:.1f} MB）: {ref}"
+            )
+            continue
+        if used + payload > total_budget:
+            logger.info(f"跳过图片（总预算 {max_total_mb:.1f} MB 已用完）: {ref}")
+            continue
+        used += payload
+        try:
+            raw_total += os.path.getsize(path)
+        except OSError:
+            pass
         parts.append({
             "type": "image_url",
             "image_url": {"url": f"data:{mime};base64,{b64}"},
         })
+        injected_refs.append(ref)
 
     if parts:
-        logger.info(f"原图回填: 命中 {len(refs)} 张，实际注入 {len(parts)} 张，共 {used / 1024:.0f} KB")
+        logger.info(
+            f"原图回填: 命中 {len(refs)} 张，实际注入 {len(parts)} 张；"
+            f"原图 {raw_total / 1024:.0f} KB → 降采样后 {used / 1024:.0f} KB"
+            f"（长边≤{max_edge}，JPEG q={quality}）"
+        )
+    return injected_refs, parts
+
+
+def build_image_parts(
+    results: List[Dict[str, Any]],
+    max_images: int = None,
+    max_image_mb: float = None,
+    max_total_mb: float = None,
+) -> List[Dict[str, Any]]:
+    """把命中的图片块转成 OpenAI 多模态 image_url 片段列表。"""
+    _, parts = build_image_parts_detailed(results, max_images, max_image_mb, max_total_mb)
     return parts
 
 
 def build_multimodal_user_content(
     text: str,
     results: List[Dict[str, Any]],
+    parts: Optional[List[Dict[str, Any]]] = None,
 ) -> Any:
     """构建 user message 的 content。
 
     没有可用图片时返回纯字符串，保持与原行为完全一致；
     有图片时返回 [{"type": "text"}, {"type": "image_url"}...]。
+
+    parts：调用方已经算好的 image_url 片段（比如 P0-1 需要先知道哪几张
+    注入成功才能决定去不去 caption）。传了就直接用，避免重复读盘和编码。
     """
-    parts = build_image_parts(results)
+    if parts is None:
+        parts = build_image_parts(results)
     if not parts:
         return text
     return [{"type": "text", "text": text}] + parts
@@ -179,4 +347,6 @@ __all__ = [
     "collect_image_refs",
     "build_image_parts",
     "build_multimodal_user_content",
+    "cache_stats",
+    "clear_cache",
 ]

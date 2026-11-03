@@ -20,14 +20,49 @@ class ContextConstructor:
         self.max_context_length = max_context_length
         self.include_scores = include_scores
 
+    # P0-1：图片块 caption 的呈现方式
+    IMAGE_CAPTION_MODES = ("full", "brief", "drop")
+    BRIEF_CAPTION_CHARS = 80
+
+    @staticmethod
+    def _is_image_result(result: Dict[str, Any]) -> bool:
+        """判断一个检索结果是否为图片块（有 image_ref 或 chunk_type=image）。"""
+        if result.get("image_ref") or result.get("image_path"):
+            return True
+        return str(result.get("chunk_type", "")).lower() == "image"
+
+    @staticmethod
+    def _result_image_ref(result: Dict[str, Any]) -> str:
+        return str(result.get("image_ref") or result.get("image_path") or "")
+
+    @staticmethod
+    def _format_image_placeholder(doc_name: str) -> str:
+        return f"[图片] {doc_name}（见附图）"
+
     def format_documents(
             self,
             results: List[Dict[str, Any]],
-            include_scores: bool = None
+            include_scores: bool = None,
+            image_caption_mode: str = "full",
+            injected_image_refs: Optional[List[str]] = None,
     ) -> str:
-        """将检索结果格式化为上下文字符串，使用真实文件名"""
+        """将检索结果格式化为上下文字符串，使用真实文件名。
+
+        Args:
+            image_caption_mode: 图片块 caption 的呈现方式。
+                full  —— 保留 VLM 生成的完整 caption（旧行为，默认）
+                brief —— 已注入原图时只留占位 + 前 80 字 caption
+                drop  —— 已注入原图时只留「[图片] 文件名（见附图）」
+            injected_image_refs: 本次实际注入原图的 image_ref 列表。
+                只有这些图片块才能去 caption —— 原图没进去却把 caption
+                删掉，等于把信息全丢了。
+        """
         if not results:
             return "（未找到相关文档内容）"
+
+        if image_caption_mode not in self.IMAGE_CAPTION_MODES:
+            image_caption_mode = "full"
+        injected = set(injected_image_refs or [])
 
         include = include_scores if include_scores is not None else self.include_scores
         formatted_parts = []
@@ -50,6 +85,17 @@ class ContextConstructor:
                 doc_name = doc_name.split('/')[-1]
             if doc_name and '\\' in doc_name:
                 doc_name = doc_name.split('\\')[-1]
+
+            # P0-1：已注入原图的图片块，去掉（或压缩）caption，逼模型看图
+            if image_caption_mode != "full" and self._is_image_result(result):
+                ref = self._result_image_ref(result)
+                if ref and ref in injected:
+                    placeholder = self._format_image_placeholder(doc_name)
+                    if image_caption_mode == "drop":
+                        content = placeholder
+                    else:
+                        brief = content[:self.BRIEF_CAPTION_CHARS].strip()
+                        content = f"{placeholder}\n{brief}..." if brief else placeholder
 
             # 截断过长的单个文档
             if len(content) > self.max_context_length // max(len(results), 1):

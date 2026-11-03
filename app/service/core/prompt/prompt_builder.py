@@ -5,9 +5,14 @@ Prompt构造器 - 构建结构化Prompt
 """
 
 from typing import List, Dict, Any, Optional
+import logging
+import os
+
 from .templates import get_system_instruction, get_template
 from .context_constructor import ContextConstructor
-from .multimodal import build_multimodal_user_content
+from .multimodal import build_image_parts_detailed, build_multimodal_user_content
+
+logger = logging.getLogger(__name__)
 
 
 class PromptBuilder:
@@ -51,8 +56,26 @@ class PromptBuilder:
         Returns:
             messages列表，格式：[{"role": "system", "content": "..."}, ...]
         """
+        # P0-1 + P0-2：先算出实际注入成功的原图（编码只做一次），再据此决定图片块
+        # caption 的去留。注入成功的图片块上下文里只留「[图片] 文件名（见附图）」，
+        # 让模型只能看图作答；注入失败（文件丢失/超预算/开关关闭）的仍保留完整
+        # caption，作为图没进去时的兜底。
+        injected_refs, image_parts = build_image_parts_detailed(results)
+        caption_mode = os.getenv("MULTIMODAL_IMAGE_CAPTION_MODE", "drop").strip().lower()
+        if caption_mode not in ("full", "brief", "drop"):
+            caption_mode = "drop"
+        if injected_refs and caption_mode != "full":
+            logger.info(
+                f"P0-1 图片 caption 去重: 注入成功 {len(injected_refs)} 张，"
+                f"模式 {caption_mode}"
+            )
+
         # 格式化文档上下文
-        context = self.context_constructor.format_documents(results)
+        context = self.context_constructor.format_documents(
+            results,
+            image_caption_mode=caption_mode,
+            injected_image_refs=injected_refs,
+        )
 
         # 获取模板
         template = get_template(template_name)
@@ -86,7 +109,8 @@ class PromptBuilder:
         # 添加当前用户消息
         # 若检索结果里含图片块，把原图按 OpenAI 多模态格式一并注入；
         # 没有可用图片时 content 仍是纯字符串，行为与原来完全一致。
-        user_payload = build_multimodal_user_content(user_content, results)
+        # 复用上面已经算好的 image_parts，避免重复读盘 / 降采样 / 编码。
+        user_payload = build_multimodal_user_content(user_content, results, parts=image_parts)
         messages.append({"role": "user", "content": user_payload})
 
         return messages
