@@ -53,10 +53,16 @@ class LLMManager:
 
     def get_model_info(self) -> dict:
         model = self.get_active_model()
-        return {
+        info = {
             "type": "remote",
             "model_name": model.model_name,
         }
+        # P0-3：把当前生效的采样参数一并回显（temperature / max_tokens / top_p）
+        if hasattr(model, "get_model_info"):
+            detail = model.get_model_info()
+            for k, v in detail.items():
+                info.setdefault(k, v)
+        return info
 
 
 _llm_manager: Optional[LLMManager] = None

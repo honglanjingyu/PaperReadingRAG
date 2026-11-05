@@ -23,6 +23,8 @@ class ContextConstructor:
     # P0-1：图片块 caption 的呈现方式
     IMAGE_CAPTION_MODES = ("full", "brief", "drop")
     BRIEF_CAPTION_CHARS = 80
+    # P1-1：块正文被预算截断时的尾部标记
+    TRUNCATION_MARK = "…（已截断）"
 
     @staticmethod
     def _is_image_result(result: Dict[str, Any]) -> bool:
@@ -65,6 +67,10 @@ class ContextConstructor:
         injected = set(injected_image_refs or [])
 
         include = include_scores if include_scores is not None else self.include_scores
+        # P1-1：按块累加预算。不再先 max_context_length // len(results) 均分、
+        # 再对整体硬截（那样会把最后一块的 [doc_name] 头切掉，答案里出现「出处不明」）。
+        _used = 0
+        _truncated = False
         formatted_parts = []
 
         for result in results:
@@ -97,22 +103,33 @@ class ContextConstructor:
                         brief = content[:self.BRIEF_CAPTION_CHARS].strip()
                         content = f"{placeholder}\n{brief}..." if brief else placeholder
 
-            # 截断过长的单个文档
-            if len(content) > self.max_context_length // max(len(results), 1):
-                content = content[:self.max_context_length // max(len(results), 1)] + "..."
-
+            # P1-1：块头先算、完整保留；正文只吃剩余额度，超了就截断并打标，然后停止
             if include:
                 score = result.get("score", result.get("similarity", result.get("_score", 0)))
-                formatted_parts.append(f"[{doc_name}] (相关度: {score:.3f})\n{content}\n")
+                header = f"[{doc_name}] (相关度: {score:.3f})\n"
             else:
-                formatted_parts.append(f"[{doc_name}]\n{content}\n")
+                header = f"[{doc_name}]\n"
 
-        # 确保总长度不超过限制
-        context = "\n".join(formatted_parts)
-        if len(context) > self.max_context_length:
-            context = context[:self.max_context_length] + "..."
+            sep = "\n" if formatted_parts else ""
+            _used_after_header = _used + len(sep) + len(header)
+            _remaining = self.max_context_length - _used_after_header
+            if _remaining <= 0:
+                # 连块头都放不下了：直接停，不再切头
+                _truncated = True
+                break
 
-        return context
+            body = content
+            if len(body) > _remaining:
+                keep = max(_remaining - len(self.TRUNCATION_MARK), 0)
+                body = body[:keep] + self.TRUNCATION_MARK
+                _truncated = True
+
+            formatted_parts.append(sep + header + body)
+            _used = _used_after_header + len(body)
+            if _truncated:
+                break
+
+        return "".join(formatted_parts)
 
     def format_with_metadata(
         self,

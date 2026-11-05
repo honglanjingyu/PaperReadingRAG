@@ -25,6 +25,11 @@ DEFAULT_MAX_IMAGES = 4
 DEFAULT_MAX_IMAGE_MB = 2.0
 DEFAULT_MAX_TOTAL_MB = 6.0
 
+# P0-4：图片注入的相似度门限。低于这个分数的图片块不注入，退回纯文本，
+# 避免文本类问题命中一张无关插图也要多付一次图片载荷。
+# 与 SIMILARITY_THRESHOLD 同级（.env 里是 0.3），可用 env MULTIMODAL_MIN_SCORE 覆盖。
+DEFAULT_MIN_SCORE = 0.3
+
 # P0-2：降采样与缓存默认值
 def _env_str(name: str, default: str) -> str:
     v = os.getenv(name)
@@ -225,11 +230,35 @@ def _encode_image(
         return None
 
 
-def collect_image_refs(results: List[Dict[str, Any]]) -> List[str]:
-    """从检索结果里挑出图片块，按出现顺序去重。"""
-    refs: List[str] = []
+def get_multimodal_min_score() -> float:
+    """P0-4 图片注入相似度门限：env MULTIMODAL_MIN_SCORE，默认 0.3。
+
+    设为 0 或负数即关闭门限（回到逢图必回填的旧行为，便于对照评测）。
+    """
+    return _env_float("MULTIMODAL_MIN_SCORE", DEFAULT_MIN_SCORE)
+
+
+def collect_image_refs(
+    results: List[Dict[str, Any]],
+    min_score: Optional[float] = None,
+) -> List[str]:
+    """从检索结果里挑出图片块，按 score 降序、按 image_ref 去重。
+
+    P0-4 改动：
+    - 按 score 降序排序后再返回，调用方截断 top-N 时拿到的是最相关的几张，
+      而不是「检索顺序里前 N 张」（后者可能被低分插图占满）。
+    - min_score 门限：score 低于门限的图片块不返回。文本类问题命中一张
+      无关插图时分数普遍偏低，这里直接退回纯文本，省掉一次图片载荷。
+      门限来自 env MULTIMODAL_MIN_SCORE（默认 0.3），传参可覆盖。
+    注意：没有 score 字段的老结果按 0.0 处理 —— 门限 > 0 时会被过滤掉，
+    这是有意的（无分数无从判断相关性）；需要保留时把门限设为 0。
+    """
+    if min_score is None:
+        min_score = get_multimodal_min_score()
+
+    candidates: List[Tuple[float, int, str]] = []
     seen = set()
-    for r in results or []:
+    for idx, r in enumerate(results or []):
         ref = (r.get("image_ref") or "").strip()
         if not ref or ref in seen:
             continue
@@ -238,8 +267,24 @@ def collect_image_refs(results: List[Dict[str, Any]]) -> List[str]:
         if ctype and ctype != "image":
             continue
         seen.add(ref)
-        refs.append(ref)
-    return refs
+        try:
+            score = float(r.get("score") or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        candidates.append((score, idx, ref))
+
+    if min_score and min_score > 0:
+        kept = [c for c in candidates if c[0] >= min_score]
+        dropped = len(candidates) - len(kept)
+        if dropped > 0:
+            logger.info(
+                f"P0-4 图片门限: {dropped}/{len(candidates)} 张 score < {min_score} 未注入，退回纯文本"
+            )
+        candidates = kept
+
+    # score 降序；同分时保持检索原序（idx 升序），结果稳定可复现
+    candidates.sort(key=lambda c: (-c[0], c[1]))
+    return [ref for _, _, ref in candidates]
 
 
 def build_image_parts_detailed(
@@ -247,6 +292,7 @@ def build_image_parts_detailed(
     max_images: int = None,
     max_image_mb: float = None,
     max_total_mb: float = None,
+    min_score: float = None,
 ) -> Tuple[List[str], List[Dict[str, Any]]]:
     """把命中的图片块转成 image_url 片段，并返回真正注入成功的 image_ref 列表。
 
@@ -263,7 +309,9 @@ def build_image_parts_detailed(
     max_bytes = int(max_image_mb * 1024 * 1024)
     total_budget = int(max_total_mb * 1024 * 1024)
 
-    refs = collect_image_refs(results)[:max_images]
+    # P0-4：collect_image_refs 已按 score 降序 + 门限过滤，这里截 top-N 就是
+    # 「最相关的 N 张」，而不是检索顺序里的前 N 张。
+    refs = collect_image_refs(results, min_score=min_score)[:max_images]
     if not refs:
         return [], []
 
@@ -317,9 +365,12 @@ def build_image_parts(
     max_images: int = None,
     max_image_mb: float = None,
     max_total_mb: float = None,
+    min_score: float = None,
 ) -> List[Dict[str, Any]]:
     """把命中的图片块转成 OpenAI 多模态 image_url 片段列表。"""
-    _, parts = build_image_parts_detailed(results, max_images, max_image_mb, max_total_mb)
+    _, parts = build_image_parts_detailed(
+        results, max_images, max_image_mb, max_total_mb, min_score
+    )
     return parts
 
 
@@ -345,6 +396,7 @@ def build_multimodal_user_content(
 
 __all__ = [
     "collect_image_refs",
+    "get_multimodal_min_score",
     "build_image_parts",
     "build_multimodal_user_content",
     "cache_stats",
